@@ -3,7 +3,7 @@
 # Services:
 #   frontend  - Nginx serving Nuxt static build + reverse proxy to backend
 #   backend   - Go API server (REST + WebSocket)
-#   tts       - Coqui XTTSv2 text-to-speech (optional)
+#   tts       - Kokoro-FastAPI text-to-speech (optional, OpenAI-compatible)
 #   stt       - faster-whisper speech-to-text (optional)
 #
 # Usage:
@@ -13,7 +13,7 @@
 #
 # Voice profile: When using --profile voice, set TTS/STT URLs so the backend
 # can reach the sidecar services:
-#   TTS_URL=http://tts:5002 STT_URL=http://stt:5003 docker compose --profile voice up
+#   TTS_URL=http://tts:8880 STT_URL=http://stt:5003 docker compose --profile voice up
 
 services:
   # ── Frontend (Nginx + static Nuxt build) ──────────────────────────
@@ -36,6 +36,7 @@ services:
     command:
       - --opencode-url=${OPENCODE_URL:-http://host.docker.internal:4096}
       - --tts-url=${TTS_URL:-}
+      - --tts-provider=${TTS_PROVIDER:-kokoro}
       - --stt-url=${STT_URL:-}
     # Not exposed to host directly; nginx proxies /api/* and /ws/*
     expose:
@@ -44,29 +45,16 @@ services:
       - "host.docker.internal:host-gateway"
     restart: unless-stopped
 
-  # ── TTS: Coqui XTTSv2 (optional, enable with --profile voice) ────
+  # ── TTS: Kokoro-FastAPI (optional, enable with --profile voice) ────
   tts:
-    build:
-      context: ..
-      dockerfile: docker/Dockerfile.tts
+    image: ghcr.io/remsky/kokoro-fastapi-cpu:latest
     profiles:
       - voice
     environment:
-      - TTS_MODEL=${TTS_MODEL:-tts_models/multilingual/multi-dataset/xtts_v2}
-      - TTS_PORT=5002
+      - KOKORO_DEFAULT_VOICE=${KOKORO_DEFAULT_VOICE:-af_heart}
     expose:
-      - "5002"
-    volumes:
-      - tts-models:/root/.local/share/tts
+      - "8880"
     restart: unless-stopped
-    # Uncomment for GPU acceleration:
-    # deploy:
-    #   resources:
-    #     reservations:
-    #       devices:
-    #         - driver: nvidia
-    #           count: 1
-    #           capabilities: [gpu]
 
   # ── STT: faster-whisper (optional, enable with --profile voice) ───
   stt:
@@ -95,7 +83,5 @@ services:
     #           capabilities: [gpu]
 
 volumes:
-  tts-models:
-    driver: local
   stt-models:
     driver: local

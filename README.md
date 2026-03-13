@@ -20,9 +20,9 @@ Voice-first, mobile-first PWA client for AI coding agents. Plan via voice conver
 │  REST API · WebSocket · Agent adapter · Voice router   │
 ├───────────────────────────────────────────────────────┤
 │  ┌──────────┐  ┌──────────┐  ┌────────────────────┐  │
-│  │ Coqui TTS│  │ Whisper  │  │ Agent Backend      │  │
-│  │ XTTSv2   │  │ STT      │  │ (OpenCode / Claude)│  │
-│  │ :5002    │  │ :5003    │  │ :4096              │  │
+│  │ Kokoro   │  │ Whisper  │  │ Agent Backend      │  │
+│  │ TTS      │  │ STT      │  │ (OpenCode / Claude)│  │
+│  │ :8880    │  │ :5003    │  │ :4096              │  │
 │  └──────────┘  └──────────┘  └────────────────────┘  │
 └───────────────────────────────────────────────────────┘
 ```
@@ -47,7 +47,7 @@ cd voilot/docker
 docker compose up --build
 
 # Start with voice services (TTS + STT)
-docker compose --profile voice up --build
+TTS_URL=http://tts:8880 STT_URL=http://stt:5003 docker compose --profile voice up --build
 ```
 
 The app will be available at `http://localhost:3000`.
@@ -60,9 +60,10 @@ Environment variables (set in `.env` or pass to `docker compose`):
 |---|---|---|
 | `VOILOT_PORT` | `3000` | Port to expose the frontend |
 | `OPENCODE_URL` | `http://host.docker.internal:4096` | OpenCode server URL |
-| `TTS_URL` | (empty) | Coqui TTS server URL (auto-set when using voice profile) |
-| `STT_URL` | (empty) | faster-whisper server URL (auto-set when using voice profile) |
-| `TTS_MODEL` | `tts_models/multilingual/multi-dataset/xtts_v2` | Coqui TTS model |
+| `TTS_URL` | (empty) | TTS server URL (e.g. `http://tts:8880` for Kokoro) |
+| `TTS_PROVIDER` | `kokoro` | TTS engine: `kokoro` (default) or `coqui` |
+| `STT_URL` | (empty) | faster-whisper server URL |
+| `KOKORO_DEFAULT_VOICE` | `af_heart` | Default Kokoro TTS voice |
 | `WHISPER_MODEL` | `base` | Whisper model size (`tiny`, `base`, `small`, `medium`, `large-v3`) |
 | `WHISPER_DEVICE` | `cpu` | Whisper device (`cpu` or `cuda`) |
 
@@ -103,7 +104,7 @@ voilot/
 │   └── internal/
 │       ├── agent/               # Agent adapter interface + OpenCode impl
 │       ├── api/                 # HTTP routes, handlers, WebSocket
-│       ├── tts/                 # TTS provider interface + Coqui impl
+│       ├── tts/                 # TTS provider interface + Kokoro/Coqui impl
 │       ├── stt/                 # STT provider interface + Whisper impl
 │       └── voice/               # Command router + TTS filter
 ├── frontend/
@@ -151,11 +152,13 @@ voilot/
 - [x] Phase 0b: Nuxt frontend skeleton (pages, components, composables)
 - [x] Phase 0c: Docker Compose stack
 - [x] Phase 0d: README
-- [ ] Phase 1: Go backend core (HTTP serving, WebSocket logic)
-- [ ] Phase 2: OpenCode adapter (real HTTP+SSE to `opencode serve`)
-- [ ] Phase 3: Text-only MVP (end-to-end chat working)
-- [ ] Phase 4: STT service integration
-- [ ] Phase 5: TTS service integration
-- [ ] Phase 6: Voice pipeline (mic → STT → agent → TTS → speaker)
-- [ ] Phase 7: Plan/Implement mode switching
-- [ ] Phase 8: Production deployment + Tailscale
+- [x] Phase 1: Go backend core (HTTP serving, WebSocket logic)
+- [x] Phase 2: OpenCode adapter (real HTTP+SSE to `opencode serve`)
+- [x] Phase 3: Text-only MVP (end-to-end chat working)
+- [x] Phase 4: STT service integration
+- [x] Phase 5: TTS service integration
+- [x] Phase 6: Voice pipeline (mic → STT → agent → TTS → speaker)
+- [x] Phase 7: Plan/Implement mode switching
+- [x] TTS engine swap: Coqui XTTSv2 → Kokoro-FastAPI (5-6x faster)
+- [ ] Phase 8: Browser end-to-end testing
+- [ ] Phase 9: Production deployment + Tailscale
