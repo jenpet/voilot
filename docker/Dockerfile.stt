@@ -9,8 +9,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Install faster-whisper and HTTP server
+# requests is needed by faster-whisper but not always pulled transitively
 RUN pip install --no-cache-dir \
     faster-whisper==1.1.1 \
+    requests \
     flask==3.1.0 \
     gunicorn==23.0.0
 
@@ -18,7 +20,7 @@ RUN pip install --no-cache-dir \
 RUN mkdir -p /app/models
 
 # Pre-download the base model (cached in image)
-RUN python -c "from faster_whisper import WhisperModel; WhisperModel('base', device='cpu', compute_type='int8')" || true
+RUN python -c "from faster_whisper import WhisperModel; WhisperModel('base', device='cpu', compute_type='int8')"
 
 # Copy server script
 COPY docker/stt-server.py /app/server.py

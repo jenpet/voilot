@@ -41,6 +41,9 @@ type coquiVoicesResponse struct {
 	Languages []string `json:"languages"`
 }
 
+// DefaultSpeaker is the default XTTSv2 speaker used when no voice is specified.
+const DefaultSpeaker = "Claribel Dervla"
+
 func (p *CoquiProvider) Synthesize(ctx context.Context, req Request) (*Response, error) {
 	coquiReq := coquiSynthRequest{
 		Text:     req.Text,
@@ -49,6 +52,9 @@ func (p *CoquiProvider) Synthesize(ctx context.Context, req Request) (*Response,
 	}
 	if coquiReq.Language == "" {
 		coquiReq.Language = "en"
+	}
+	if coquiReq.Speaker == "" {
+		coquiReq.Speaker = DefaultSpeaker
 	}
 
 	body, err := json.Marshal(coquiReq)

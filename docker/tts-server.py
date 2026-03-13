@@ -69,6 +69,13 @@ def synthesize():
     speaker = data.get("speaker")
     speaker_wav = data.get("speaker_wav")
 
+    # XTTSv2 requires either speaker or speaker_wav; default to a built-in speaker
+    if not speaker and not speaker_wav:
+        if hasattr(tts, "speakers") and tts.speakers:
+            speaker = tts.speakers[0]  # Default: "Claribel Dervla"
+        else:
+            return jsonify({"error": "Model requires speaker or speaker_wav but has no built-in speakers"}), 400
+
     try:
         # Generate audio
         wav = tts.tts(

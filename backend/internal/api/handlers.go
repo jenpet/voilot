@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"strings"
 
 	"github.com/gorilla/mux"
 	"github.com/jenpet/voilot/internal/agent"
@@ -192,9 +193,48 @@ func (s *Server) handleSTTTranscribe(w http.ResponseWriter, r *http.Request) {
 	}
 
 	contentType := r.Header.Get("Content-Type")
+	var audio io.Reader
+	var audioContentType string
+
+	// If the client sends multipart/form-data, extract the 'audio' file field.
+	// Otherwise, treat the raw body as the audio stream.
+	if r.MultipartForm != nil || strings.HasPrefix(contentType, "multipart/") {
+		if err := r.ParseMultipartForm(32 << 20); err != nil { // 32 MB max
+			jsonError(w, http.StatusBadRequest, "failed to parse multipart form: "+err.Error())
+			return
+		}
+		file, header, err := r.FormFile("audio")
+		if err != nil {
+			jsonError(w, http.StatusBadRequest, "missing 'audio' field in multipart form: "+err.Error())
+			return
+		}
+		defer file.Close()
+		audio = file
+		audioContentType = header.Header.Get("Content-Type")
+		if audioContentType == "" {
+			// Guess from filename
+			name := header.Filename
+			switch {
+			case len(name) > 4 && name[len(name)-4:] == ".wav":
+				audioContentType = "audio/wav"
+			case len(name) > 5 && name[len(name)-5:] == ".webm":
+				audioContentType = "audio/webm"
+			case len(name) > 4 && name[len(name)-4:] == ".ogg":
+				audioContentType = "audio/ogg"
+			case len(name) > 4 && name[len(name)-4:] == ".mp3":
+				audioContentType = "audio/mp3"
+			default:
+				audioContentType = "audio/wav"
+			}
+		}
+	} else {
+		audio = r.Body
+		audioContentType = contentType
+	}
+
 	result, err := s.sttProvider.Transcribe(r.Context(), stt.Request{
-		Audio:       r.Body,
-		ContentType: contentType,
+		Audio:       audio,
+		ContentType: audioContentType,
 	})
 	if err != nil {
 		jsonError(w, http.StatusInternalServerError, err.Error())
