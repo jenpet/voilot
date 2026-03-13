@@ -13,19 +13,10 @@ export default defineNuxtConfig({
     '@vite-pwa/nuxt',
   ],
 
-  // Proxy API calls to Go backend during development
-  nitro: {
-    devProxy: {
-      '/api': {
-        target: 'http://localhost:8080',
-        changeOrigin: true,
-      },
-      '/ws': {
-        target: 'ws://localhost:8080',
-        ws: true,
-      },
-    },
-  },
+  // No dev proxy — in development the frontend talks directly to the Go backend
+  // via the backendUrl runtime config (default: http://localhost:8080).
+  // This avoids ECONNRESET crashes when the backend is unavailable.
+  // In production, Nginx proxies /api and /ws to the backend.
 
   // Static site generation for production (served by nginx)
   ssr: false,
@@ -77,10 +68,16 @@ export default defineNuxtConfig({
   },
 
   // Runtime config (environment variables)
+  // In dev: API goes through Nitro devProxy (/api -> localhost:8080),
+  // but WebSocket connects directly to the Go backend (no proxy) to
+  // avoid ECONNRESET crashes when the backend is unavailable.
+  // In production: Nginx proxies both /api and /ws to the backend.
   runtimeConfig: {
     public: {
-      apiBaseUrl: '/api',
-      wsBaseUrl: '/ws',
+      // Base URL of the Go backend. In dev: direct connection.
+      // In production behind Nginx, set to '' (empty) so relative paths work.
+      // Override with NUXT_PUBLIC_BACKEND_URL env var.
+      backendUrl: 'http://localhost:8080',
     },
   },
 })

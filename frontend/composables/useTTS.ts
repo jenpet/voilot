@@ -17,7 +17,7 @@ export function useTTS() {
 
     try {
       // Fetch audio from TTS service
-      const response = await fetch(`${config.public.apiBaseUrl}/tts/synthesize`, {
+      const response = await fetch(`${config.public.backendUrl}/api/tts/synthesize`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ text: item.text }),

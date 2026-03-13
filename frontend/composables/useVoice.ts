@@ -53,7 +53,7 @@ export function useVoice() {
         // Send to STT service
         try {
           const result = await $fetch<{ text: string }>(
-            `${config.public.apiBaseUrl}/stt/transcribe`,
+            `${config.public.backendUrl}/api/stt/transcribe`,
             {
               method: 'POST',
               headers: {

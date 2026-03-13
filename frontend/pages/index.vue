@@ -2,7 +2,18 @@
   <div class="flex flex-col h-screen">
     <!-- Header -->
     <header class="flex items-center justify-between px-4 py-3 bg-surface-800 border-b border-surface-700">
-      <h1 class="text-lg font-semibold">voilot</h1>
+      <div class="flex items-center gap-2">
+        <h1 class="text-lg font-semibold">voilot</h1>
+        <span
+          class="inline-block w-2 h-2 rounded-full"
+          :class="{
+            'bg-green-400': connectionState === 'connected',
+            'bg-yellow-400 animate-pulse': connectionState === 'connecting',
+            'bg-red-400': connectionState === 'disconnected',
+          }"
+          :title="`Backend: ${connectionState}`"
+        />
+      </div>
       <button
         class="px-3 py-1.5 text-sm rounded-lg bg-surface-700 hover:bg-surface-600 transition-colors"
         @click="createSession"
@@ -32,10 +43,9 @@
 </template>
 
 <script setup lang="ts">
-import type { Session } from '~/composables/useSession'
-
 const router = useRouter()
 const { sessions, createSession: doCreateSession, deleteSession: doDeleteSession } = useSession()
+const { connectionState } = useWebSocket()
 
 async function createSession() {
   const session = await doCreateSession({ mode: 'plan' })

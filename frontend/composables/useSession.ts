@@ -2,6 +2,11 @@ export interface Session {
   id: string
   title: string
   mode: 'plan' | 'implement'
+  projectId?: string
+  time?: {
+    created: number
+    updated: number
+  }
 }
 
 interface CreateSessionOptions {
@@ -12,10 +17,11 @@ interface CreateSessionOptions {
 export function useSession() {
   const sessions = useState<Session[]>('sessions', () => [])
   const config = useRuntimeConfig()
+  const apiBase = `${config.public.backendUrl}/api`
 
   async function fetchSessions() {
     try {
-      const data = await $fetch<Session[]>(`${config.public.apiBaseUrl}/sessions`)
+      const data = await $fetch<Session[]>(`${apiBase}/sessions`)
       sessions.value = data || []
     } catch {
       console.error('Failed to fetch sessions')
@@ -24,7 +30,7 @@ export function useSession() {
 
   async function createSession(opts: CreateSessionOptions): Promise<Session | null> {
     try {
-      const session = await $fetch<Session>(`${config.public.apiBaseUrl}/sessions`, {
+      const session = await $fetch<Session>(`${apiBase}/sessions`, {
         method: 'POST',
         body: opts,
       })
@@ -38,7 +44,7 @@ export function useSession() {
 
   async function deleteSession(id: string) {
     try {
-      await $fetch(`${config.public.apiBaseUrl}/sessions/${id}`, {
+      await $fetch(`${apiBase}/sessions/${id}`, {
         method: 'DELETE',
       })
       sessions.value = sessions.value.filter(s => s.id !== id)

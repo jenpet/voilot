@@ -9,9 +9,29 @@
         <span class="text-surface-400">&larr;</span>
       </button>
       <div class="flex-1 min-w-0">
-        <h1 class="text-sm font-medium truncate">{{ session?.title || 'Untitled Session' }}</h1>
+        <div class="flex items-center gap-2">
+          <h1 class="text-sm font-medium truncate">{{ session?.title || 'Untitled Session' }}</h1>
+          <!-- Connection indicator -->
+          <span
+            class="inline-block w-2 h-2 rounded-full flex-shrink-0"
+            :class="{
+              'bg-green-400': connectionState === 'connected',
+              'bg-yellow-400 animate-pulse': connectionState === 'connecting',
+              'bg-red-400': connectionState === 'disconnected',
+            }"
+            :title="`Backend: ${connectionState}`"
+          />
+        </div>
         <ModeToggle :mode="session?.mode || 'plan'" @toggle="toggleMode" />
       </div>
+      <!-- Abort button (visible when streaming) -->
+      <button
+        v-if="isStreaming"
+        class="px-3 py-1.5 text-xs rounded-lg bg-red-600/20 text-red-400 hover:bg-red-600/30 transition-colors"
+        @click="abortSession"
+      >
+        Stop
+      </button>
     </header>
 
     <!-- Chat Messages -->
@@ -30,7 +50,7 @@
           class="flex-1 bg-surface-700 rounded-xl px-4 py-3 text-sm resize-none outline-none focus:ring-2 focus:ring-blue-500/50 placeholder-surface-400"
           :rows="1"
           placeholder="Type a message or hold the mic to speak..."
-          @keydown.enter.exact.prevent="sendMessage"
+          @keydown.enter.exact.prevent="handleSend"
         />
         <VoiceButton
           class="flex-shrink-0"
@@ -39,7 +59,7 @@
         <button
           class="flex-shrink-0 p-3 rounded-xl bg-blue-600 hover:bg-blue-500 transition-colors disabled:opacity-50"
           :disabled="!inputText.trim() || isStreaming"
-          @click="sendMessage"
+          @click="handleSend"
         >
           <span class="text-sm">Send</span>
         </button>
@@ -53,21 +73,29 @@ const route = useRoute()
 const router = useRouter()
 const sessionId = route.params.id as string
 
-const { session, messages, isStreaming, sendMessage: doSendMessage, toggleMode } = useAgent(sessionId)
+const {
+  session,
+  messages,
+  isStreaming,
+  connectionState,
+  sendMessage,
+  abortSession,
+  toggleMode,
+} = useAgent(sessionId)
 
 const inputText = ref('')
 const inputRef = ref<HTMLTextAreaElement>()
 
-async function sendMessage() {
+function handleSend() {
   const text = inputText.value.trim()
   if (!text || isStreaming.value) return
   inputText.value = ''
-  await doSendMessage(text)
+  sendMessage(text)
 }
 
 function handleTranscription(text: string) {
   inputText.value = text
   // Auto-send voice input
-  sendMessage()
+  handleSend()
 }
 </script>
