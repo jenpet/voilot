@@ -27,6 +27,41 @@ model = WhisperModel(MODEL_SIZE, device=DEVICE, compute_type=COMPUTE_TYPE)
 print("Whisper model loaded successfully")
 
 
+# Map of audio MIME types / filename extensions to temp-file suffixes.
+# The suffix matters because ffmpeg uses it to identify the container format.
+_MIME_TO_EXT = {
+    "audio/webm": ".webm",
+    "audio/ogg": ".ogg",
+    "audio/wav": ".wav",
+    "audio/x-wav": ".wav",
+    "audio/wave": ".wav",
+    "audio/mp3": ".mp3",
+    "audio/mpeg": ".mp3",
+    "audio/mp4": ".m4a",
+    "audio/x-m4a": ".m4a",
+    "audio/flac": ".flac",
+}
+
+
+def _suffix_for_audio(filename, content_type) -> str:
+    """Determine the correct temp-file suffix for an uploaded audio file."""
+    # Try filename extension first (most reliable)
+    if filename:
+        _, ext = os.path.splitext(filename)
+        if ext:
+            return ext.lower()
+
+    # Fall back to content type
+    if content_type:
+        # Strip parameters like "audio/webm;codecs=opus" -> "audio/webm"
+        base_type = content_type.split(";")[0].strip().lower()
+        if base_type in _MIME_TO_EXT:
+            return _MIME_TO_EXT[base_type]
+
+    # Default to .wav as a last resort
+    return ".wav"
+
+
 @app.route("/health", methods=["GET"])
 def health():
     return jsonify({
@@ -63,10 +98,14 @@ def transcribe():
     language = request.args.get("language")
     beam_size = int(request.args.get("beam_size", "5"))
 
+    # Determine file extension from the uploaded filename or content type
+    # so ffmpeg can correctly identify the audio format.
+    suffix = _suffix_for_audio(audio_file.filename, audio_file.content_type)
+
     tmp_path = None
     try:
         # Save uploaded audio to a temp file (faster-whisper needs a file path)
-        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
+        with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
             audio_file.save(tmp)
             tmp_path = tmp.name
 

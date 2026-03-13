@@ -52,6 +52,9 @@
       :is-streaming="isStreaming"
     />
 
+    <!-- Round-trip timing display (shows after a voice interaction) -->
+    <RoundTripTimings />
+
     <!-- Input Area -->
     <div class="border-t border-surface-700 bg-surface-800 p-4">
       <div class="flex items-end gap-3 max-w-2xl mx-auto">

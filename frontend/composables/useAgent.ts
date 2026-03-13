@@ -21,6 +21,7 @@ export function useAgent(sessionId: string) {
   const apiBase = `${config.public.backendUrl}/api`
   const { send, subscribe, connectionState } = useWebSocket()
   const { enqueue: enqueueTTS, stop: stopTTS } = useTTS()
+  const { mark, isActive: isTimerActive } = useRoundTripTimer()
 
   const session = ref<Session | null>(null)
   const messages = ref<Message[]>([])
@@ -117,6 +118,11 @@ export function useAgent(sessionId: string) {
     // Use delta-based streaming if available
     const partId = event.partId || 'default'
 
+    // Mark first text token arrival (agent TTFT) — only during voice round-trips
+    if (!currentAssistantId && isTimerActive()) {
+      mark('agent_ttft', 'end')
+    }
+
     if (event.delta) {
       // Accumulate delta into part content
       const existing = partContents.get(partId) || ''
@@ -172,6 +178,11 @@ export function useAgent(sessionId: string) {
   }
 
   function finishStreaming() {
+    // Mark agent completion — only during voice round-trips
+    if (isTimerActive()) {
+      mark('agent_full', 'end')
+    }
+
     // Flush accumulated text to TTS when streaming completes
     if (voiceEnabled.value && ttsTextBuffer.trim()) {
       enqueueTTS(ttsTextBuffer.trim())
@@ -184,6 +195,12 @@ export function useAgent(sessionId: string) {
 
   // Send a message via WebSocket
   function sendMessage(text: string) {
+    // Only mark agent timing if this is part of a voice round-trip
+    if (isTimerActive()) {
+      mark('agent_ttft', 'start')
+      mark('agent_full', 'start')
+    }
+
     // Add user message immediately
     messages.value.push({
       id: nextMessageId(),

@@ -7,6 +7,10 @@ export function useTTS() {
   const queue = useState<TTSQueueItem[]>('tts-queue', () => [])
   const isPlaying = ref(false)
   const config = useRuntimeConfig()
+  const { mark, isActive: isTimerActive } = useRoundTripTimer()
+
+  // Track whether the first TTS item in a round-trip has been marked
+  let firstSynthMarked = false
 
   // Process the queue sequentially
   async function processQueue() {
@@ -14,8 +18,16 @@ export function useTTS() {
 
     isPlaying.value = true
     const item = queue.value[0]
+    const shouldMark = isTimerActive()
+    const isFirstItem = !firstSynthMarked
 
     try {
+      // Mark TTS synthesis start (only for the first item in a round-trip)
+      if (shouldMark && isFirstItem) {
+        mark('tts_synth', 'start')
+        firstSynthMarked = true
+      }
+
       // Fetch audio from TTS service
       const response = await fetch(`${config.public.backendUrl}/api/tts/synthesize`, {
         method: 'POST',
@@ -26,10 +38,15 @@ export function useTTS() {
       if (!response.ok) throw new Error('TTS synthesis failed')
 
       const audioBlob = await response.blob()
+      if (shouldMark && isFirstItem) mark('tts_synth', 'end')
+
       const audioUrl = URL.createObjectURL(audioBlob)
       const audio = new Audio(audioUrl)
 
       item.audio = audio
+
+      // Mark TTS playback start on first item
+      if (shouldMark && isFirstItem) mark('tts_play', 'start')
 
       await new Promise<void>((resolve, reject) => {
         audio.onended = () => {
@@ -44,10 +61,21 @@ export function useTTS() {
       })
     } catch (err) {
       console.error('TTS playback error:', err)
+      // Mark synth end on error if it was the first item and synth start was marked
+      if (shouldMark && isFirstItem && firstSynthMarked) {
+        mark('tts_synth', 'end')
+      }
     } finally {
       // Remove processed item
       queue.value.shift()
       isPlaying.value = false
+
+      // Mark TTS playback end when queue is fully drained
+      if (queue.value.length === 0) {
+        if (shouldMark) mark('tts_play', 'end')
+        // Reset first-item flag for next round-trip
+        firstSynthMarked = false
+      }
 
       // Process next item if available
       if (queue.value.length > 0) {
@@ -71,6 +99,7 @@ export function useTTS() {
     }
     queue.value = []
     isPlaying.value = false
+    firstSynthMarked = false
   }
 
   return {

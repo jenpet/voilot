@@ -3,6 +3,7 @@ export function useVoice() {
   const mediaRecorder = ref<MediaRecorder | null>(null)
   const audioChunks = ref<Blob[]>([])
   const config = useRuntimeConfig()
+  const { mark, reset: resetTimer } = useRoundTripTimer()
 
   async function startRecording() {
     try {
@@ -39,6 +40,10 @@ export function useVoice() {
   async function stopRecording(): Promise<string | null> {
     if (!mediaRecorder.value || !isRecording.value) return null
 
+    // Reset timer and start STT phase measurement
+    resetTimer()
+    mark('stt', 'start')
+
     return new Promise((resolve) => {
       const recorder = mediaRecorder.value!
 
@@ -62,9 +67,11 @@ export function useVoice() {
               body: audioBlob,
             },
           )
+          mark('stt', 'end')
           resolve(result.text || null)
         } catch {
           console.error('STT transcription failed')
+          mark('stt', 'end')
           resolve(null)
         }
       }
