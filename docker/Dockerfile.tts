@@ -4,15 +4,25 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# System dependencies for audio processing
+# System dependencies for audio processing and building native extensions
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
     libsndfile1 \
+    build-essential \
     && rm -rf /var/lib/apt/lists/*
 
-# Install TTS library (Idiap maintained fork), Flask for HTTP API, gunicorn for production
+# Install PyTorch (CPU-only, required separately since coqui-tts 0.27.4)
+# Pin torch<2.9 to avoid torchcodec requirement
 RUN pip install --no-cache-dir \
-    TTS==0.27.5 \
+    "torch>=2.2,<2.9" \
+    "torchaudio>=2.2,<2.9" \
+    --index-url https://download.pytorch.org/whl/cpu
+
+# Install TTS library (Idiap maintained fork), Flask for HTTP API, gunicorn for production
+# Pin transformers<5 to avoid isin_mps_friendly import error in coqui-tts
+RUN pip install --no-cache-dir \
+    coqui-tts==0.27.5 \
+    "transformers>=4.47,<5" \
     flask==3.1.0 \
     gunicorn==23.0.0 \
     numpy
@@ -22,7 +32,11 @@ RUN mkdir -p /app/models
 
 # Download XTTSv2 model on build (cached in image)
 # This avoids downloading on every container start
-RUN python -c "from TTS.api import TTS; TTS('tts_models/multilingual/multi-dataset/xtts_v2')" || true
+# Pre-accept Coqui CPML license (non-commercial) to avoid interactive prompt
+RUN mkdir -p /root/.local/share/tts/tts_models--multilingual--multi-dataset--xtts_v2 && \
+    echo "I have read, understood and agreed to the Terms and Conditions." > \
+    /root/.local/share/tts/tts_models--multilingual--multi-dataset--xtts_v2/tos_agreed.txt && \
+    python -c "from TTS.api import TTS; TTS('tts_models/multilingual/multi-dataset/xtts_v2')"
 
 # Copy server script
 COPY docker/tts-server.py /app/server.py
