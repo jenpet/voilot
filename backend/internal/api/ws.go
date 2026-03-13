@@ -19,9 +19,9 @@ var upgrader = websocket.Upgrader{
 
 // chatInbound is the WebSocket message format from the client.
 type chatInbound struct {
-	Type      string `json:"type"`      // "message", "abort"
+	Type      string `json:"type"`      // "message", "abort", "set_mode"
 	SessionID string `json:"sessionId"` // target session
-	Content   string `json:"content"`   // message text
+	Content   string `json:"content"`   // message text or mode value ("plan"/"implement")
 }
 
 // chatOutbound is the WebSocket message format to the client.
@@ -109,7 +109,9 @@ func (s *Server) handleWSChat(w http.ResponseWriter, r *http.Request) {
 			}
 
 			// Send message asynchronously — response events come via SSE
-			if err := s.agentAdapter.SendMessageAsync(ctx, msg.SessionID, result.Text); err != nil {
+			// Use the session's current mode to enforce plan/implement restrictions
+			mode := s.agentAdapter.GetSessionMode(msg.SessionID)
+			if err := s.agentAdapter.SendMessageAsync(ctx, msg.SessionID, result.Text, mode); err != nil {
 				writeJSON(chatOutbound{
 					Type:      "error",
 					SessionID: msg.SessionID,
@@ -128,6 +130,37 @@ func (s *Server) handleWSChat(w http.ResponseWriter, r *http.Request) {
 					Content:   "Failed to abort: " + err.Error(),
 				})
 			}
+
+		case "set_mode":
+			if msg.SessionID == "" {
+				writeJSON(chatOutbound{
+					Type:    "error",
+					Content: "sessionId is required",
+				})
+				continue
+			}
+			newMode := agent.SessionMode(msg.Content)
+			if newMode != agent.ModePlan && newMode != agent.ModeImplement {
+				writeJSON(chatOutbound{
+					Type:      "error",
+					SessionID: msg.SessionID,
+					Content:   "Invalid mode: " + msg.Content + " (must be 'plan' or 'implement')",
+				})
+				continue
+			}
+			s.agentAdapter.SetSessionMode(msg.SessionID, newMode)
+			writeJSON(chatOutbound{
+				Type:      "event",
+				SessionID: msg.SessionID,
+				Event: &agent.Event{
+					Type:      agent.EventSessionUpdated,
+					SessionID: msg.SessionID,
+					Content:   string(newMode),
+					Meta: map[string]interface{}{
+						"mode": string(newMode),
+					},
+				},
+			})
 
 		default:
 			writeJSON(chatOutbound{

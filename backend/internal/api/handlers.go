@@ -71,6 +71,37 @@ func (s *Server) handleDeleteSession(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+func (s *Server) handleGetSession(w http.ResponseWriter, r *http.Request) {
+	id := mux.Vars(r)["id"]
+	session, err := s.agentAdapter.ResumeSession(r.Context(), id)
+	if err != nil {
+		jsonError(w, http.StatusNotFound, "session not found: "+err.Error())
+		return
+	}
+	jsonResponse(w, http.StatusOK, session)
+}
+
+func (s *Server) handleSetSessionMode(w http.ResponseWriter, r *http.Request) {
+	id := mux.Vars(r)["id"]
+
+	var body struct {
+		Mode string `json:"mode"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		jsonError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	mode := agent.SessionMode(body.Mode)
+	if mode != agent.ModePlan && mode != agent.ModeImplement {
+		jsonError(w, http.StatusBadRequest, "invalid mode: must be 'plan' or 'implement'")
+		return
+	}
+
+	s.agentAdapter.SetSessionMode(id, mode)
+	jsonResponse(w, http.StatusOK, map[string]string{"mode": string(mode)})
+}
+
 func (s *Server) handleSendMessage(w http.ResponseWriter, r *http.Request) {
 	id := mux.Vars(r)["id"]
 

@@ -51,7 +51,7 @@ func main() {
 	// CORS middleware (for development; in production nginx handles this)
 	handler := cors.New(cors.Options{
 		AllowedOrigins:   []string{*allowOrigins},
-		AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
+		AllowedMethods:   []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
 		AllowedHeaders:   []string{"Content-Type", "Authorization"},
 		AllowCredentials: true,
 	}).Handler(server)

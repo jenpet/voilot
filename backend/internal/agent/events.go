@@ -52,6 +52,15 @@ type OpenCodePartUpdate struct {
 	Delta string          `json:"delta,omitempty"`
 }
 
+// OpenCodePartDelta is the properties payload for "message.part.delta".
+type OpenCodePartDelta struct {
+	SessionID string `json:"sessionID"`
+	MessageID string `json:"messageID"`
+	PartID    string `json:"partID"`
+	Field     string `json:"field"` // "text", etc.
+	Delta     string `json:"delta"`
+}
+
 // OpenCodePart is a generic part from OpenCode.
 type OpenCodePart struct {
 	ID        string          `json:"id"`

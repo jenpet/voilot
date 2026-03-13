@@ -101,8 +101,10 @@ export function useAgent(sessionId: string) {
         }
         break
       case 'session_updated':
-        // Update session title if it changed
-        if (session.value && event.content) {
+        // Update session title or mode if changed
+        if (session.value && event.meta?.mode) {
+          session.value.mode = event.meta.mode as 'plan' | 'implement'
+        } else if (session.value && event.content) {
           session.value.title = event.content
         }
         break
@@ -223,17 +225,33 @@ export function useAgent(sessionId: string) {
   function toggleMode() {
     if (!session.value) return
     const newMode = session.value.mode === 'plan' ? 'implement' : 'plan'
-    session.value.mode = newMode
-    // TODO: notify backend of mode change
+    const sent = send({
+      type: 'set_mode',
+      sessionId,
+      content: newMode,
+    })
+    if (sent) {
+      session.value.mode = newMode
+    } else {
+      appendSystemMessage('Failed to change mode: not connected to backend')
+    }
   }
 
   function handleCommand(command: string) {
     switch (command) {
       case 'switch_plan':
-        if (session.value) session.value.mode = 'plan'
+        if (session.value && session.value.mode !== 'plan') {
+          send({ type: 'set_mode', sessionId, content: 'plan' })
+          session.value.mode = 'plan'
+          appendSystemMessage('Switched to Planning mode')
+        }
         break
       case 'switch_implement':
-        if (session.value) session.value.mode = 'implement'
+        if (session.value && session.value.mode !== 'implement') {
+          send({ type: 'set_mode', sessionId, content: 'implement' })
+          session.value.mode = 'implement'
+          appendSystemMessage('Switched to Implement mode')
+        }
         break
       case 'stop':
         abortSession()

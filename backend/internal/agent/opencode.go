@@ -23,6 +23,14 @@ type OpenCodeAdapter struct {
 	mu          sync.RWMutex
 	subscribers map[chan Event]struct{}
 	sseRunning  bool
+
+	// Session mode storage (voilot-level, not forwarded to OpenCode).
+	modeMu       sync.RWMutex
+	sessionModes map[string]SessionMode
+
+	// Track user message IDs to filter out echoed user messages from SSE.
+	userMsgMu  sync.RWMutex
+	userMsgIDs map[string]struct{}
 }
 
 // NewOpenCodeAdapter creates a new adapter pointing at the given OpenCode server URL.
@@ -32,7 +40,9 @@ func NewOpenCodeAdapter(baseURL string) *OpenCodeAdapter {
 		httpClient: &http.Client{
 			Timeout: 30 * time.Second,
 		},
-		subscribers: make(map[chan Event]struct{}),
+		subscribers:  make(map[chan Event]struct{}),
+		sessionModes: make(map[string]SessionMode),
+		userMsgIDs:   make(map[string]struct{}),
 	}
 }
 
@@ -157,6 +167,7 @@ func (a *OpenCodeAdapter) ListSessions(ctx context.Context) ([]Session, error) {
 	sessions := make([]Session, len(ocSessions))
 	for i, ocs := range ocSessions {
 		sessions[i] = ocs.toSession()
+		sessions[i].Mode = a.GetSessionMode(sessions[i].ID)
 	}
 	return sessions, nil
 }
@@ -182,6 +193,8 @@ func (a *OpenCodeAdapter) CreateSession(ctx context.Context, opts SessionOptions
 
 	session := ocs.toSession()
 	session.Mode = opts.Mode
+	// Store the mode in our local mode map
+	a.SetSessionMode(session.ID, opts.Mode)
 	return &session, nil
 }
 
@@ -197,6 +210,7 @@ func (a *OpenCodeAdapter) ResumeSession(ctx context.Context, id string) (*Sessio
 	}
 
 	session := ocs.toSession()
+	session.Mode = a.GetSessionMode(id)
 	return &session, nil
 }
 
@@ -211,6 +225,12 @@ func (a *OpenCodeAdapter) DeleteSession(ctx context.Context, id string) error {
 		body, _ := io.ReadAll(resp.Body)
 		return fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(body))
 	}
+
+	// Clean up stored mode
+	a.modeMu.Lock()
+	delete(a.sessionModes, id)
+	a.modeMu.Unlock()
+
 	return nil
 }
 
@@ -240,8 +260,9 @@ func (a *OpenCodeAdapter) SendMessage(ctx context.Context, sessionID string, mes
 		return events, err
 	}
 
-	// Send message asynchronously
-	if err := a.SendMessageAsync(ctx, sessionID, message); err != nil {
+	// Send message asynchronously (use the session's stored mode)
+	mode := a.GetSessionMode(sessionID)
+	if err := a.SendMessageAsync(ctx, sessionID, message, mode); err != nil {
 		close(events)
 		return events, err
 	}
@@ -263,14 +284,38 @@ func (a *OpenCodeAdapter) SendMessage(ctx context.Context, sessionID string, mes
 	return events, nil
 }
 
+// SetSessionMode stores the mode for a session.
+func (a *OpenCodeAdapter) SetSessionMode(sessionID string, mode SessionMode) {
+	a.modeMu.Lock()
+	defer a.modeMu.Unlock()
+	a.sessionModes[sessionID] = mode
+}
+
+// GetSessionMode returns the mode for a session, defaulting to ModePlan.
+func (a *OpenCodeAdapter) GetSessionMode(sessionID string) SessionMode {
+	a.modeMu.RLock()
+	defer a.modeMu.RUnlock()
+	if mode, ok := a.sessionModes[sessionID]; ok {
+		return mode
+	}
+	return ModePlan
+}
+
 // SendMessageAsync sends a message without waiting for a response.
 // Use SubscribeEvents() to receive streaming events.
-func (a *OpenCodeAdapter) SendMessageAsync(ctx context.Context, sessionID string, message string) error {
+// If mode is ModePlan, a system prompt is prepended to restrict the agent to discussion only.
+func (a *OpenCodeAdapter) SendMessageAsync(ctx context.Context, sessionID string, message string, mode SessionMode) error {
+	// In plan mode, prepend the system prompt to restrict the agent
+	actualMessage := message
+	if mode == ModePlan {
+		actualMessage = PlanModeSystemPrompt + message
+	}
+
 	body := map[string]interface{}{
 		"parts": []map[string]string{
 			{
 				"type": "text",
-				"text": message,
+				"text": actualMessage,
 			},
 		},
 	}
@@ -417,6 +462,9 @@ func (a *OpenCodeAdapter) parseSSEData(data string) []Event {
 	case "message.part.updated":
 		return a.parsePartUpdate(raw.Properties)
 
+	case "message.part.delta":
+		return a.parsePartDelta(raw.Properties)
+
 	case "session.status":
 		return a.parseSessionStatus(raw.Properties)
 
@@ -442,11 +490,14 @@ func (a *OpenCodeAdapter) parseSSEData(data string) []Event {
 		}
 
 	case "message.updated":
-		// Message-level updates (completed, error, etc.)
+		// Track user vs assistant messages and handle errors
 		return a.parseMessageUpdated(raw.Properties)
 
 	case "server.connected":
 		log.Println("SSE: connected to OpenCode server")
+
+	case "server.heartbeat", "session.diff":
+		// Ignore heartbeats and diffs
 	}
 
 	return nil
@@ -463,15 +514,30 @@ func (a *OpenCodeAdapter) parsePartUpdate(props json.RawMessage) []Event {
 		return nil
 	}
 
+	// Skip updates for user messages (echoed back by OpenCode)
+	a.userMsgMu.RLock()
+	_, isUserMsg := a.userMsgIDs[part.MessageID]
+	a.userMsgMu.RUnlock()
+	if isUserMsg {
+		return nil
+	}
+
 	switch part.Type {
 	case "text":
+		// Text content is streamed via message.part.delta events.
+		// message.part.updated fires with initial empty text and final full text.
+		// We only emit on the final update (when text is non-empty and time.end exists)
+		// to avoid clearing accumulated delta content.
+		if part.Text == "" {
+			return nil // Skip initial empty text update
+		}
+		// Final text update — emit with full content as confirmation
 		evt := Event{
 			Type:      EventText,
 			SessionID: part.SessionID,
 			MessageID: part.MessageID,
 			PartID:    part.ID,
 			Content:   part.Text,
-			Delta:     update.Delta,
 		}
 		return []Event{evt}
 
@@ -543,6 +609,35 @@ func (a *OpenCodeAdapter) parseToolPart(part OpenCodePart, delta string) []Event
 	}
 
 	return []Event{evt}
+}
+
+// parsePartDelta handles "message.part.delta" SSE events — streaming text deltas.
+func (a *OpenCodeAdapter) parsePartDelta(props json.RawMessage) []Event {
+	var delta OpenCodePartDelta
+	if err := json.Unmarshal(props, &delta); err != nil {
+		return nil
+	}
+
+	// Skip deltas for user messages
+	a.userMsgMu.RLock()
+	_, isUserMsg := a.userMsgIDs[delta.MessageID]
+	a.userMsgMu.RUnlock()
+	if isUserMsg {
+		return nil
+	}
+
+	// Only handle text field deltas
+	if delta.Field != "text" {
+		return nil
+	}
+
+	return []Event{{
+		Type:      EventText,
+		SessionID: delta.SessionID,
+		MessageID: delta.MessageID,
+		PartID:    delta.PartID,
+		Delta:     delta.Delta,
+	}}
 }
 
 func (a *OpenCodeAdapter) parseSessionStatus(props json.RawMessage) []Event {
@@ -617,7 +712,7 @@ func (a *OpenCodeAdapter) parseMessageUpdated(props json.RawMessage) []Event {
 		return nil
 	}
 
-	// Check if the message has an error
+	// Parse message to check role and errors
 	var msg struct {
 		ID        string `json:"id"`
 		SessionID string `json:"sessionID"`
@@ -628,6 +723,14 @@ func (a *OpenCodeAdapter) parseMessageUpdated(props json.RawMessage) []Event {
 		} `json:"error,omitempty"`
 	}
 	if err := json.Unmarshal(info.Info, &msg); err != nil {
+		return nil
+	}
+
+	// Track user message IDs so we can skip their part updates
+	if msg.Role == "user" {
+		a.userMsgMu.Lock()
+		a.userMsgIDs[msg.ID] = struct{}{}
+		a.userMsgMu.Unlock()
 		return nil
 	}
 
