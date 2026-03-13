@@ -10,6 +10,10 @@
 #   docker compose up                     # Start frontend + backend only
 #   docker compose --profile voice up     # Start all services including TTS/STT
 #   docker compose up --build             # Rebuild and start
+#
+# Voice profile: When using --profile voice, set TTS/STT URLs so the backend
+# can reach the sidecar services:
+#   TTS_URL=http://tts:5002 STT_URL=http://stt:5003 docker compose --profile voice up
 
 services:
   # ── Frontend (Nginx + static Nuxt build) ──────────────────────────
@@ -29,10 +33,6 @@ services:
     build:
       context: ..
       dockerfile: docker/Dockerfile.backend
-    environment:
-      - OPENCODE_URL=${OPENCODE_URL:-http://host.docker.internal:4096}
-      - TTS_URL=${TTS_URL:-}
-      - STT_URL=${STT_URL:-}
     command:
       - --opencode-url=${OPENCODE_URL:-http://host.docker.internal:4096}
       - --tts-url=${TTS_URL:-}

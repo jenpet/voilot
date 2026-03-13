@@ -29,20 +29,49 @@ type OpenCodeAdapter struct {
 	sessionModes map[string]SessionMode
 
 	// Track user message IDs to filter out echoed user messages from SSE.
+	// Entries have a TTL and are periodically cleaned up to prevent unbounded growth.
 	userMsgMu  sync.RWMutex
-	userMsgIDs map[string]struct{}
+	userMsgIDs map[string]time.Time // messageID -> insertion time
 }
+
+// userMsgIDTTL is how long user message IDs are retained for filtering.
+const userMsgIDTTL = 30 * time.Minute
+
+// userMsgIDCleanupInterval is how often the cleanup goroutine runs.
+const userMsgIDCleanupInterval = 5 * time.Minute
 
 // NewOpenCodeAdapter creates a new adapter pointing at the given OpenCode server URL.
 func NewOpenCodeAdapter(baseURL string) *OpenCodeAdapter {
-	return &OpenCodeAdapter{
+	a := &OpenCodeAdapter{
 		baseURL: strings.TrimRight(baseURL, "/"),
 		httpClient: &http.Client{
 			Timeout: 30 * time.Second,
 		},
 		subscribers:  make(map[chan Event]struct{}),
 		sessionModes: make(map[string]SessionMode),
-		userMsgIDs:   make(map[string]struct{}),
+		userMsgIDs:   make(map[string]time.Time),
+	}
+
+	// Start background cleanup of expired user message IDs.
+	go a.cleanupUserMsgIDs()
+
+	return a
+}
+
+// cleanupUserMsgIDs periodically removes user message IDs older than the TTL.
+func (a *OpenCodeAdapter) cleanupUserMsgIDs() {
+	ticker := time.NewTicker(userMsgIDCleanupInterval)
+	defer ticker.Stop()
+
+	for range ticker.C {
+		cutoff := time.Now().Add(-userMsgIDTTL)
+		a.userMsgMu.Lock()
+		for id, insertedAt := range a.userMsgIDs {
+			if insertedAt.Before(cutoff) {
+				delete(a.userMsgIDs, id)
+			}
+		}
+		a.userMsgMu.Unlock()
 	}
 }
 
@@ -729,7 +758,7 @@ func (a *OpenCodeAdapter) parseMessageUpdated(props json.RawMessage) []Event {
 	// Track user message IDs so we can skip their part updates
 	if msg.Role == "user" {
 		a.userMsgMu.Lock()
-		a.userMsgIDs[msg.ID] = struct{}{}
+		a.userMsgIDs[msg.ID] = time.Now()
 		a.userMsgMu.Unlock()
 		return nil
 	}

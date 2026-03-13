@@ -10,10 +10,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libsndfile1 \
     && rm -rf /var/lib/apt/lists/*
 
-# Install TTS library (Idiap maintained fork) and Flask for HTTP API
+# Install TTS library (Idiap maintained fork), Flask for HTTP API, gunicorn for production
 RUN pip install --no-cache-dir \
     TTS==0.27.5 \
     flask==3.1.0 \
+    gunicorn==23.0.0 \
     numpy
 
 # Create model cache directory
@@ -31,4 +32,4 @@ ENV TTS_PORT=5002
 
 EXPOSE 5002
 
-CMD ["python", "server.py"]
+CMD ["gunicorn", "--bind", "0.0.0.0:5002", "--timeout", "120", "--workers", "1", "server:app"]
