@@ -1,11 +1,12 @@
 package api
 
 import (
-	"encoding/json"
 	"log"
 	"net/http"
+	"sync"
 
 	"github.com/gorilla/websocket"
+	"github.com/jenpet/voilot/internal/agent"
 	"github.com/jenpet/voilot/internal/voice"
 )
 
@@ -16,14 +17,24 @@ var upgrader = websocket.Upgrader{
 	},
 }
 
-// chatMessage is the WebSocket message format for the chat endpoint.
-type chatMessage struct {
-	Type      string `json:"type"`      // "message", "command", "event"
+// chatInbound is the WebSocket message format from the client.
+type chatInbound struct {
+	Type      string `json:"type"`      // "message", "abort"
 	SessionID string `json:"sessionId"` // target session
-	Content   string `json:"content"`   // message text or command
+	Content   string `json:"content"`   // message text
+}
+
+// chatOutbound is the WebSocket message format to the client.
+type chatOutbound struct {
+	Type      string                 `json:"type"`                // "event", "command", "error"
+	SessionID string                 `json:"sessionId,omitempty"` // source session
+	Event     *agent.Event           `json:"event,omitempty"`     // agent event payload
+	Content   string                 `json:"content,omitempty"`   // for command/error
+	Meta      map[string]interface{} `json:"meta,omitempty"`
 }
 
 // handleWSChat handles WebSocket connections for real-time text chat.
+// The client sends messages; the server subscribes to SSE events and forwards them.
 func (s *Server) handleWSChat(w http.ResponseWriter, r *http.Request) {
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
@@ -32,8 +43,43 @@ func (s *Server) handleWSChat(w http.ResponseWriter, r *http.Request) {
 	}
 	defer conn.Close()
 
+	ctx := r.Context()
+
+	// Subscribe to SSE events from the agent backend
+	eventCh, err := s.agentAdapter.SubscribeEvents(ctx)
+	if err != nil {
+		log.Printf("Failed to subscribe to events: %v", err)
+		conn.WriteJSON(chatOutbound{
+			Type:    "error",
+			Content: "Failed to connect to agent: " + err.Error(),
+		})
+		return
+	}
+
+	// Write mutex for WebSocket (gorilla websocket is not safe for concurrent writes)
+	var writeMu sync.Mutex
+	writeJSON := func(msg chatOutbound) {
+		writeMu.Lock()
+		defer writeMu.Unlock()
+		if err := conn.WriteJSON(msg); err != nil {
+			log.Printf("WebSocket write error: %v", err)
+		}
+	}
+
+	// Forward SSE events to WebSocket in a goroutine
+	go func() {
+		for evt := range eventCh {
+			writeJSON(chatOutbound{
+				Type:      "event",
+				SessionID: evt.SessionID,
+				Event:     &evt,
+			})
+		}
+	}()
+
+	// Read messages from client
 	for {
-		var msg chatMessage
+		var msg chatInbound
 		if err := conn.ReadJSON(&msg); err != nil {
 			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseNormalClosure) {
 				log.Printf("WebSocket read error: %v", err)
@@ -43,36 +89,51 @@ func (s *Server) handleWSChat(w http.ResponseWriter, r *http.Request) {
 
 		switch msg.Type {
 		case "message":
-			// Route through command router first
+			if msg.SessionID == "" {
+				writeJSON(chatOutbound{
+					Type:    "error",
+					Content: "sessionId is required",
+				})
+				continue
+			}
+
+			// Route through voice command router first
 			result := voice.Route(msg.Content)
 			if result.Type == voice.CommandApp {
-				// Handle app command and send response
-				resp := chatMessage{
-					Type:    "command",
-					Content: string(result.AppCommand),
-				}
-				conn.WriteJSON(resp)
-				continue
-			}
-
-			// Forward to agent
-			events, err := s.agentAdapter.SendMessage(r.Context(), msg.SessionID, result.Text)
-			if err != nil {
-				conn.WriteJSON(chatMessage{
-					Type:    "event",
-					Content: "error: " + err.Error(),
+				writeJSON(chatOutbound{
+					Type:      "command",
+					SessionID: msg.SessionID,
+					Content:   string(result.AppCommand),
 				})
 				continue
 			}
 
-			// Stream agent events to the WebSocket
-			for event := range events {
-				data, _ := json.Marshal(event)
-				conn.WriteJSON(chatMessage{
-					Type:    "event",
-					Content: string(data),
+			// Send message asynchronously — response events come via SSE
+			if err := s.agentAdapter.SendMessageAsync(ctx, msg.SessionID, result.Text); err != nil {
+				writeJSON(chatOutbound{
+					Type:      "error",
+					SessionID: msg.SessionID,
+					Content:   "Failed to send message: " + err.Error(),
 				})
 			}
+
+		case "abort":
+			if msg.SessionID == "" {
+				continue
+			}
+			if err := s.agentAdapter.AbortSession(ctx, msg.SessionID); err != nil {
+				writeJSON(chatOutbound{
+					Type:      "error",
+					SessionID: msg.SessionID,
+					Content:   "Failed to abort: " + err.Error(),
+				})
+			}
+
+		default:
+			writeJSON(chatOutbound{
+				Type:    "error",
+				Content: "Unknown message type: " + msg.Type,
+			})
 		}
 	}
 }
@@ -96,6 +157,11 @@ func (s *Server) handleWSVoice(w http.ResponseWriter, r *http.Request) {
 	// 6. Send audio chunks back to client
 
 	log.Println("Voice WebSocket connected — pipeline not yet implemented")
+
+	conn.WriteJSON(map[string]string{
+		"type":    "error",
+		"content": "Voice pipeline not yet implemented",
+	})
 
 	// Keep connection alive until closed
 	for {

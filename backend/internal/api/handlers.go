@@ -145,6 +145,15 @@ func (s *Server) handleTTSVoices(w http.ResponseWriter, r *http.Request) {
 	jsonResponse(w, http.StatusOK, voices)
 }
 
+func (s *Server) handleAbortSession(w http.ResponseWriter, r *http.Request) {
+	id := mux.Vars(r)["id"]
+	if err := s.agentAdapter.AbortSession(r.Context(), id); err != nil {
+		jsonError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func (s *Server) handleSTTTranscribe(w http.ResponseWriter, r *http.Request) {
 	if s.sttProvider == nil {
 		jsonError(w, http.StatusServiceUnavailable, "STT not configured")

@@ -13,16 +13,32 @@ const (
 )
 
 // Session represents an active conversation with an agent.
+// Aligned with OpenCode's Session type.
 type Session struct {
-	ID    string      `json:"id"`
-	Title string      `json:"title,omitempty"`
-	Mode  SessionMode `json:"mode"`
+	ID        string      `json:"id"`
+	Title     string      `json:"title,omitempty"`
+	Mode      SessionMode `json:"mode,omitempty"`
+	ProjectID string      `json:"projectId,omitempty"`
+	Time      *TimeInfo   `json:"time,omitempty"`
+}
+
+// TimeInfo tracks creation/update timestamps.
+type TimeInfo struct {
+	Created int64 `json:"created,omitempty"`
+	Updated int64 `json:"updated,omitempty"`
 }
 
 // SessionOptions configures a new session.
 type SessionOptions struct {
-	Title string      `json:"title,omitempty"`
-	Mode  SessionMode `json:"mode"`
+	Title    string      `json:"title,omitempty"`
+	Mode     SessionMode `json:"mode,omitempty"`
+	ParentID string      `json:"parentID,omitempty"`
+}
+
+// MessagePart represents one part of a message to send.
+type MessagePart struct {
+	Type string `json:"type"` // "text", "file"
+	Text string `json:"text,omitempty"`
 }
 
 // Status reports the health and identity of an agent backend.
@@ -30,6 +46,7 @@ type Status struct {
 	Connected bool   `json:"connected"`
 	Provider  string `json:"provider"` // e.g. "opencode", "claude"
 	Model     string `json:"model,omitempty"`
+	Version   string `json:"version,omitempty"`
 }
 
 // Adapter defines the interface that all agent backends must implement.
@@ -51,6 +68,17 @@ type Adapter interface {
 	// The channel is closed when the response is complete.
 	SendMessage(ctx context.Context, sessionID string, message string) (<-chan Event, error)
 
+	// SendMessageAsync sends a message without waiting for a response.
+	// Events arrive via the SSE stream.
+	SendMessageAsync(ctx context.Context, sessionID string, message string) error
+
+	// AbortSession aborts a running session.
+	AbortSession(ctx context.Context, sessionID string) error
+
 	// GetStatus returns the current connection status of the agent backend.
 	GetStatus(ctx context.Context) (*Status, error)
+
+	// SubscribeEvents returns a channel that receives all SSE events from the agent.
+	// The channel is closed when the context is cancelled or the connection drops.
+	SubscribeEvents(ctx context.Context) (<-chan Event, error)
 }

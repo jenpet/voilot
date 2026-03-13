@@ -51,6 +51,9 @@ func (s *Server) registerRoutes() {
 	// Messages (REST fallback for non-WebSocket clients)
 	api.HandleFunc("/sessions/{id}/message", s.handleSendMessage).Methods("POST")
 
+	// Session control
+	api.HandleFunc("/sessions/{id}/abort", s.handleAbortSession).Methods("POST")
+
 	// TTS
 	api.HandleFunc("/tts/synthesize", s.handleTTSSynthesize).Methods("POST")
 	api.HandleFunc("/tts/voices", s.handleTTSVoices).Methods("GET")
