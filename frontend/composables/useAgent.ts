@@ -1,5 +1,6 @@
 import type { Session } from './useSession'
 import type { AgentEvent } from './useWebSocket'
+import { filterForTTS } from './useTTSFilter'
 
 export interface Message {
   id: string
@@ -19,15 +20,19 @@ export function useAgent(sessionId: string) {
   const config = useRuntimeConfig()
   const apiBase = `${config.public.backendUrl}/api`
   const { send, subscribe, connectionState } = useWebSocket()
+  const { enqueue: enqueueTTS, stop: stopTTS } = useTTS()
 
   const session = ref<Session | null>(null)
   const messages = ref<Message[]>([])
   const isStreaming = ref(false)
+  const voiceEnabled = ref(false)
 
   // Track the current assistant message being streamed
   let currentAssistantId: string | null = null
   // Track which partId maps to which text so far (for delta accumulation)
   const partContents = new Map<string, string>()
+  // Buffer for TTS: accumulate text events, speak when done
+  let ttsTextBuffer = ''
 
   // Fetch session details via REST
   async function fetchSession() {
@@ -60,6 +65,14 @@ export function useAgent(sessionId: string) {
   })
 
   function handleAgentEvent(event: AgentEvent) {
+    // Feed non-text events through TTS filter immediately
+    if (voiceEnabled.value && event.type !== 'text' && event.type !== 'done' && event.type !== 'status') {
+      const filtered = filterForTTS(event)
+      if (filtered.shouldSpeak) {
+        enqueueTTS(filtered.textForTTS)
+      }
+    }
+
     switch (event.type) {
       case 'text':
         handleTextEvent(event)
@@ -107,9 +120,12 @@ export function useAgent(sessionId: string) {
       const existing = partContents.get(partId) || ''
       const updated = existing + event.delta
       partContents.set(partId, updated)
+      // Accumulate for TTS
+      ttsTextBuffer += event.delta
     } else if (event.content) {
       // Full content replacement
       partContents.set(partId, event.content)
+      ttsTextBuffer = event.content
     }
 
     // Rebuild the full assistant message from all parts
@@ -154,6 +170,11 @@ export function useAgent(sessionId: string) {
   }
 
   function finishStreaming() {
+    // Flush accumulated text to TTS when streaming completes
+    if (voiceEnabled.value && ttsTextBuffer.trim()) {
+      enqueueTTS(ttsTextBuffer.trim())
+    }
+    ttsTextBuffer = ''
     isStreaming.value = false
     currentAssistantId = null
     partContents.clear()
@@ -182,10 +203,20 @@ export function useAgent(sessionId: string) {
 
   // Abort the current session
   function abortSession() {
+    stopTTS() // Stop any ongoing TTS playback
+    ttsTextBuffer = ''
     send({
       type: 'abort',
       sessionId,
     })
+  }
+
+  // Toggle voice mode (TTS for agent responses)
+  function toggleVoice() {
+    voiceEnabled.value = !voiceEnabled.value
+    if (!voiceEnabled.value) {
+      stopTTS()
+    }
   }
 
   // Toggle between plan and implement mode
@@ -222,9 +253,11 @@ export function useAgent(sessionId: string) {
     session: readonly(session),
     messages,
     isStreaming: readonly(isStreaming),
+    voiceEnabled: readonly(voiceEnabled),
     connectionState,
     sendMessage,
     abortSession,
     toggleMode,
+    toggleVoice,
   }
 }

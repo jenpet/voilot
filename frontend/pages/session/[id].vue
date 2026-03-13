@@ -24,6 +24,17 @@
         </div>
         <ModeToggle :mode="session?.mode || 'plan'" @toggle="toggleMode" />
       </div>
+      <!-- Voice toggle -->
+      <button
+        class="px-3 py-1.5 text-xs rounded-lg transition-colors"
+        :class="voiceEnabled
+          ? 'bg-purple-600/30 text-purple-300 hover:bg-purple-600/40'
+          : 'bg-surface-700 text-surface-400 hover:bg-surface-600'"
+        :title="voiceEnabled ? 'Voice output ON' : 'Voice output OFF'"
+        @click="toggleVoice"
+      >
+        {{ voiceEnabled ? 'Voice ON' : 'Voice OFF' }}
+      </button>
       <!-- Abort button (visible when streaming) -->
       <button
         v-if="isStreaming"
@@ -77,10 +88,12 @@ const {
   session,
   messages,
   isStreaming,
+  voiceEnabled,
   connectionState,
   sendMessage,
   abortSession,
   toggleMode,
+  toggleVoice,
 } = useAgent(sessionId)
 
 const inputText = ref('')
