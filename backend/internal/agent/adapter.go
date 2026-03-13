@@ -66,6 +66,17 @@ type Status struct {
 	Version   string `json:"version,omitempty"`
 }
 
+// HistoryMessage is a simplified message for displaying session history.
+// It combines data from the OpenCode message info and parts into a flat structure.
+type HistoryMessage struct {
+	ID        string                 `json:"id"`
+	Role      string                 `json:"role"` // "user" or "assistant"
+	Content   string                 `json:"content"`
+	Timestamp int64                  `json:"timestamp"`
+	Type      string                 `json:"type,omitempty"` // "text", "tool_use", etc.
+	Meta      map[string]interface{} `json:"meta,omitempty"`
+}
+
 // Adapter defines the interface that all agent backends must implement.
 // The first implementation will be OpenCode; Claude Agent SDK comes later.
 type Adapter interface {
@@ -80,6 +91,9 @@ type Adapter interface {
 
 	// DeleteSession removes a session.
 	DeleteSession(ctx context.Context, id string) error
+
+	// GetMessages retrieves the message history for a session.
+	GetMessages(ctx context.Context, sessionID string) ([]HistoryMessage, error)
 
 	// SendMessage sends a user message and returns a channel of streaming events.
 	// The channel is closed when the response is complete.

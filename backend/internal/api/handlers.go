@@ -82,6 +82,16 @@ func (s *Server) handleGetSession(w http.ResponseWriter, r *http.Request) {
 	jsonResponse(w, http.StatusOK, session)
 }
 
+func (s *Server) handleGetSessionMessages(w http.ResponseWriter, r *http.Request) {
+	id := mux.Vars(r)["id"]
+	messages, err := s.agentAdapter.GetMessages(r.Context(), id)
+	if err != nil {
+		jsonError(w, http.StatusInternalServerError, "failed to get messages: "+err.Error())
+		return
+	}
+	jsonResponse(w, http.StatusOK, messages)
+}
+
 func (s *Server) handleSetSessionMode(w http.ResponseWriter, r *http.Request) {
 	id := mux.Vars(r)["id"]
 

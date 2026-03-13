@@ -243,6 +243,94 @@ func (a *OpenCodeAdapter) ResumeSession(ctx context.Context, id string) (*Sessio
 	return &session, nil
 }
 
+// openCodeMessageResponse is the JSON shape of a message from OpenCode's /session/:id/message endpoint.
+type openCodeMessageResponse struct {
+	Info struct {
+		ID   string `json:"id"`
+		Role string `json:"role"`
+		Time struct {
+			Created   int64 `json:"created"`
+			Completed int64 `json:"completed,omitempty"`
+		} `json:"time"`
+	} `json:"info"`
+	Parts []struct {
+		Type      string `json:"type"`
+		Text      string `json:"text,omitempty"`
+		MessageID string `json:"messageID,omitempty"`
+	} `json:"parts"`
+}
+
+func (a *OpenCodeAdapter) GetMessages(ctx context.Context, sessionID string) ([]HistoryMessage, error) {
+	resp, err := a.doRequest(ctx, "GET", "/session/"+sessionID+"/message", nil)
+	if err != nil {
+		return nil, err
+	}
+
+	ocMessages, err := decodeResponse[[]openCodeMessageResponse](resp)
+	if err != nil {
+		return nil, err
+	}
+
+	var messages []HistoryMessage
+	for _, ocMsg := range ocMessages {
+		role := ocMsg.Info.Role
+		timestamp := ocMsg.Info.Time.Created
+
+		switch role {
+		case "user":
+			// Extract text from parts, stripping the plan mode system prompt prefix
+			var textParts []string
+			for _, part := range ocMsg.Parts {
+				if part.Type == "text" && part.Text != "" {
+					text := part.Text
+					if strings.HasPrefix(text, PlanModeSystemPrompt) {
+						text = strings.TrimPrefix(text, PlanModeSystemPrompt)
+					}
+					textParts = append(textParts, text)
+				}
+			}
+			if len(textParts) > 0 {
+				messages = append(messages, HistoryMessage{
+					ID:        ocMsg.Info.ID,
+					Role:      "user",
+					Content:   strings.Join(textParts, "\n"),
+					Timestamp: timestamp,
+				})
+			}
+		case "assistant":
+			// Extract text parts; skip step-start, step-finish, and other non-content parts
+			var textParts []string
+			for _, part := range ocMsg.Parts {
+				switch part.Type {
+				case "text":
+					if part.Text != "" {
+						textParts = append(textParts, part.Text)
+					}
+				case "tool":
+					// Include tool use as a separate message
+					messages = append(messages, HistoryMessage{
+						ID:        part.MessageID + "-" + part.Type,
+						Role:      "assistant",
+						Content:   part.Text,
+						Timestamp: timestamp,
+						Type:      "tool_use",
+					})
+				}
+			}
+			if len(textParts) > 0 {
+				messages = append(messages, HistoryMessage{
+					ID:        ocMsg.Info.ID,
+					Role:      "assistant",
+					Content:   strings.Join(textParts, "\n"),
+					Timestamp: timestamp,
+				})
+			}
+		}
+	}
+
+	return messages, nil
+}
+
 func (a *OpenCodeAdapter) DeleteSession(ctx context.Context, id string) error {
 	resp, err := a.doRequest(ctx, "DELETE", "/session/"+id, nil)
 	if err != nil {

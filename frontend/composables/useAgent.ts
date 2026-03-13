@@ -45,6 +45,36 @@ export function useAgent(sessionId: string) {
     }
   }
 
+  // Fetch existing message history from the backend
+  async function fetchMessages() {
+    try {
+      interface HistoryMessage {
+        id: string
+        role: 'user' | 'assistant'
+        content: string
+        timestamp: number
+        type?: string
+        meta?: Record<string, unknown>
+      }
+      const data = await $fetch<HistoryMessage[]>(`${apiBase}/sessions/${sessionId}/messages`)
+      if (data && data.length > 0) {
+        // Only load history if we don't already have messages (avoid duplicates on reconnect)
+        if (messages.value.length === 0) {
+          messages.value = data.map(m => ({
+            id: m.id,
+            role: m.role,
+            content: m.content,
+            timestamp: m.timestamp,
+            type: m.type as AgentEvent['type'] | undefined,
+            meta: m.meta,
+          }))
+        }
+      }
+    } catch {
+      console.error('Failed to fetch message history')
+    }
+  }
+
   // Handle incoming WebSocket messages
   const unsubscribe = subscribe((msg) => {
     // Only handle events for this session
@@ -278,6 +308,7 @@ export function useAgent(sessionId: string) {
 
   // Initialize
   fetchSession()
+  fetchMessages()
 
   // Cleanup on scope dispose
   onScopeDispose(() => {
