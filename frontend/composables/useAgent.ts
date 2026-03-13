@@ -20,7 +20,7 @@ export function useAgent(sessionId: string) {
   const config = useRuntimeConfig()
   const apiBase = `${config.public.backendUrl}/api`
   const { send, subscribe, connectionState } = useWebSocket()
-  const { enqueue: enqueueTTS, stop: stopTTS } = useTTS()
+  const { enqueue: enqueueTTS, stop: stopTTS, isPlaying: isTTSPlaying } = useTTS()
   const { mark, isActive: isTimerActive } = useRoundTripTimer()
 
   const session = ref<Session | null>(null)
@@ -288,6 +288,7 @@ export function useAgent(sessionId: string) {
     session: readonly(session),
     messages,
     isStreaming: readonly(isStreaming),
+    isTTSPlaying,
     voiceEnabled: readonly(voiceEnabled),
     connectionState,
     sendMessage,

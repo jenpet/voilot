@@ -35,14 +35,6 @@
       >
         {{ voiceEnabled ? 'Voice ON' : 'Voice OFF' }}
       </button>
-      <!-- Abort button (visible when streaming) -->
-      <button
-        v-if="isStreaming"
-        class="px-3 py-1.5 text-xs rounded-lg bg-red-600/20 text-red-400 hover:bg-red-600/30 transition-colors"
-        @click="abortSession"
-      >
-        Stop
-      </button>
     </header>
 
     <!-- Chat Messages -->
@@ -58,25 +50,39 @@
     <!-- Input Area -->
     <div class="border-t border-surface-700 bg-surface-800 p-4">
       <div class="flex items-end gap-3 max-w-2xl mx-auto">
-        <textarea
-          ref="inputRef"
-          v-model="inputText"
-          class="flex-1 bg-surface-700 rounded-xl px-4 py-3 text-sm resize-none outline-none focus:ring-2 focus:ring-blue-500/50 placeholder-surface-400"
-          :rows="1"
-          placeholder="Type a message or hold the mic to speak..."
-          @keydown.enter.exact.prevent="handleSend"
-        />
-        <VoiceButton
-          class="flex-shrink-0"
-          @transcription="handleTranscription"
-        />
-        <button
-          class="flex-shrink-0 p-3 rounded-xl bg-blue-600 hover:bg-blue-500 transition-colors disabled:opacity-50"
-          :disabled="!inputText.trim() || isStreaming"
-          @click="handleSend"
-        >
-          <span class="text-sm">Send</span>
-        </button>
+        <template v-if="isBusy">
+          <!-- Stop button — replaces input row when agent is streaming or TTS is playing -->
+          <button
+            class="flex-1 p-3 rounded-xl bg-red-600 hover:bg-red-500 active:bg-red-700 transition-colors text-white font-medium text-sm flex items-center justify-center gap-2"
+            @click="abortSession"
+          >
+            <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+              <rect x="6" y="6" width="12" height="12" rx="2" />
+            </svg>
+            Stop
+          </button>
+        </template>
+        <template v-else>
+          <textarea
+            ref="inputRef"
+            v-model="inputText"
+            class="flex-1 bg-surface-700 rounded-xl px-4 py-3 text-sm resize-none outline-none focus:ring-2 focus:ring-blue-500/50 placeholder-surface-400"
+            :rows="1"
+            placeholder="Type a message or tap the mic..."
+            @keydown.enter.exact.prevent="handleSend"
+          />
+          <VoiceButton
+            class="flex-shrink-0"
+            @transcription="handleTranscription"
+          />
+          <button
+            class="flex-shrink-0 p-3 rounded-xl bg-blue-600 hover:bg-blue-500 transition-colors disabled:opacity-50"
+            :disabled="!inputText.trim()"
+            @click="handleSend"
+          >
+            <span class="text-sm">Send</span>
+          </button>
+        </template>
       </div>
     </div>
   </div>
@@ -91,6 +97,7 @@ const {
   session,
   messages,
   isStreaming,
+  isTTSPlaying,
   voiceEnabled,
   connectionState,
   sendMessage,
@@ -98,6 +105,8 @@ const {
   toggleMode,
   toggleVoice,
 } = useAgent(sessionId)
+
+const isBusy = computed(() => isStreaming.value || isTTSPlaying.value)
 
 const inputText = ref('')
 const inputRef = ref<HTMLTextAreaElement>()

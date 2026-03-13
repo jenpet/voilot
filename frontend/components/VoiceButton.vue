@@ -3,28 +3,38 @@
     <button
       class="p-3 rounded-xl transition-all select-none"
       :class="buttonClasses"
-      :title="isRecording ? 'Release to send' : 'Hold to speak'"
-      @mousedown="startRecording"
-      @mouseup="stopRecording"
-      @mouseleave="stopRecording"
-      @touchstart.prevent="startRecording"
-      @touchend.prevent="stopRecording"
+      :title="isRecording ? 'Tap to stop & send' : 'Tap to speak'"
+      @click="toggle"
     >
+      <!-- Audio level ring (shown while recording) -->
+      <div
+        v-if="isRecording"
+        class="absolute inset-0 rounded-xl border-2 border-red-400 transition-opacity"
+        :style="{ opacity: Math.min(audioLevel / 40, 1) }"
+      />
       <svg
-        class="w-5 h-5"
+        class="w-5 h-5 relative"
         fill="none"
         stroke="currentColor"
         viewBox="0 0 24 24"
       >
         <path
+          v-if="!isRecording"
           stroke-linecap="round"
           stroke-linejoin="round"
           stroke-width="2"
           d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"
         />
+        <!-- Stop square icon when recording -->
+        <rect
+          v-else
+          x="6" y="6" width="12" height="12" rx="2"
+          fill="currentColor"
+          stroke="none"
+        />
       </svg>
     </button>
-    <!-- Recording indicator -->
+    <!-- Recording indicator dot -->
     <span
       v-if="isRecording"
       class="absolute -top-1 -right-1 flex h-3 w-3"
@@ -47,12 +57,16 @@ const emit = defineEmits<{
   transcription: [text: string]
 }>()
 
-const { isRecording, startRecording: doStart, stopRecording: doStop } = useVoice()
+const { isRecording, audioLevel, startRecording: doStart, stopRecording: doStop, setOnAutoStop } = useVoice()
 
 const statusText = ref('')
+const isProcessing = ref(false)
 let statusTimeout: ReturnType<typeof setTimeout> | null = null
 
 const buttonClasses = computed(() => {
+  if (isProcessing.value) {
+    return 'bg-amber-600/50 cursor-wait opacity-70'
+  }
   if (isRecording.value) {
     return 'bg-red-600 hover:bg-red-500 animate-pulse scale-110'
   }
@@ -62,26 +76,45 @@ const buttonClasses = computed(() => {
 function showStatus(text: string, duration = 2000) {
   statusText.value = text
   if (statusTimeout) clearTimeout(statusTimeout)
-  statusTimeout = setTimeout(() => { statusText.value = '' }, duration)
-}
-
-async function startRecording() {
-  statusText.value = ''
-  await doStart()
-  if (isRecording.value) {
-    showStatus('Recording...', 10000)
+  if (duration > 0) {
+    statusTimeout = setTimeout(() => { statusText.value = '' }, duration)
   }
 }
 
-async function stopRecording() {
-  if (!isRecording.value) return
-  showStatus('Transcribing...', 10000)
-  const text = await doStop()
-  if (text) {
-    showStatus('', 0)
-    emit('transcription', text)
+// Wire up auto-stop from silence detection
+setOnAutoStop(() => {
+  if (isRecording.value && !isProcessing.value) {
+    finishRecording()
+  }
+})
+
+async function finishRecording() {
+  isProcessing.value = true
+  showStatus('Transcribing...', 0)
+  try {
+    const text = await doStop()
+    if (text) {
+      showStatus('', 0)
+      emit('transcription', text)
+    } else {
+      showStatus('No speech detected', 2000)
+    }
+  } finally {
+    isProcessing.value = false
+  }
+}
+
+async function toggle() {
+  if (isProcessing.value) return
+
+  if (isRecording.value) {
+    await finishRecording()
   } else {
-    showStatus('No speech detected', 2000)
+    statusText.value = ''
+    await doStart()
+    if (isRecording.value) {
+      showStatus('Listening...', 0)
+    }
   }
 }
 </script>
