@@ -1,0 +1,13 @@
+# Dependencies
+node_modules/
+
+# Nuxt build output
+.nuxt/
+.output/
+
+# Go binary
+backend/server
+
+# Environment
+.env
+.env.local

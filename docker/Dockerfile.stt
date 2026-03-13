@@ -1,0 +1,33 @@
+# faster-whisper STT service
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# System dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ffmpeg \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install faster-whisper and HTTP server
+RUN pip install --no-cache-dir \
+    faster-whisper==1.1.1 \
+    flask==3.1.0 \
+    gunicorn==23.0.0
+
+# Create model cache directory
+RUN mkdir -p /app/models
+
+# Pre-download the base model (cached in image)
+RUN python -c "from faster_whisper import WhisperModel; WhisperModel('base', device='cpu', compute_type='int8')" || true
+
+# Copy server script
+COPY docker/stt-server.py /app/server.py
+
+ENV WHISPER_MODEL=base
+ENV WHISPER_DEVICE=cpu
+ENV WHISPER_COMPUTE_TYPE=int8
+ENV STT_PORT=5003
+
+EXPOSE 5003
+
+CMD ["gunicorn", "--bind", "0.0.0.0:5003", "--timeout", "120", "--workers", "1", "server:app"]

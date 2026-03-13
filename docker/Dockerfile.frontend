@@ -1,0 +1,30 @@
+# Build stage: generate static frontend
+FROM node:20-alpine AS builder
+
+WORKDIR /app
+
+# Copy package files for caching
+COPY frontend/package.json frontend/package-lock.json ./
+RUN npm ci
+
+# Copy source
+COPY frontend/ ./
+
+# Generate static site
+RUN npx nuxt generate
+
+# Runtime stage: serve with nginx
+FROM nginx:1.27-alpine
+
+# Remove default nginx config
+RUN rm /etc/nginx/conf.d/default.conf
+
+# Copy custom nginx config
+COPY docker/nginx.conf /etc/nginx/conf.d/voilot.conf
+
+# Copy built static files
+COPY --from=builder /app/.output/public /usr/share/nginx/html
+
+EXPOSE 80
+
+CMD ["nginx", "-g", "daemon off;"]

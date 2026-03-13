@@ -1,0 +1,34 @@
+# Coqui TTS with XTTSv2
+# Based on the official coqui-ai TTS Docker setup
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# System dependencies for audio processing
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ffmpeg \
+    libsndfile1 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install TTS library (Idiap maintained fork) and Flask for HTTP API
+RUN pip install --no-cache-dir \
+    TTS==0.27.5 \
+    flask==3.1.0 \
+    numpy
+
+# Create model cache directory
+RUN mkdir -p /app/models
+
+# Download XTTSv2 model on build (cached in image)
+# This avoids downloading on every container start
+RUN python -c "from TTS.api import TTS; TTS('tts_models/multilingual/multi-dataset/xtts_v2')" || true
+
+# Copy server script
+COPY docker/tts-server.py /app/server.py
+
+ENV TTS_MODEL=tts_models/multilingual/multi-dataset/xtts_v2
+ENV TTS_PORT=5002
+
+EXPOSE 5002
+
+CMD ["python", "server.py"]
