@@ -11,6 +11,9 @@
 #   docker compose --profile voice up     # Start all services including TTS/STT
 #   docker compose up --build             # Rebuild and start
 #
+# HTTPS is available on port 3443 (self-signed cert, accept browser warning).
+# Required for mobile mic access over LAN: https://<lan-ip>:3443
+#
 # Voice profile: When using --profile voice, set TTS/STT URLs so the backend
 # can reach the sidecar services:
 #   TTS_URL=http://tts:8880 STT_URL=http://stt:5003 docker compose --profile voice up
@@ -23,6 +26,7 @@ services:
       dockerfile: docker/Dockerfile.frontend
     ports:
       - "${VOILOT_PORT:-3000}:80"
+      - "${VOILOT_HTTPS_PORT:-3443}:443"
     depends_on:
       backend:
         condition: service_started
