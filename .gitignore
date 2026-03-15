@@ -12,3 +12,6 @@ backend/main
 # Environment
 .env
 .env.local
+
+# Extracted CA certificate (generated per-build, install on mobile devices)
+voilot-ca.crt

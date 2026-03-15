@@ -11,8 +11,13 @@
 #   docker compose --profile voice up     # Start all services including TTS/STT
 #   docker compose up --build             # Rebuild and start
 #
-# HTTPS is available on port 3443 (self-signed cert, accept browser warning).
-# Required for mobile mic access over LAN: https://<lan-ip>:3443
+# HTTPS is available on port 3443 (CA-signed cert for mobile mic access).
+# Set VOILOT_TLS_SAN to your LAN IP so the cert is trusted after installing the CA:
+#   VOILOT_TLS_SAN=IP:192.168.178.93 docker compose up
+#
+# To install the CA on your mobile device (one-time setup):
+#   docker cp docker-frontend-1:/etc/nginx/ssl/ca.crt ./voilot-ca.crt
+#   # Then AirDrop/share to phone and install as trusted certificate
 #
 # Voice profile: When using --profile voice, set TTS/STT URLs so the backend
 # can reach the sidecar services:
@@ -24,6 +29,8 @@ services:
     build:
       context: ..
       dockerfile: docker/Dockerfile.frontend
+    environment:
+      - VOILOT_TLS_SAN=${VOILOT_TLS_SAN:-}
     ports:
       - "${VOILOT_PORT:-3000}:80"
       - "${VOILOT_HTTPS_PORT:-3443}:443"
