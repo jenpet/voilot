@@ -24,8 +24,22 @@
         </div>
         <ModeToggle :mode="session?.mode || 'plan'" @toggle="toggleMode" />
       </div>
-      <!-- Voice toggle -->
+      <!-- Contextual voice button: Stop when TTS playing, otherwise Voice ON/OFF -->
       <button
+        v-if="voiceEnabled && isTTSPlaying"
+        class="px-3 py-1.5 text-xs rounded-lg transition-colors bg-red-600/30 text-red-300 hover:bg-red-600/50"
+        title="Stop playback"
+        @click="stopTTS"
+      >
+        <span class="flex items-center gap-1">
+          <svg class="w-3 h-3" fill="currentColor" viewBox="0 0 24 24">
+            <rect x="6" y="6" width="12" height="12" rx="2" />
+          </svg>
+          Stop
+        </span>
+      </button>
+      <button
+        v-else
         class="px-3 py-1.5 text-xs rounded-lg transition-colors"
         :class="voiceEnabled
           ? 'bg-purple-600/30 text-purple-300 hover:bg-purple-600/40'
@@ -50,8 +64,8 @@
     <!-- Input Area -->
     <div class="border-t border-surface-700 bg-surface-800 p-4">
       <div class="flex items-end gap-3 max-w-2xl mx-auto">
-        <template v-if="isBusy">
-          <!-- Stop button — replaces input row when agent is streaming or TTS is playing -->
+        <template v-if="isBusy && !isRecording">
+          <!-- Stop button — replaces input row when agent is streaming or TTS is playing (but not if user is recording) -->
           <button
             class="flex-1 p-3 rounded-xl bg-red-600 hover:bg-red-500 active:bg-red-700 transition-colors text-white font-medium text-sm flex items-center justify-center gap-2"
             @click="abortSession"
@@ -98,10 +112,12 @@ const {
   messages,
   isStreaming,
   isTTSPlaying,
+  isRecording,
   voiceEnabled,
   connectionState,
   sendMessage,
   abortSession,
+  stopTTS,
   toggleMode,
   toggleVoice,
 } = useAgent(sessionId)

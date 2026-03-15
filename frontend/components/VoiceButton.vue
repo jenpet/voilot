@@ -6,10 +6,11 @@
       :title="isRecording ? 'Tap to stop & send' : 'Tap to speak'"
       @click="toggle"
     >
-      <!-- Audio level ring (shown while recording) -->
+      <!-- Audio level ring (shown while recording or monitoring) -->
       <div
-        v-if="isRecording"
-        class="absolute inset-0 rounded-xl border-2 border-red-400 transition-opacity"
+        v-if="isRecording || isMonitoring"
+        class="absolute inset-0 rounded-xl border-2 transition-opacity"
+        :class="isRecording ? 'border-red-400' : 'border-purple-400'"
         :style="{ opacity: Math.min(audioLevel / 40, 1) }"
       />
       <svg
@@ -42,6 +43,13 @@
       <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75" />
       <span class="relative inline-flex rounded-full h-3 w-3 bg-red-500" />
     </span>
+    <!-- Monitoring indicator dot (purple, no ping) -->
+    <span
+      v-else-if="isMonitoring"
+      class="absolute -top-1 -right-1 flex h-3 w-3"
+    >
+      <span class="relative inline-flex rounded-full h-3 w-3 bg-purple-500" />
+    </span>
     <!-- Status text -->
     <span
       v-if="statusText"
@@ -57,7 +65,13 @@ const emit = defineEmits<{
   transcription: [text: string]
 }>()
 
-const { isRecording, audioLevel, startRecording: doStart, stopRecording: doStop, setOnAutoStop } = useVoice()
+const {
+  isRecording,
+  isMonitoring,
+  audioLevel,
+  startRecording: doStart,
+  stopRecording: doStop,
+} = useVoice()
 
 const statusText = ref('')
 const isProcessing = ref(false)
@@ -81,10 +95,14 @@ function showStatus(text: string, duration = 2000) {
   }
 }
 
-// Wire up auto-stop from silence detection
-setOnAutoStop(() => {
-  if (isRecording.value && !isProcessing.value) {
-    finishRecording()
+// Watch for external recording state changes (e.g., interrupt flow started/stopped recording)
+watch(isRecording, (recording) => {
+  if (recording && !isProcessing.value) {
+    // Recording started externally (interrupt flow) — show listening status
+    showStatus('Listening...', 0)
+  } else if (!recording && !isProcessing.value) {
+    // Recording stopped externally (auto-stop in useAgent) — clear status
+    showStatus('', 0)
   }
 })
 

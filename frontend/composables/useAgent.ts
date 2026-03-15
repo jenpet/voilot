@@ -22,6 +22,16 @@ export function useAgent(sessionId: string) {
   const { send, subscribe, connectionState } = useWebSocket()
   const { enqueue: enqueueTTS, stop: stopTTS, isPlaying: isTTSPlaying } = useTTS()
   const { mark, isActive: isTimerActive } = useRoundTripTimer()
+  const {
+    isRecording,
+    isMonitoring,
+    startMonitoring,
+    stopMonitoring,
+    startRecordingFromMonitor,
+    stopRecording,
+    setOnSpeechDetected,
+    setOnAutoStop,
+  } = useVoice()
 
   const session = ref<Session | null>(null)
   const messages = ref<Message[]>([])
@@ -34,6 +44,61 @@ export function useAgent(sessionId: string) {
   const partContents = new Map<string, string>()
   // Buffer for TTS: accumulate text events, speak when done
   let ttsTextBuffer = ''
+
+  // Flag to track if we're in an interrupt-triggered recording
+  let interruptRecordingActive = false
+
+  // ─── Voice Interrupt Flow ───────────────────────────────────────
+  //
+  // When voice is ON and TTS is playing:
+  //   1. Start mic monitoring (no recording, just listening for speech)
+  //   2. On sustained speech detection → stop TTS, start recording from monitor
+  //   3. Silence detection auto-stops recording → STT → send to agent
+  //   4. Agent responds → TTS plays → back to step 1
+
+  // Called when monitoring detects sustained speech during TTS playback
+  setOnSpeechDetected(async () => {
+    if (!voiceEnabled.value) return
+
+    // Stop TTS playback and clear queue
+    stopTTS()
+    ttsTextBuffer = ''
+
+    // Seamlessly transition from monitoring to recording
+    interruptRecordingActive = true
+    await startRecordingFromMonitor()
+  })
+
+  // Handle auto-stop from silence detection during interrupt recording
+  setOnAutoStop(async () => {
+    if (!isRecording.value) return
+
+    // Stop recording, transcribe, and send
+    const text = await stopRecording()
+    interruptRecordingActive = false
+
+    if (text) {
+      sendMessage(text)
+    }
+  })
+
+  // Watch TTS playback state to start/stop monitoring
+  watch(isTTSPlaying, (playing) => {
+    if (playing && voiceEnabled.value && !isRecording.value) {
+      // TTS started playing — start monitoring for voice interrupt
+      startMonitoring()
+    } else if (!playing && isMonitoring.value) {
+      // TTS stopped — stop monitoring (no longer need interrupt detection)
+      stopMonitoring()
+    }
+  })
+
+  // Watch voice toggle — clean up monitoring when voice is turned off
+  watch(() => voiceEnabled.value, (enabled) => {
+    if (!enabled) {
+      stopMonitoring()
+    }
+  })
 
   // Fetch session details via REST
   async function fetchSession() {
@@ -253,6 +318,7 @@ export function useAgent(sessionId: string) {
   // Abort the current session
   function abortSession() {
     stopTTS() // Stop any ongoing TTS playback
+    stopMonitoring() // Stop mic monitoring if active
     ttsTextBuffer = ''
     send({
       type: 'abort',
@@ -265,6 +331,7 @@ export function useAgent(sessionId: string) {
     voiceEnabled.value = !voiceEnabled.value
     if (!voiceEnabled.value) {
       stopTTS()
+      stopMonitoring()
     }
   }
 
@@ -313,6 +380,7 @@ export function useAgent(sessionId: string) {
   // Cleanup on scope dispose
   onScopeDispose(() => {
     unsubscribe()
+    stopMonitoring()
   })
 
   return {
@@ -320,10 +388,13 @@ export function useAgent(sessionId: string) {
     messages,
     isStreaming: readonly(isStreaming),
     isTTSPlaying,
+    isRecording,
+    isMonitoring,
     voiceEnabled: readonly(voiceEnabled),
     connectionState,
     sendMessage,
     abortSession,
+    stopTTS,
     toggleMode,
     toggleVoice,
   }
