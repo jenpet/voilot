@@ -45,7 +45,7 @@
           ? 'bg-purple-600/30 text-purple-300 hover:bg-purple-600/40'
           : 'bg-surface-700 text-surface-400 hover:bg-surface-600'"
         :title="voiceEnabled ? 'Voice output ON' : 'Voice output OFF'"
-        @click="toggleVoice"
+        @click="unlockAudio(); toggleVoice()"
       >
         {{ voiceEnabled ? 'Voice ON' : 'Voice OFF' }}
       </button>
@@ -103,6 +103,8 @@
 </template>
 
 <script setup lang="ts">
+import { unlockAudio } from '~/composables/useTTS'
+
 const route = useRoute()
 const router = useRouter()
 const sessionId = route.params.id as string

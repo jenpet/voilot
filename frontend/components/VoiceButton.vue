@@ -53,7 +53,8 @@
     <!-- Status text -->
     <span
       v-if="statusText"
-      class="absolute -top-8 left-1/2 -translate-x-1/2 whitespace-nowrap text-xs px-2 py-0.5 rounded bg-surface-700 text-surface-300"
+      class="absolute -top-8 left-1/2 -translate-x-1/2 whitespace-nowrap text-xs px-2 py-0.5 rounded"
+      :class="lastError ? 'bg-red-900/80 text-red-300' : 'bg-surface-700 text-surface-300'"
     >
       {{ statusText }}
     </span>
@@ -61,6 +62,8 @@
 </template>
 
 <script setup lang="ts">
+import { unlockAudio } from '~/composables/useTTS'
+
 const emit = defineEmits<{
   transcription: [text: string]
 }>()
@@ -69,6 +72,8 @@ const {
   isRecording,
   isMonitoring,
   audioLevel,
+  lastError,
+  acquireMicStream,
   startRecording: doStart,
   stopRecording: doStop,
 } = useVoice()
@@ -106,6 +111,13 @@ watch(isRecording, (recording) => {
   }
 })
 
+// Surface mic errors to the UI
+watch(lastError, (err) => {
+  if (err) {
+    showStatus(err, 5000)
+  }
+})
+
 async function finishRecording() {
   isProcessing.value = true
   showStatus('Transcribing...', 0)
@@ -125,13 +137,28 @@ async function finishRecording() {
 async function toggle() {
   if (isProcessing.value) return
 
+  // Unlock iOS Safari audio playback on first user gesture.
+  // Must happen synchronously inside the tap handler so the browser
+  // considers the page "activated" for programmatic audio.play().
+  unlockAudio()
+
   if (isRecording.value) {
     await finishRecording()
   } else {
-    statusText.value = ''
-    await doStart()
-    if (isRecording.value) {
-      showStatus('Listening...', 0)
+    // CRITICAL: acquireMicStream() must be the FIRST await in this handler.
+    // iOS Safari requires getUserMedia to run inside transient user activation
+    // (the synchronous call chain of a tap). Any prior await, ref mutation,
+    // or async gap can expire the activation and cause NotAllowedError.
+    try {
+      const stream = await acquireMicStream()
+      statusText.value = ''
+      await doStart(stream)
+      if (isRecording.value) {
+        showStatus('Listening...', 0)
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Mic access failed'
+      showStatus(msg, 5000)
     }
   }
 }
