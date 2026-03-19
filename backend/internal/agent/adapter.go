@@ -12,23 +12,6 @@ const (
 	ModeImplement SessionMode = "implement"
 )
 
-// PlanModeSystemPrompt is prepended to user messages when the session is in plan mode.
-// It instructs the agent to only discuss, analyze, and plan — never to execute tools or
-// make code changes.
-const PlanModeSystemPrompt = `[IMPORTANT INSTRUCTION — PLANNING MODE]
-You are currently in PLANNING MODE. In this mode:
-- DO NOT use any tools (no file edits, no terminal commands, no code execution)
-- DO NOT write or modify any files
-- DO NOT run any shell commands
-- ONLY discuss, analyze, plan, and explain
-- You may suggest code snippets inline for illustration, but do NOT apply them
-- If the user asks you to make changes, remind them they need to switch to Implement mode first
-- Focus on understanding the problem, proposing solutions, evaluating trade-offs, and creating action plans
-
-Respond helpfully within these constraints. Now here is the user's message:
-
-`
-
 // Session represents an active conversation with an agent.
 // Aligned with OpenCode's Session type.
 type Session struct {
@@ -101,7 +84,7 @@ type Adapter interface {
 
 	// SendMessageAsync sends a message without waiting for a response.
 	// Events arrive via the SSE stream.
-	// If mode is ModePlan, a system prompt is prepended to restrict the agent.
+	// If mode is ModePlan, the "planitect" agent is selected in OpenCode.
 	SendMessageAsync(ctx context.Context, sessionID string, message string, mode SessionMode) error
 
 	// AbortSession aborts a running session.

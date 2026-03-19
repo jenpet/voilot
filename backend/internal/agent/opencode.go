@@ -284,15 +284,11 @@ func (a *OpenCodeAdapter) GetMessages(ctx context.Context, sessionID string) ([]
 
 		switch role {
 		case "user":
-			// Extract text from parts, stripping the plan mode system prompt prefix
+			// Extract text from parts
 			var textParts []string
 			for _, part := range ocMsg.Parts {
 				if part.Type == "text" && part.Text != "" {
-					text := part.Text
-					if strings.HasPrefix(text, PlanModeSystemPrompt) {
-						text = strings.TrimPrefix(text, PlanModeSystemPrompt)
-					}
-					textParts = append(textParts, text)
+					textParts = append(textParts, part.Text)
 				}
 			}
 			if len(textParts) > 0 {
@@ -426,21 +422,21 @@ func (a *OpenCodeAdapter) GetSessionMode(sessionID string) SessionMode {
 
 // SendMessageAsync sends a message without waiting for a response.
 // Use SubscribeEvents() to receive streaming events.
-// If mode is ModePlan, a system prompt is prepended to restrict the agent to discussion only.
+// If mode is ModePlan, the "planitect" agent is selected in OpenCode.
 func (a *OpenCodeAdapter) SendMessageAsync(ctx context.Context, sessionID string, message string, mode SessionMode) error {
-	// In plan mode, prepend the system prompt to restrict the agent
-	actualMessage := message
-	if mode == ModePlan {
-		actualMessage = PlanModeSystemPrompt + message
-	}
-
 	body := map[string]interface{}{
 		"parts": []map[string]string{
 			{
 				"type": "text",
-				"text": actualMessage,
+				"text": message,
 			},
 		},
+	}
+
+	// In plan mode, delegate to the planitect agent which has restricted
+	// permissions (edit only plans/*.md, bash only git commands).
+	if mode == ModePlan {
+		body["agent"] = "planitect"
 	}
 
 	resp, err := a.doRequest(ctx, "POST", "/session/"+sessionID+"/prompt_async", body)
