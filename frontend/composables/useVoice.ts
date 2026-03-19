@@ -363,6 +363,14 @@ export function useVoice() {
           releaseMic()
         }
 
+        // Skip STT for tiny recordings (< 1 KB) — these are almost certainly
+        // empty or corrupt and would cause a server-side decode error.
+        if (audioBlob.size < 1024) {
+          mark('stt', 'end')
+          resolve(null)
+          return
+        }
+
         // Send to STT service
         try {
           const result = await $fetch<{ text: string }>(

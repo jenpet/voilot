@@ -98,6 +98,21 @@ def transcribe():
     language = request.args.get("language")
     beam_size = int(request.args.get("beam_size", "5"))
 
+    # Reject tiny uploads that are too small to contain valid audio.
+    # A valid WebM/Opus or WAV file needs at least a few hundred bytes;
+    # anything under 1 KB is almost certainly an empty or corrupt recording.
+    audio_file.seek(0, 2)  # seek to end
+    file_size = audio_file.tell()
+    audio_file.seek(0)  # seek back to start
+    if file_size < 1024:
+        return jsonify({
+            "text": "",
+            "segments": [],
+            "language": language or "",
+            "language_probability": 0.0,
+            "duration": 0.0,
+        })
+
     # Determine file extension from the uploaded filename or content type
     # so ffmpeg can correctly identify the audio format.
     suffix = _suffix_for_audio(audio_file.filename, audio_file.content_type)
