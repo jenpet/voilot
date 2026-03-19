@@ -10,7 +10,7 @@ export default defineNuxtConfig({
 
   modules: [
     '@nuxtjs/tailwindcss',
-    '@vite-pwa/nuxt',
+    // '@vite-pwa/nuxt', // Disabled during development — SW caching serves stale JS on mobile
   ],
 
   // No dev proxy — in development the frontend talks directly to the Go backend
@@ -21,38 +21,8 @@ export default defineNuxtConfig({
   // Static site generation for production (served by nginx)
   ssr: false,
 
-  // PWA configuration
-  pwa: {
-    registerType: 'autoUpdate',
-    manifest: {
-      name: 'voilot - Voice Pilot',
-      short_name: 'voilot',
-      description: 'Voice-first AI agent client for planning and implementation',
-      theme_color: '#0f172a',
-      background_color: '#0f172a',
-      display: 'standalone',
-      orientation: 'portrait',
-      icons: [
-        {
-          src: '/icon-192.png',
-          sizes: '192x192',
-          type: 'image/png',
-        },
-        {
-          src: '/icon-512.png',
-          sizes: '512x512',
-          type: 'image/png',
-        },
-      ],
-    },
-    workbox: {
-      navigateFallback: '/',
-      globPatterns: ['**/*.{js,css,html,png,svg,ico}'],
-    },
-    client: {
-      installPrompt: true,
-    },
-  },
+  // PWA disabled during development — re-enable @vite-pwa/nuxt in modules[] when ready
+  // pwa: { ... },
 
   // App configuration
   app: {
