@@ -134,8 +134,6 @@ tasks:
 
   agents:install:
     desc: Symlink voilot agents into the global config of your coding agent backend
-    vars:
-      AGENT_DIR: .opencode/agents
     cmds:
       - |
         echo ""
@@ -149,6 +147,7 @@ tasks:
         case "$choice" in
           1)
             TARGET_DIR="$HOME/.config/opencode/agents"
+            AGENT_SRC_DIR="agents/opencode"
             BACKEND="opencode"
             ;;
           *)
@@ -158,7 +157,6 @@ tasks:
         esac
         echo ""
         mkdir -p "$TARGET_DIR"
-        AGENT_SRC_DIR="{{.AGENT_DIR}}"
         for src in "$AGENT_SRC_DIR"/*.md; do
           [ -f "$src" ] || break
           name=$(basename "$src")
@@ -187,8 +185,6 @@ tasks:
 
   agents:uninstall:
     desc: Remove symlinked voilot agents from the global config
-    vars:
-      AGENT_DIR: .opencode/agents
     cmds:
       - |
         echo ""
@@ -202,6 +198,7 @@ tasks:
         case "$choice" in
           1)
             TARGET_DIR="$HOME/.config/opencode/agents"
+            AGENT_SRC_DIR="agents/opencode"
             BACKEND="opencode"
             ;;
           *)
@@ -210,7 +207,7 @@ tasks:
             ;;
         esac
         echo ""
-        REPO_AGENT_DIR="$(cd {{.AGENT_DIR}} && pwd)"
+        REPO_AGENT_DIR="$(cd "$AGENT_SRC_DIR" && pwd)"
         for target in "$TARGET_DIR"/*.md; do
           [ -f "$target" ] || continue
           if [ -L "$target" ]; then
