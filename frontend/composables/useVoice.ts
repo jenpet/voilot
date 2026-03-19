@@ -36,7 +36,7 @@ let _monitorPollTimer: ReturnType<typeof setInterval> | null = null
 let _speechSince: number | null = null
 
 // Callbacks
-let _onAutoStop: (() => void) | null = null
+let _onAutoStopHandlers: (() => void)[] = []
 let _onSpeechDetected: (() => void) | null = null
 
 export function useVoice() {
@@ -59,7 +59,7 @@ export function useVoice() {
   }
 
   function setOnAutoStop(cb: () => void) {
-    _onAutoStop = cb
+    _onAutoStopHandlers.push(cb)
   }
 
   function setOnSpeechDetected(cb: () => void) {
@@ -173,7 +173,7 @@ export function useVoice() {
         if (_silenceSince === null) {
           _silenceSince = performance.now()
         } else if (performance.now() - _silenceSince >= SILENCE_DURATION_MS) {
-          _onAutoStop?.()
+          _onAutoStopHandlers.forEach(cb => cb())
         }
       } else {
         _silenceSince = null

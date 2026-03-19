@@ -1,6 +1,8 @@
 import type { Session } from './useSession'
 import type { AgentEvent } from './useWebSocket'
 import { filterForTTS } from './useTTSFilter'
+import { useTTSChunker } from './useTTSChunker'
+import { useTTSCondenser } from './useTTSCondenser'
 
 export interface Message {
   id: string
@@ -42,8 +44,10 @@ export function useAgent(sessionId: string) {
   let currentAssistantId: string | null = null
   // Track which partId maps to which text so far (for delta accumulation)
   const partContents = new Map<string, string>()
-  // Buffer for TTS: accumulate text events, speak when done
-  let ttsTextBuffer = ''
+  // Incremental TTS chunker: streams sentence-sized chunks to TTS as they arrive
+  // The condenser strips code blocks, markdown formatting, etc. before speaking
+  const ttsCondenser = useTTSCondenser()
+  const ttsChunker = useTTSChunker(enqueueTTS, (text) => ttsCondenser.condense(text))
 
   // Flag to track if we're in an interrupt-triggered recording
   let interruptRecordingActive = false
@@ -62,16 +66,19 @@ export function useAgent(sessionId: string) {
 
     // Stop TTS playback and clear queue
     stopTTS()
-    ttsTextBuffer = ''
+    ttsChunker.reset()
+    ttsCondenser.reset()
 
     // Seamlessly transition from monitoring to recording
     interruptRecordingActive = true
     await startRecordingFromMonitor()
   })
 
-  // Handle auto-stop from silence detection during interrupt recording
+  // Handle auto-stop from silence detection — only for interrupt-triggered recordings.
+  // Manual VoiceButton recordings are stopped by the user tapping again; VoiceButton
+  // sets its own auto-stop handler when it starts recording.
   setOnAutoStop(async () => {
-    if (!isRecording.value) return
+    if (!isRecording.value || !interruptRecordingActive) return
 
     // Stop recording, transcribe, and send
     // Keep mic open when voice is enabled — needed for monitoring mode
@@ -84,14 +91,20 @@ export function useAgent(sessionId: string) {
     }
   })
 
-  // Watch TTS playback state to start/stop monitoring
+  // Watch TTS playback state to start/stop monitoring.
+  // When voice is enabled, we want to be in monitoring mode whenever
+  // we're not recording — this enables the "conversation loop" where
+  // the user can speak at any time (during or after TTS playback).
   watch(isTTSPlaying, (playing) => {
     if (playing && voiceEnabled.value && !isRecording.value) {
       // TTS started playing — start monitoring for voice interrupt
       startMonitoring()
-    } else if (!playing && isMonitoring.value) {
-      // TTS stopped — stop monitoring (no longer need interrupt detection)
-      stopMonitoring()
+    } else if (!playing && voiceEnabled.value && !isRecording.value && !isStreaming.value) {
+      // TTS finished and agent is done — keep monitoring for next utterance
+      // (don't stop monitoring, just ensure it's running)
+      if (!isMonitoring.value) {
+        startMonitoring()
+      }
     }
   })
 
@@ -225,12 +238,14 @@ export function useAgent(sessionId: string) {
       const existing = partContents.get(partId) || ''
       const updated = existing + event.delta
       partContents.set(partId, updated)
-      // Accumulate for TTS
-      ttsTextBuffer += event.delta
+      // Feed delta to TTS chunker — it will enqueue sentence-sized chunks as they complete
+      if (voiceEnabled.value) {
+        ttsChunker.push(event.delta)
+      }
     } else if (event.content) {
-      // Full content replacement
+      // Full content replacement (final snapshot from OpenCode)
       partContents.set(partId, event.content)
-      ttsTextBuffer = event.content
+      // Don't re-send to TTS — deltas already covered this content
     }
 
     // Rebuild the full assistant message from all parts
@@ -280,14 +295,22 @@ export function useAgent(sessionId: string) {
       mark('agent_full', 'end')
     }
 
-    // Flush accumulated text to TTS when streaming completes
-    if (voiceEnabled.value && ttsTextBuffer.trim()) {
-      enqueueTTS(ttsTextBuffer.trim())
+    // Flush any remaining buffered text to TTS
+    if (voiceEnabled.value) {
+      ttsChunker.flush()
     }
-    ttsTextBuffer = ''
+    ttsCondenser.reset()
     isStreaming.value = false
     currentAssistantId = null
     partContents.clear()
+
+    // If voice is enabled and TTS has nothing left to play, start monitoring
+    // so the user can speak their next message without tapping the mic.
+    // (If TTS is still playing, the isTTSPlaying watcher will start monitoring
+    // when playback finishes.)
+    if (voiceEnabled.value && !isTTSPlaying.value && !isRecording.value && !isMonitoring.value) {
+      startMonitoring()
+    }
   }
 
   // Send a message via WebSocket
@@ -321,7 +344,8 @@ export function useAgent(sessionId: string) {
   function abortSession() {
     stopTTS() // Stop any ongoing TTS playback
     stopMonitoring() // Stop mic monitoring if active
-    ttsTextBuffer = ''
+    ttsChunker.reset()
+    ttsCondenser.reset()
     send({
       type: 'abort',
       sessionId,

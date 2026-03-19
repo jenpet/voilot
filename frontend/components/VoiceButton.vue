@@ -76,7 +76,12 @@ const {
   acquireMicStream,
   startRecording: doStart,
   stopRecording: doStop,
+  setOnAutoStop,
 } = useVoice()
+
+// Track whether this component initiated the current recording
+// (as opposed to the interrupt flow in useAgent)
+let manualRecordingActive = false
 
 const statusText = ref('')
 const isProcessing = ref(false)
@@ -100,13 +105,22 @@ function showStatus(text: string, duration = 2000) {
   }
 }
 
+// Auto-stop from silence detection during manual recordings — finish
+// through the same path as a user tapping stop so VoiceButton handles
+// transcription and emits the result.
+setOnAutoStop(async () => {
+  if (!manualRecordingActive) return
+  await finishRecording()
+})
+
 // Watch for external recording state changes (e.g., interrupt flow started/stopped recording)
 watch(isRecording, (recording) => {
-  if (recording && !isProcessing.value) {
+  if (recording && !isProcessing.value && !manualRecordingActive) {
     // Recording started externally (interrupt flow) — show listening status
     showStatus('Listening...', 0)
   } else if (!recording && !isProcessing.value) {
     // Recording stopped externally (auto-stop in useAgent) — clear status
+    manualRecordingActive = false
     showStatus('', 0)
   }
 })
@@ -119,6 +133,8 @@ watch(lastError, (err) => {
 })
 
 async function finishRecording() {
+  if (isProcessing.value) return  // Prevent double-finish from auto-stop + manual tap
+  manualRecordingActive = false
   isProcessing.value = true
   showStatus('Transcribing...', 0)
   try {
@@ -152,11 +168,15 @@ async function toggle() {
     try {
       const stream = await acquireMicStream()
       statusText.value = ''
+      manualRecordingActive = true
       await doStart(stream)
       if (isRecording.value) {
         showStatus('Listening...', 0)
+      } else {
+        manualRecordingActive = false
       }
     } catch (err) {
+      manualRecordingActive = false
       const msg = err instanceof Error ? err.message : 'Mic access failed'
       showStatus(msg, 5000)
     }
