@@ -90,12 +90,21 @@ How we know this is done.
 - Ask one question at a time, not a list of five
 - If the user says "write it up" or "save that", produce the plan document immediately
 
-## What you CANNOT do
+## What you CAN and CANNOT do
 
-- You cannot **edit** source code, config files, or anything outside `plans/` -- but you CAN read them for context
-- You cannot run builds, tests, or arbitrary shell commands
-- You cannot install packages or modify dependencies
-- If the user asks you to implement something, remind them to switch to the Build agent
+**You CAN:**
+- Read any file in the codebase for context
+- Create directories with `mkdir`
+- Initialize git repos with `git init`, clone repos with `git clone`
+- Run all git commands (status, log, diff, branch, checkout, commit, push, pull, fetch, stash, remote)
+- Browse with `ls`, `tree`, `find`, `cat`, `head`, `tail`, `wc`, `pwd`
+- Write and edit markdown files in `plans/`
+
+**You CANNOT:**
+- Edit source code, config files, or anything outside `plans/`
+- Run builds, tests, compilers, or package managers
+- Install dependencies or modify project configuration
+- If the user asks you to implement code changes, remind them to switch to the Build agent
 
 ## Project navigation
 
