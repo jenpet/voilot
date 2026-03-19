@@ -1,0 +1,147 @@
+# voilot Taskfile — run 'task --list' to see available tasks
+#
+# Local dev (hybrid): TTS/STT in Docker, frontend + backend native.
+#   task dev          # starts all three in parallel (frontend, backend, voice containers)
+#   task dev:frontend # just the Nuxt dev server
+#   task dev:backend  # just the Go backend
+#   task dev:voice    # just the TTS + STT Docker containers
+#
+# Build & check:
+#   task build        # compile backend + generate frontend
+#   task check        # go vet + nuxt typecheck
+#
+# Docker (full stack):
+#   task docker       # docker compose up --build (all services)
+#   task docker:down  # tear down
+
+version: "3"
+
+vars:
+  OPENCODE_URL: '{{.OPENCODE_URL | default "http://localhost:4096"}}'
+  TTS_URL: '{{.TTS_URL | default "http://localhost:8880"}}'
+  TTS_PROVIDER: '{{.TTS_PROVIDER | default "kokoro"}}'
+  STT_URL: '{{.STT_URL | default "http://localhost:5003"}}'
+
+tasks:
+  # ── Local development ───────────────────────────────────────────
+
+  dev:
+    desc: Start full local dev stack (frontend + backend + voice containers)
+    deps: [dev:voice, dev:backend, dev:frontend]
+
+  dev:frontend:
+    desc: Nuxt dev server with HMR (port 3000)
+    dir: frontend
+    cmds:
+      - npm run dev
+
+  dev:backend:
+    desc: Go backend with live flags (port 8080)
+    dir: backend
+    cmds:
+      - go run ./cmd/server
+          --opencode-url {{.OPENCODE_URL}}
+          --tts-url {{.TTS_URL}}
+          --tts-provider {{.TTS_PROVIDER}}
+          --stt-url {{.STT_URL}}
+
+  dev:voice:
+    desc: TTS + STT Docker containers only
+    dir: docker
+    cmds:
+      - docker compose --profile voice up tts stt
+
+  # ── Build ───────────────────────────────────────────────────────
+
+  build:
+    desc: Compile backend + generate frontend static build
+    cmds:
+      - task: build:backend
+      - task: build:frontend
+
+  build:backend:
+    desc: Build Go backend binary
+    dir: backend
+    cmds:
+      - go build -o ../dist/voilot-server ./cmd/server
+    sources:
+      - "**/*.go"
+      - go.mod
+      - go.sum
+    generates:
+      - ../dist/voilot-server
+
+  build:frontend:
+    desc: Generate Nuxt static site
+    dir: frontend
+    cmds:
+      - npx nuxt generate
+
+  # ── Checks ──────────────────────────────────────────────────────
+
+  check:
+    desc: Run all checks (vet + typecheck)
+    cmds:
+      - task: check:backend
+      - task: check:frontend
+
+  check:backend:
+    desc: Go vet + build verification
+    dir: backend
+    cmds:
+      - go vet ./...
+      - go build ./...
+
+  check:frontend:
+    desc: Nuxt typecheck
+    dir: frontend
+    cmds:
+      - npx nuxt typecheck
+
+  # ── Tests ───────────────────────────────────────────────────────
+
+  test:
+    desc: Run all tests
+    cmds:
+      - task: test:backend
+
+  test:backend:
+    desc: Run Go tests
+    dir: backend
+    cmds:
+      - go test ./...
+
+  # ── Docker (full stack) ─────────────────────────────────────────
+
+  docker:
+    desc: Build and start full Docker Compose stack (all services)
+    dir: docker
+    cmds:
+      - TTS_URL=http://tts:8880 STT_URL=http://stt:5003
+        docker compose --profile voice up --build
+
+  docker:down:
+    desc: Stop and remove all Docker containers
+    dir: docker
+    cmds:
+      - docker compose --profile voice down
+
+  # ── Utilities ───────────────────────────────────────────────────
+
+  install:
+    desc: Install all dependencies (Go modules + npm packages)
+    cmds:
+      - task: install:backend
+      - task: install:frontend
+
+  install:backend:
+    desc: Download Go modules
+    dir: backend
+    cmds:
+      - go mod download
+
+  install:frontend:
+    desc: Install npm packages
+    dir: frontend
+    cmds:
+      - npm install

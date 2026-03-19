@@ -9,6 +9,10 @@ node_modules/
 backend/server
 backend/main
 
+# Build output
+dist/
+frontend/dist/
+
 # Environment
 .env
 .env.local
