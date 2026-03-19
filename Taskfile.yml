@@ -10,6 +10,10 @@
 #   task build        # compile backend + generate frontend
 #   task check        # go vet + nuxt typecheck
 #
+# Agents:
+#   task agents:install   # symlink voilot agents into global config (interactive backend selection)
+#   task agents:uninstall # remove symlinked agents from global config
+#
 # Docker (full stack):
 #   task docker       # docker compose up --build (all services)
 #   task docker:down  # tear down
@@ -125,6 +129,103 @@ tasks:
     dir: docker
     cmds:
       - docker compose --profile voice down
+
+  # ── Agents ─────────────────────────────────────────────────────
+
+  agents:install:
+    desc: Symlink voilot agents into the global config of your coding agent backend
+    vars:
+      AGENT_DIR: .opencode/agents
+    cmds:
+      - |
+        echo ""
+        echo "Select your coding agent backend:"
+        echo ""
+        echo "  1) opencode  (~/.config/opencode/agents/)"
+        echo ""
+        printf "Choice [1]: "
+        read -r choice
+        choice="${choice:-1}"
+        case "$choice" in
+          1)
+            TARGET_DIR="$HOME/.config/opencode/agents"
+            BACKEND="opencode"
+            ;;
+          *)
+            echo "Invalid choice."
+            exit 1
+            ;;
+        esac
+        echo ""
+        mkdir -p "$TARGET_DIR"
+        AGENT_SRC_DIR="{{.AGENT_DIR}}"
+        for src in "$AGENT_SRC_DIR"/*.md; do
+          [ -f "$src" ] || break
+          name=$(basename "$src")
+          target="$TARGET_DIR/$name"
+          src_abs="$(cd "$(dirname "$src")" && pwd)/$(basename "$src")"
+          if [ -L "$target" ]; then
+            existing=$(readlink "$target")
+            if [ "$existing" = "$src_abs" ]; then
+              echo "  ok   $name (already linked)"
+            else
+              echo "  upd  $name (relink)"
+              rm "$target"
+              ln -s "$src_abs" "$target"
+            fi
+          elif [ -f "$target" ]; then
+            echo "  skip $name (regular file exists — remove manually to link)"
+          else
+            echo "  new  $name"
+            ln -s "$src_abs" "$target"
+          fi
+        done
+        echo ""
+        echo "Agents installed for $BACKEND. Symlinked to $TARGET_DIR/"
+        echo "Agent definitions live in this repo — edits here take effect immediately."
+    silent: true
+
+  agents:uninstall:
+    desc: Remove symlinked voilot agents from the global config
+    vars:
+      AGENT_DIR: .opencode/agents
+    cmds:
+      - |
+        echo ""
+        echo "Select your coding agent backend:"
+        echo ""
+        echo "  1) opencode  (~/.config/opencode/agents/)"
+        echo ""
+        printf "Choice [1]: "
+        read -r choice
+        choice="${choice:-1}"
+        case "$choice" in
+          1)
+            TARGET_DIR="$HOME/.config/opencode/agents"
+            BACKEND="opencode"
+            ;;
+          *)
+            echo "Invalid choice."
+            exit 1
+            ;;
+        esac
+        echo ""
+        REPO_AGENT_DIR="$(cd {{.AGENT_DIR}} && pwd)"
+        for target in "$TARGET_DIR"/*.md; do
+          [ -f "$target" ] || continue
+          if [ -L "$target" ]; then
+            link_dest=$(readlink "$target")
+            case "$link_dest" in
+              "$REPO_AGENT_DIR"/*)
+                echo "  rm   $(basename "$target")"
+                rm "$target"
+                ;;
+            esac
+          fi
+        done
+        echo ""
+        echo "Voilot agents removed from $BACKEND config."
+    silent: true
 
   # ── Utilities ───────────────────────────────────────────────────
 
