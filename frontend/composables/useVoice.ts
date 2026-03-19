@@ -44,9 +44,19 @@ export function useVoice() {
   const isRecording = useState('voice-recording', () => false)
   const isMonitoring = useState('voice-monitoring', () => false)
   const audioLevel = useState('voice-level', () => 0)
+  const lastError = useState<string | null>('voice-error', () => null)
 
   const config = useRuntimeConfig()
   const { mark, reset: resetTimer } = useRoundTripTimer()
+
+  /** Check if the current context supports microphone access. */
+  function checkMicSupport(): string | null {
+    if (typeof window === 'undefined') return 'Not in browser'
+    if (!window.isSecureContext) return `HTTPS required (protocol: ${window.location.protocol}, host: ${window.location.host})`
+    if (!navigator.mediaDevices) return 'navigator.mediaDevices is undefined'
+    if (!navigator.mediaDevices.getUserMedia) return 'getUserMedia not available'
+    return null
+  }
 
   function setOnAutoStop(cb: () => void) {
     _onAutoStop = cb
@@ -69,24 +79,69 @@ export function useVoice() {
     return Math.sqrt(sum / data.length) * 255
   }
 
-  /** Acquire mic stream and set up analyser. Reuses existing if available. */
-  async function ensureMicAndAnalyser(): Promise<void> {
-    if (_micStream && _audioContext && _analyser) return
+  /**
+   * Acquire mic permission immediately — must be called as the FIRST async
+   * operation in a user-gesture handler.  iOS Safari requires getUserMedia
+   * to run inside transient user activation; any prior await or state
+   * mutation may consume/expire it.
+   *
+   * Returns the existing stream if already open, or a fresh one.
+   */
+  async function acquireMicStream(): Promise<MediaStream> {
+    if (_micStream) return _micStream
 
-    const stream = await navigator.mediaDevices.getUserMedia({
-      audio: {
-        echoCancellation: true,
-        noiseSuppression: true,
-        sampleRate: 16000,
-      },
-    })
+    const micError = checkMicSupport()
+    if (micError) {
+      throw new Error(micError)
+    }
 
-    _micStream = stream
+    // Safari rejects non-native sampleRate constraints — omit it and let
+    // the browser use its default (typically 48000). The STT backend
+    // handles any sample rate via ffmpeg.
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+        },
+      })
+      _micStream = stream
+      return stream
+    } catch (err) {
+      const name = err instanceof Error ? err.name : 'Unknown'
+      const msg = err instanceof Error ? err.message : String(err)
+      throw new Error(`Mic access denied: ${name} - ${msg}`)
+    }
+  }
+
+  /**
+   * Set up AudioContext + AnalyserNode for an already-acquired mic stream.
+   * Safe to call after awaits — does NOT touch getUserMedia.
+   */
+  async function setupAnalyser(stream: MediaStream): Promise<void> {
+    if (_audioContext && _analyser) return
+
     _audioContext = new AudioContext()
+    // Safari sometimes creates AudioContext in "suspended" state — resume it
+    if (_audioContext.state === 'suspended') {
+      await _audioContext.resume()
+    }
     const source = _audioContext.createMediaStreamSource(stream)
     _analyser = _audioContext.createAnalyser()
     _analyser.fftSize = 512
     source.connect(_analyser)
+  }
+
+  /**
+   * Acquire mic stream and set up analyser. Reuses existing if available.
+   *
+   * IMPORTANT: On iOS Safari, prefer calling acquireMicStream() first
+   * (as the very first await in a click handler) to preserve transient
+   * user activation, then pass the result to setupAnalyser().
+   */
+  async function ensureMicAndAnalyser(): Promise<void> {
+    const stream = await acquireMicStream()
+    await setupAnalyser(stream)
   }
 
   /** Release mic stream and audio context. */
@@ -182,15 +237,40 @@ export function useVoice() {
 
   // ─── Recording ──────────────────────────────────────────────────
 
-  async function startRecording() {
-    try {
-      await ensureMicAndAnalyser()
+  /** Pick a supported recording MIME type (Safari doesn't support webm). */
+  function getRecorderMimeType(): string | undefined {
+    const candidates = [
+      'audio/webm;codecs=opus',
+      'audio/webm',
+      'audio/mp4',
+      'audio/aac',
+    ]
+    for (const mime of candidates) {
+      if (MediaRecorder.isTypeSupported(mime)) return mime
+    }
+    // undefined = let the browser pick its default
+    return undefined
+  }
 
-      const recorder = new MediaRecorder(_micStream!, {
-        mimeType: MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
-          ? 'audio/webm;codecs=opus'
-          : 'audio/webm',
-      })
+  /**
+   * Start recording audio. If a pre-acquired stream is passed, uses it
+   * directly (skips getUserMedia). This is critical for iOS Safari where
+   * getUserMedia must be the FIRST await in the user gesture chain.
+   */
+  async function startRecording(preAcquiredStream?: MediaStream) {
+    try {
+      if (preAcquiredStream) {
+        _micStream = preAcquiredStream
+        await setupAnalyser(preAcquiredStream)
+      } else {
+        await ensureMicAndAnalyser()
+      }
+
+      const mimeType = getRecorderMimeType()
+      const recorderOptions: MediaRecorderOptions = {}
+      if (mimeType) recorderOptions.mimeType = mimeType
+
+      const recorder = new MediaRecorder(_micStream!, recorderOptions)
 
       _audioChunks = []
 
@@ -206,8 +286,11 @@ export function useVoice() {
       _recordingStartedAt = performance.now()
 
       startSilenceDetection()
+      lastError.value = null
     } catch (err) {
-      console.error('Failed to start recording:', err)
+      const msg = err instanceof Error ? err.message : 'Failed to start recording'
+      console.error('Failed to start recording:', msg)
+      lastError.value = msg
     }
   }
 
@@ -224,11 +307,11 @@ export function useVoice() {
     stopMonitoringPoll()
 
     try {
-      const recorder = new MediaRecorder(_micStream, {
-        mimeType: MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
-          ? 'audio/webm;codecs=opus'
-          : 'audio/webm',
-      })
+      const mimeType = getRecorderMimeType()
+      const recorderOptions: MediaRecorderOptions = {}
+      if (mimeType) recorderOptions.mimeType = mimeType
+
+      const recorder = new MediaRecorder(_micStream, recorderOptions)
 
       _audioChunks = []
 
@@ -244,12 +327,21 @@ export function useVoice() {
       _recordingStartedAt = performance.now()
 
       startSilenceDetection()
+      lastError.value = null
     } catch (err) {
-      console.error('Failed to start recording from monitor:', err)
+      const msg = err instanceof Error ? err.message : 'Failed to start recording'
+      console.error('Failed to start recording from monitor:', msg)
+      lastError.value = msg
     }
   }
 
-  async function stopRecording(): Promise<string | null> {
+  /**
+   * Stop recording and transcribe via STT.
+   * @param keepMicOpen If true, keeps the mic stream alive for reuse
+   *   (e.g., monitoring mode). Needed on iOS Safari where getUserMedia
+   *   cannot be called outside a user gesture.
+   */
+  async function stopRecording(keepMicOpen = false): Promise<string | null> {
     if (!_mediaRecorder || !isRecording.value) return null
 
     stopSilenceDetection()
@@ -266,8 +358,10 @@ export function useVoice() {
           type: recorder.mimeType,
         })
 
-        // Release the mic
-        releaseMic()
+        // Release mic unless caller wants it kept open for monitoring
+        if (!keepMicOpen) {
+          releaseMic()
+        }
 
         // Send to STT service
         try {
@@ -300,6 +394,8 @@ export function useVoice() {
     isRecording: readonly(isRecording),
     isMonitoring: readonly(isMonitoring),
     audioLevel: readonly(audioLevel),
+    lastError: readonly(lastError),
+    acquireMicStream,
     startRecording,
     startRecordingFromMonitor,
     stopRecording,

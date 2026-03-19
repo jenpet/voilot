@@ -74,7 +74,9 @@ export function useAgent(sessionId: string) {
     if (!isRecording.value) return
 
     // Stop recording, transcribe, and send
-    const text = await stopRecording()
+    // Keep mic open when voice is enabled — needed for monitoring mode
+    // (iOS Safari can't call getUserMedia outside a user gesture)
+    const text = await stopRecording(voiceEnabled.value)
     interruptRecordingActive = false
 
     if (text) {
