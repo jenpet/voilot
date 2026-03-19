@@ -32,6 +32,11 @@ type OpenCodeAdapter struct {
 	// Entries have a TTL and are periodically cleaned up to prevent unbounded growth.
 	userMsgMu  sync.RWMutex
 	userMsgIDs map[string]time.Time // messageID -> insertion time
+
+	// Track part IDs that have received delta events, so we can skip
+	// the redundant final full-text snapshot from message.part.updated.
+	deltaPartMu  sync.RWMutex
+	deltaPartIDs map[string]struct{} // partID -> exists
 }
 
 // userMsgIDTTL is how long user message IDs are retained for filtering.
@@ -50,6 +55,7 @@ func NewOpenCodeAdapter(baseURL string) *OpenCodeAdapter {
 		subscribers:  make(map[chan Event]struct{}),
 		sessionModes: make(map[string]SessionMode),
 		userMsgIDs:   make(map[string]time.Time),
+		deltaPartIDs: make(map[string]struct{}),
 	}
 
 	// Start background cleanup of expired user message IDs.
@@ -595,16 +601,8 @@ func (a *OpenCodeAdapter) parseSSEData(data string) []Event {
 		return a.parseSessionError(raw.Properties)
 
 	case "session.idle":
-		var props struct {
-			SessionID string `json:"sessionID"`
-		}
-		if json.Unmarshal(raw.Properties, &props) == nil {
-			return []Event{{
-				Type:      EventDone,
-				SessionID: props.SessionID,
-				Content:   "done",
-			}}
-		}
+		// Duplicate of session.status(idle) which already emits EventDone — skip.
+		return nil
 
 	case "message.updated":
 		// Track user vs assistant messages and handle errors
@@ -643,12 +641,23 @@ func (a *OpenCodeAdapter) parsePartUpdate(props json.RawMessage) []Event {
 	case "text":
 		// Text content is streamed via message.part.delta events.
 		// message.part.updated fires with initial empty text and final full text.
-		// We only emit on the final update (when text is non-empty and time.end exists)
-		// to avoid clearing accumulated delta content.
 		if part.Text == "" {
 			return nil // Skip initial empty text update
 		}
-		// Final text update — emit with full content as confirmation
+		// If deltas were already streamed for this part, skip the final
+		// full-text snapshot — the frontend has already accumulated the
+		// same content from deltas and this would be redundant.
+		a.deltaPartMu.RLock()
+		_, hadDeltas := a.deltaPartIDs[part.ID]
+		a.deltaPartMu.RUnlock()
+		if hadDeltas {
+			// Clean up: remove from tracking since the part is now complete.
+			a.deltaPartMu.Lock()
+			delete(a.deltaPartIDs, part.ID)
+			a.deltaPartMu.Unlock()
+			return nil
+		}
+		// No deltas were sent (rare edge case) — emit full content
 		evt := Event{
 			Type:      EventText,
 			SessionID: part.SessionID,
@@ -713,7 +722,9 @@ func (a *OpenCodeAdapter) parseToolPart(part OpenCodePart, delta string) []Event
 		}
 	case "completed":
 		evt.Type = EventToolResult
-		evt.Content = state.Output
+		// Truncate tool output to avoid sending massive payloads over WebSocket.
+		// The UI already truncates at display time, but this saves bandwidth.
+		evt.Content = truncateString(state.Output, 500)
 		if state.Title != "" {
 			evt.Meta["title"] = state.Title
 		}
@@ -747,6 +758,12 @@ func (a *OpenCodeAdapter) parsePartDelta(props json.RawMessage) []Event {
 	if delta.Field != "text" {
 		return nil
 	}
+
+	// Track that this part has received deltas — the final message.part.updated
+	// snapshot for this part is redundant and will be suppressed.
+	a.deltaPartMu.Lock()
+	a.deltaPartIDs[delta.PartID] = struct{}{}
+	a.deltaPartMu.Unlock()
 
 	return []Event{{
 		Type:      EventText,
@@ -882,6 +899,17 @@ func (a *OpenCodeAdapter) parseSessionError(props json.RawMessage) []Event {
 		SessionID: errInfo.SessionID,
 		Content:   content,
 	}}
+}
+
+// truncateString truncates s to maxLen characters, appending "..." if truncated.
+func truncateString(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	if maxLen <= 3 {
+		return s[:maxLen]
+	}
+	return s[:maxLen-3] + "..."
 }
 
 // Verify interface compliance at compile time.
