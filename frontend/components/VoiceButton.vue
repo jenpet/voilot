@@ -65,6 +65,10 @@
 import { unlockAudio } from '~/composables/useTTS'
 import { playStartBlip } from '~/composables/useRecordingFeedback'
 
+const props = defineProps<{
+  keepMicOpen?: boolean
+}>()
+
 const emit = defineEmits<{
   transcription: [text: string]
 }>()
@@ -79,6 +83,9 @@ const {
   stopRecording: doStop,
   setOnAutoStop,
 } = useVoice()
+
+// Shared loop flag — clear it on manual stop so the stop blip plays
+const loopRecordingActive = useState<boolean>('voice-loop-active', () => false)
 
 // Track whether this component initiated the current recording
 // (as opposed to the interrupt flow in useAgent)
@@ -136,10 +143,13 @@ watch(lastError, (err) => {
 async function finishRecording() {
   if (isProcessing.value) return  // Prevent double-finish from auto-stop + manual tap
   manualRecordingActive = false
+  // Clear loop flag BEFORE stopping so the stop blip plays (useRecordingFeedback
+  // checks this flag on isRecording transitions)
+  loopRecordingActive.value = false
   isProcessing.value = true
   showStatus('Transcribing...', 0)
   try {
-    const text = await doStop()
+    const text = await doStop(props.keepMicOpen)
     if (text) {
       showStatus('', 0)
       emit('transcription', text)

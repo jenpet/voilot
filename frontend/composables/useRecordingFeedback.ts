@@ -6,8 +6,13 @@
  * path which browsers' echo cancellation (AEC) actively suppresses
  * while the microphone is open.
  *
- * - Recording starts: single blip (660 Hz)
- * - Recording stops:  single lower blip (440 Hz)
+ * - Recording starts: single blip (660 Hz) — manual tap only
+ * - Recording stops:  single lower blip (440 Hz) — manual stop only
+ * - Thinking jingle:  ascending two-tone chime when a message is sent
+ *
+ * Blips are suppressed during the automatic conversational voice loop
+ * (loopRecordingActive === true) so the user only hears a blip on
+ * initial mic activation and final deactivation.
  *
  * Usage: call `useRecordingFeedback()` once in a component or plugin.
  * It watches the shared `isRecording` state from useVoice and plays
@@ -20,9 +25,17 @@ const STOP_FREQ = 440;    // Lower pitch for stop (A4)
 const BLIP_DURATION_MS = 80;
 const BLIP_VOLUME = 0.35;
 
+// Thinking jingle: ascending two-tone chime
+const THINK_FREQ_1 = 523;  // C5
+const THINK_FREQ_2 = 659;  // E5
+const THINK_TONE_MS = 70;
+const THINK_GAP_MS = 30;
+const THINK_VOLUME = 0.25;
+
 // Pre-generated audio elements (created once, reused)
 let _startAudio: HTMLAudioElement | null = null;
 let _stopAudio: HTMLAudioElement | null = null;
+let _thinkAudio: HTMLAudioElement | null = null;
 
 /**
  * Generate a PCM sine-wave blip as a Float32Array.
@@ -106,10 +119,10 @@ function createAudioFromSamples(samples: Float32Array): HTMLAudioElement {
 }
 
 /**
- * Build the single-blip and double-blip Audio elements.
+ * Build the blip and jingle Audio elements.
  */
 function ensureAudioElements() {
-  if (_startAudio && _stopAudio) return;
+  if (_startAudio && _stopAudio && _thinkAudio) return;
 
   // Single high blip for start
   const startBlip = generateSineBlip(START_FREQ, BLIP_DURATION_MS, BLIP_VOLUME, SAMPLE_RATE);
@@ -118,6 +131,17 @@ function ensureAudioElements() {
   // Single low blip for stop
   const stopBlip = generateSineBlip(STOP_FREQ, BLIP_DURATION_MS, BLIP_VOLUME, SAMPLE_RATE);
   _stopAudio = createAudioFromSamples(stopBlip);
+
+  // Thinking jingle: two ascending tones with a short gap of silence
+  const tone1 = generateSineBlip(THINK_FREQ_1, THINK_TONE_MS, THINK_VOLUME, SAMPLE_RATE);
+  const gapSamples = Math.floor((THINK_GAP_MS / 1000) * SAMPLE_RATE);
+  const gap = new Float32Array(gapSamples); // silence
+  const tone2 = generateSineBlip(THINK_FREQ_2, THINK_TONE_MS, THINK_VOLUME, SAMPLE_RATE);
+  const jingle = new Float32Array(tone1.length + gap.length + tone2.length);
+  jingle.set(tone1, 0);
+  jingle.set(gap, tone1.length);
+  jingle.set(tone2, tone1.length + gap.length);
+  _thinkAudio = createAudioFromSamples(jingle);
 }
 
 function playStopSound() {
@@ -143,8 +167,21 @@ export function playStartBlip(): void {
   }
 }
 
+/**
+ * Play the "thinking" jingle — a subtle ascending two-tone chime
+ * indicating a message has been submitted and the agent is working.
+ */
+export function playThinkingJingle(): void {
+  ensureAudioElements();
+  if (_thinkAudio) {
+    _thinkAudio.currentTime = 0;
+    _thinkAudio.play().catch(() => {});
+  }
+}
+
 export function useRecordingFeedback() {
   const isRecording = useState<boolean>('voice-recording');
+  const loopRecordingActive = useState<boolean>('voice-loop-active', () => false);
 
   // Pre-build the audio elements so first playback is instant
   if (import.meta.client) {
@@ -154,12 +191,13 @@ export function useRecordingFeedback() {
   // Stop blip is driven by state — works reliably because by the time
   // recording stops, the Audio elements have already been activated
   // by the user gesture that started recording.
+  // Suppressed during loop recordings to avoid constant beeping.
   watch(isRecording, (recording, wasRecording) => {
     // Only play on real transitions (not initial undefined->false)
     if (wasRecording === undefined || wasRecording === null) return;
     if (recording === wasRecording) return;
 
-    if (!recording) {
+    if (!recording && !loopRecordingActive.value) {
       playStopSound();
     }
     // Start blip is NOT played here — it's called directly from

@@ -35,6 +35,10 @@ let _recordingStartedAt = 0
 let _monitorPollTimer: ReturnType<typeof setInterval> | null = null
 let _speechSince: number | null = null
 
+// Track whether speech was detected during the current recording.
+// Auto-stop only fires after speech-then-silence (not pure silence).
+let _speechDetectedInRecording = false
+
 // Callbacks
 let _onAutoStopHandlers: (() => void)[] = []
 let _onSpeechDetected: (() => void) | null = null
@@ -162,6 +166,7 @@ export function useVoice() {
 
   function startSilenceDetection() {
     _silenceSince = null
+    _speechDetectedInRecording = false
     _silencePollTimer = setInterval(() => {
       const rms = computeRMS()
       audioLevel.value = Math.round(rms)
@@ -169,14 +174,20 @@ export function useVoice() {
       const elapsed = performance.now() - _recordingStartedAt
       if (elapsed < MIN_RECORDING_MS) return
 
-      if (rms < SILENCE_THRESHOLD) {
-        if (_silenceSince === null) {
-          _silenceSince = performance.now()
-        } else if (performance.now() - _silenceSince >= SILENCE_DURATION_MS) {
-          _onAutoStopHandlers.forEach(cb => cb())
-        }
-      } else {
+      if (rms >= SILENCE_THRESHOLD) {
+        // Speech is happening — mark it and reset silence timer
+        _speechDetectedInRecording = true
         _silenceSince = null
+      } else {
+        // Silence — only start counting toward auto-stop if speech was detected first.
+        // This prevents auto-stop from firing on pure silence (no one speaking).
+        if (_speechDetectedInRecording) {
+          if (_silenceSince === null) {
+            _silenceSince = performance.now()
+          } else if (performance.now() - _silenceSince >= SILENCE_DURATION_MS) {
+            _onAutoStopHandlers.forEach(cb => cb())
+          }
+        }
       }
     }, POLL_INTERVAL_MS)
   }

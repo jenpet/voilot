@@ -3,6 +3,7 @@ import type { AgentEvent } from './useWebSocket'
 import { filterForTTS } from './useTTSFilter'
 import { useTTSChunker } from './useTTSChunker'
 import { useTTSCondenser } from './useTTSCondenser'
+import { playThinkingJingle } from './useRecordingFeedback'
 
 export interface Message {
   id: string
@@ -27,18 +28,16 @@ export function useAgent(sessionId: string) {
   const {
     isRecording,
     isMonitoring,
-    startMonitoring,
     stopMonitoring,
-    startRecordingFromMonitor,
+    startRecording,
     stopRecording,
-    setOnSpeechDetected,
     setOnAutoStop,
   } = useVoice()
 
   const session = ref<Session | null>(null)
   const messages = ref<Message[]>([])
   const isStreaming = ref(false)
-  const voiceEnabled = ref(false)
+  const voiceEnabled = ref(true)
 
   // Track the current assistant message being streamed
   let currentAssistantId: string | null = null
@@ -49,66 +48,57 @@ export function useAgent(sessionId: string) {
   const ttsCondenser = useTTSCondenser()
   const ttsChunker = useTTSChunker(enqueueTTS, (text) => ttsCondenser.condense(text))
 
-  // Flag to track if we're in an interrupt-triggered recording
-  let interruptRecordingActive = false
+  // Shared flag so useRecordingFeedback knows whether to suppress blips
+  // during auto-loop recordings (as opposed to manual VoiceButton taps).
+  const loopRecordingActive = useState<boolean>('voice-loop-active', () => false)
 
-  // ─── Voice Interrupt Flow ───────────────────────────────────────
+  // ─── Conversational Voice Loop ──────────────────────────────────
   //
-  // When voice is ON and TTS is playing:
-  //   1. Start mic monitoring (no recording, just listening for speech)
-  //   2. On sustained speech detection → stop TTS, start recording from monitor
-  //   3. Silence detection auto-stops recording → STT → send to agent
-  //   4. Agent responds → TTS plays → back to step 1
+  // Turn-based conversation — no interruption, no monitoring:
+  //   1. User taps mic (VoiceButton) → records → silence auto-stops → STT → send
+  //   2. Agent streams full response, TTS plays it all
+  //   3. TTS finishes → immediately start recording (mic is already open)
+  //   4. Silence auto-stops → STT → send → back to step 2
+  //
+  // The mic stream stays open across turns (keepMicOpen=true) so there's
+  // no need to re-acquire it, which would fail on iOS Safari outside a
+  // user gesture.
 
-  // Called when monitoring detects sustained speech during TTS playback
-  setOnSpeechDetected(async () => {
-    if (!voiceEnabled.value) return
+  // Start recording for the next conversational turn.
+  // Called when the agent's turn is fully over (streaming done + TTS finished).
+  function startLoopRecording() {
+    if (!voiceEnabled.value || isRecording.value || isStreaming.value || isTTSPlaying.value) return
+    loopRecordingActive.value = true
+    startRecording() // reuses existing mic stream via ensureMicAndAnalyser()
+  }
 
-    // Stop TTS playback and clear queue
-    stopTTS()
-    ttsChunker.reset()
-    ttsCondenser.reset()
-
-    // Seamlessly transition from monitoring to recording
-    interruptRecordingActive = true
-    await startRecordingFromMonitor()
-  })
-
-  // Handle auto-stop from silence detection — only for interrupt-triggered recordings.
-  // Manual VoiceButton recordings are stopped by the user tapping again; VoiceButton
-  // sets its own auto-stop handler when it starts recording.
+  // Handle auto-stop from silence detection — only for loop-triggered recordings.
+  // Manual VoiceButton recordings are handled by VoiceButton's own auto-stop handler.
   setOnAutoStop(async () => {
-    if (!isRecording.value || !interruptRecordingActive) return
+    if (!isRecording.value || !loopRecordingActive.value) return
 
-    // Stop recording, transcribe, and send
-    // Keep mic open when voice is enabled — needed for monitoring mode
-    // (iOS Safari can't call getUserMedia outside a user gesture)
+    // Stop recording, transcribe, and send.
+    // Keep mic open so we can start recording again after the next agent turn.
     const text = await stopRecording(voiceEnabled.value)
-    interruptRecordingActive = false
+    loopRecordingActive.value = false
 
     if (text) {
       sendMessage(text)
+    } else {
+      // No speech detected (empty/too short) — start recording again
+      startLoopRecording()
     }
   })
 
-  // Watch TTS playback state to start/stop monitoring.
-  // When voice is enabled, we want to be in monitoring mode whenever
-  // we're not recording — this enables the "conversation loop" where
-  // the user can speak at any time (during or after TTS playback).
+  // When TTS finishes and the agent is done streaming, start recording
+  // for the user's next turn.
   watch(isTTSPlaying, (playing) => {
-    if (playing && voiceEnabled.value && !isRecording.value) {
-      // TTS started playing — start monitoring for voice interrupt
-      startMonitoring()
-    } else if (!playing && voiceEnabled.value && !isRecording.value && !isStreaming.value) {
-      // TTS finished and agent is done — keep monitoring for next utterance
-      // (don't stop monitoring, just ensure it's running)
-      if (!isMonitoring.value) {
-        startMonitoring()
-      }
+    if (!playing && !isStreaming.value) {
+      startLoopRecording()
     }
   })
 
-  // Watch voice toggle — clean up monitoring when voice is turned off
+  // Watch voice toggle — clean up when voice is turned off
   watch(() => voiceEnabled.value, (enabled) => {
     if (!enabled) {
       stopMonitoring()
@@ -304,13 +294,11 @@ export function useAgent(sessionId: string) {
     currentAssistantId = null
     partContents.clear()
 
-    // If voice is enabled and TTS has nothing left to play, start monitoring
-    // so the user can speak their next message without tapping the mic.
-    // (If TTS is still playing, the isTTSPlaying watcher will start monitoring
+    // If voice is enabled and TTS has nothing left to play, start recording
+    // for the user's next turn immediately.
+    // (If TTS is still playing, the isTTSPlaying watcher will start recording
     // when playback finishes.)
-    if (voiceEnabled.value && !isTTSPlaying.value && !isRecording.value && !isMonitoring.value) {
-      startMonitoring()
-    }
+    startLoopRecording()
   }
 
   // Send a message via WebSocket
@@ -319,6 +307,11 @@ export function useAgent(sessionId: string) {
     if (isTimerActive()) {
       mark('agent_ttft', 'start')
       mark('agent_full', 'start')
+    }
+
+    // Play subtle "thinking" jingle so the user knows the agent is working
+    if (voiceEnabled.value) {
+      playThinkingJingle()
     }
 
     // Add user message immediately

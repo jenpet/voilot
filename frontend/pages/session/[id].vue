@@ -87,6 +87,7 @@
           />
           <VoiceButton
             class="flex-shrink-0"
+            :keep-mic-open="voiceEnabled"
             @transcription="handleTranscription"
           />
           <button
