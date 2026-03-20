@@ -63,6 +63,7 @@
 
 <script setup lang="ts">
 import { unlockAudio } from '~/composables/useTTS'
+import { playStartBlip } from '~/composables/useRecordingFeedback'
 
 const emit = defineEmits<{
   transcription: [text: string]
@@ -161,6 +162,10 @@ async function toggle() {
   if (isRecording.value) {
     await finishRecording()
   } else {
+    // Play start blip directly in the gesture context so it works
+    // on the very first tap (browser autoplay policy requires this).
+    playStartBlip()
+
     // CRITICAL: acquireMicStream() must be the FIRST await in this handler.
     // iOS Safari requires getUserMedia to run inside transient user activation
     // (the synchronous call chain of a tap). Any prior await, ref mutation,

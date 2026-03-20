@@ -124,6 +124,9 @@ const {
   toggleVoice,
 } = useAgent(sessionId)
 
+// Acoustic feedback: blip on recording start, double-blip on stop
+useRecordingFeedback()
+
 const isBusy = computed(() => isStreaming.value || isTTSPlaying.value)
 
 const inputText = ref('')
