@@ -1,8 +1,8 @@
 import type { Session } from './useSession'
 import type { AgentEvent } from './useWebSocket'
-import { filterForTTS } from './useTTSFilter'
 import { useTTSChunker } from './useTTSChunker'
 import { useTTSCondenser } from './useTTSCondenser'
+import { useTTSToolBatcher } from './useTTSToolBatcher'
 import { playThinkingJingle } from './useRecordingFeedback'
 
 export interface Message {
@@ -43,10 +43,15 @@ export function useAgent(sessionId: string) {
   let currentAssistantId: string | null = null
   // Track which partId maps to which text so far (for delta accumulation)
   const partContents = new Map<string, string>()
+  // Track tool_use start times by partId so we can compute duration when tool_result arrives
+  const toolStartTimes = new Map<string, number>()
   // Incremental TTS chunker: streams sentence-sized chunks to TTS as they arrive
   // The condenser strips code blocks, markdown formatting, etc. before speaking
   const ttsCondenser = useTTSCondenser()
   const ttsChunker = useTTSChunker(enqueueTTS, (text) => ttsCondenser.condense(text))
+  // Batch consecutive tool-use events into a single TTS summary
+  // (avoids "Using bash. Using bash. Using bash." when the agent runs many commands)
+  const ttsToolBatcher = useTTSToolBatcher(enqueueTTS)
 
   // Shared flag so useRecordingFeedback knows whether to suppress blips
   // during auto-loop recordings (as opposed to manual VoiceButton taps).
@@ -166,12 +171,11 @@ export function useAgent(sessionId: string) {
   })
 
   function handleAgentEvent(event: AgentEvent) {
-    // Feed non-text events through TTS filter immediately
+    // Feed non-text events through the tool batcher — it batches consecutive
+    // tool_use events into a single TTS summary and passes other events
+    // (error, code, etc.) through filterForTTS as before.
     if (voiceEnabled.value && event.type !== 'text' && event.type !== 'done' && event.type !== 'status') {
-      const filtered = filterForTTS(event)
-      if (filtered.shouldSpeak) {
-        enqueueTTS(filtered.textForTTS)
-      }
+      ttsToolBatcher.push(event)
     }
 
     switch (event.type) {
@@ -179,11 +183,23 @@ export function useAgent(sessionId: string) {
         handleTextEvent(event)
         break
       case 'tool_use':
+        // Record start time for duration tracking
+        if (event.partId) {
+          toolStartTimes.set(event.partId, Date.now())
+        }
         appendAssistantMeta(event.content, 'tool_use', event.meta)
         break
-      case 'tool_result':
-        appendAssistantMeta(event.content, 'tool_result', event.meta)
+      case 'tool_result': {
+        // Compute duration from matching tool_use event
+        const resultMeta = { ...event.meta }
+        if (event.partId && toolStartTimes.has(event.partId)) {
+          const startTime = toolStartTimes.get(event.partId)!
+          resultMeta.durationMs = Date.now() - startTime
+          toolStartTimes.delete(event.partId)
+        }
+        appendAssistantMeta(event.content, 'tool_result', resultMeta)
         break
+      }
       case 'thinking':
         // Show thinking indicator but don't add to message content
         isStreaming.value = true
@@ -214,6 +230,11 @@ export function useAgent(sessionId: string) {
 
   function handleTextEvent(event: AgentEvent) {
     isStreaming.value = true
+
+    // Flush any pending tool-use batch before speaking text
+    if (voiceEnabled.value) {
+      ttsToolBatcher.flush()
+    }
 
     // Use delta-based streaming if available
     const partId = event.partId || 'default'
@@ -287,12 +308,14 @@ export function useAgent(sessionId: string) {
 
     // Flush any remaining buffered text to TTS
     if (voiceEnabled.value) {
+      ttsToolBatcher.flush()
       ttsChunker.flush()
     }
     ttsCondenser.reset()
     isStreaming.value = false
     currentAssistantId = null
     partContents.clear()
+    toolStartTimes.clear()
 
     // If voice is enabled and TTS has nothing left to play, start recording
     // for the user's next turn immediately.
@@ -339,6 +362,7 @@ export function useAgent(sessionId: string) {
     stopMonitoring() // Stop mic monitoring if active
     ttsChunker.reset()
     ttsCondenser.reset()
+    ttsToolBatcher.reset()
     send({
       type: 'abort',
       sessionId,
