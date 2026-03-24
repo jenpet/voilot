@@ -11,16 +11,7 @@
       <div class="flex-1 min-w-0">
         <div class="flex items-center gap-2">
           <h1 class="text-sm font-medium truncate">{{ session?.title || 'Untitled Session' }}</h1>
-          <!-- Connection indicator -->
-          <span
-            class="inline-block w-2 h-2 rounded-full flex-shrink-0"
-            :class="{
-              'bg-green-400': connectionState === 'connected',
-              'bg-yellow-400 animate-pulse': connectionState === 'connecting',
-              'bg-red-400': connectionState === 'disconnected',
-            }"
-            :title="`Backend: ${connectionState}`"
-          />
+          <StatusIndicator />
         </div>
         <ModeToggle :mode="session?.mode || 'plan'" @toggle="toggleMode" />
       </div>
@@ -117,7 +108,6 @@ const {
   isTTSPlaying,
   isRecording,
   voiceEnabled,
-  connectionState,
   sendMessage,
   abortSession,
   stopTTS,

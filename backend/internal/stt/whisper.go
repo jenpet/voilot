@@ -106,6 +106,20 @@ func (p *WhisperProvider) Name() string {
 	return "whisper"
 }
 
+// HealthCheck pings the faster-whisper /health endpoint.
+func (p *WhisperProvider) HealthCheck(ctx context.Context) bool {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, p.baseURL+"/health", nil)
+	if err != nil {
+		return false
+	}
+	resp, err := p.client.Do(req)
+	if err != nil {
+		return false
+	}
+	defer resp.Body.Close()
+	return resp.StatusCode == http.StatusOK
+}
+
 // extensionForContentType maps common audio MIME types to file extensions.
 func extensionForContentType(ct string) string {
 	ct = strings.ToLower(ct)

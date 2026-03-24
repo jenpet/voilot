@@ -1,0 +1,88 @@
+<template>
+  <div class="relative">
+    <!-- Clickable status dot -->
+    <button
+      class="inline-flex items-center justify-center w-5 h-5 rounded-full focus:outline-none focus:ring-2 focus:ring-offset-1 focus:ring-offset-surface-800 focus:ring-blue-500/50"
+      :title="tooltipText"
+      @click="open = !open"
+    >
+      <span
+        class="inline-block w-2.5 h-2.5 rounded-full transition-colors"
+        :class="dotClass"
+      />
+    </button>
+
+    <!-- Dropdown panel -->
+    <Transition
+      enter-active-class="transition ease-out duration-150"
+      enter-from-class="opacity-0 translate-y-1"
+      enter-to-class="opacity-100 translate-y-0"
+      leave-active-class="transition ease-in duration-100"
+      leave-from-class="opacity-100 translate-y-0"
+      leave-to-class="opacity-0 translate-y-1"
+    >
+      <div
+        v-if="open"
+        class="absolute right-0 top-full mt-2 w-56 rounded-lg bg-surface-700 border border-surface-600 shadow-lg z-50 py-2 px-3"
+      >
+        <div class="text-xs font-medium text-surface-300 mb-2 uppercase tracking-wide">
+          Service Status
+        </div>
+        <ul class="space-y-1.5">
+          <li
+            v-for="svc in health.services"
+            :key="svc.name"
+            class="flex items-center justify-between text-sm"
+          >
+            <span class="text-surface-200 capitalize">{{ svc.name }}</span>
+            <span class="flex items-center gap-1.5">
+              <span
+                class="inline-block w-1.5 h-1.5 rounded-full"
+                :class="svc.available ? 'bg-green-400' : 'bg-red-400'"
+              />
+              <span
+                class="text-xs"
+                :class="svc.available ? 'text-green-400' : 'text-red-400'"
+              >
+                {{ svc.available ? 'ok' : (svc.error || 'down') }}
+              </span>
+            </span>
+          </li>
+        </ul>
+      </div>
+    </Transition>
+
+    <!-- Click-away overlay (invisible) -->
+    <div
+      v-if="open"
+      class="fixed inset-0 z-40"
+      @click="open = false"
+    />
+  </div>
+</template>
+
+<script setup lang="ts">
+const { health } = useHealth();
+const open = ref(false);
+
+const dotClass = computed(() => {
+  switch (health.value.overall) {
+    case 'green':
+      return 'bg-green-400';
+    case 'yellow':
+      return 'bg-yellow-400 animate-pulse';
+    case 'red':
+      return 'bg-red-400';
+    default:
+      return 'bg-red-400';
+  }
+});
+
+const tooltipText = computed(() => {
+  const down = health.value.services
+    .filter(s => !s.available)
+    .map(s => s.name);
+  if (down.length === 0) return 'All services healthy';
+  return `Down: ${down.join(', ')}`;
+});
+</script>

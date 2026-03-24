@@ -38,6 +38,7 @@ func (s *Server) registerRoutes() {
 	api := s.router.PathPrefix("/api").Subrouter()
 
 	// Health check
+	api.HandleFunc("/health/detailed", s.handleHealthDetailed).Methods("GET")
 	api.HandleFunc("/health", s.handleHealth).Methods("GET")
 
 	// Agent status

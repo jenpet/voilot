@@ -28,6 +28,9 @@ type Provider interface {
 	// Transcribe converts audio to text.
 	Transcribe(ctx context.Context, req Request) (*Result, error)
 
+	// HealthCheck returns true if the STT service is reachable and healthy.
+	HealthCheck(ctx context.Context) bool
+
 	// Name returns the provider identifier (e.g. "whisper", "web-speech").
 	Name() string
 }

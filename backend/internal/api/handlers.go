@@ -1,10 +1,12 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/gorilla/mux"
 	"github.com/jenpet/voilot/internal/agent"
@@ -26,6 +28,84 @@ func jsonError(w http.ResponseWriter, status int, message string) {
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	jsonResponse(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+// ServiceStatus describes the health of a single dependency.
+type ServiceStatus struct {
+	Name      string `json:"name"`
+	Available bool   `json:"available"`
+	Error     string `json:"error,omitempty"`
+}
+
+// DetailedHealth is the response for GET /api/health/detailed.
+type DetailedHealth struct {
+	// Overall is "green" (all ok), "yellow" (optional services down), or "red" (agent down).
+	Overall  string          `json:"overall"`
+	Services []ServiceStatus `json:"services"`
+}
+
+func (s *Server) handleHealthDetailed(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
+	defer cancel()
+
+	var services []ServiceStatus
+
+	// 1. Agent (OpenCode) — critical
+	agentStatus := ServiceStatus{Name: "agent"}
+	st, err := s.agentAdapter.GetStatus(ctx)
+	if err != nil {
+		agentStatus.Available = false
+		agentStatus.Error = err.Error()
+	} else {
+		agentStatus.Available = st.Connected
+		if !st.Connected {
+			agentStatus.Error = "not connected"
+		}
+	}
+	services = append(services, agentStatus)
+
+	// 2. TTS — optional (voice feature)
+	ttsStatus := ServiceStatus{Name: "tts"}
+	if s.ttsProvider == nil {
+		ttsStatus.Available = false
+		ttsStatus.Error = "not configured"
+	} else {
+		_, err := s.ttsProvider.ListVoices(ctx)
+		if err != nil {
+			ttsStatus.Available = false
+			ttsStatus.Error = err.Error()
+		} else {
+			ttsStatus.Available = true
+		}
+	}
+	services = append(services, ttsStatus)
+
+	// 3. STT — optional (voice feature)
+	sttStatus := ServiceStatus{Name: "stt"}
+	if s.sttProvider == nil {
+		sttStatus.Available = false
+		sttStatus.Error = "not configured"
+	} else {
+		sttStatus.Available = s.sttProvider.HealthCheck(ctx)
+		if !sttStatus.Available {
+			sttStatus.Error = "health check failed"
+		}
+	}
+	services = append(services, sttStatus)
+
+	// Determine overall status
+	overall := "green"
+	if !ttsStatus.Available || !sttStatus.Available {
+		overall = "yellow"
+	}
+	if !agentStatus.Available {
+		overall = "red"
+	}
+
+	jsonResponse(w, http.StatusOK, DetailedHealth{
+		Overall:  overall,
+		Services: services,
+	})
 }
 
 func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
