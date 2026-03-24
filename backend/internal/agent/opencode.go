@@ -260,9 +260,12 @@ type openCodeMessageResponse struct {
 		} `json:"time"`
 	} `json:"info"`
 	Parts []struct {
-		Type      string `json:"type"`
-		Text      string `json:"text,omitempty"`
-		MessageID string `json:"messageID,omitempty"`
+		Type      string          `json:"type"`
+		Text      string          `json:"text,omitempty"`
+		MessageID string          `json:"messageID,omitempty"`
+		Tool      string          `json:"tool,omitempty"`
+		CallID    string          `json:"callID,omitempty"`
+		State     json.RawMessage `json:"state,omitempty"`
 	} `json:"parts"`
 }
 
@@ -309,13 +312,40 @@ func (a *OpenCodeAdapter) GetMessages(ctx context.Context, sessionID string) ([]
 						textParts = append(textParts, part.Text)
 					}
 				case "tool":
-					// Include tool use as a separate message
+					// Parse tool state for rich metadata
+					meta := map[string]interface{}{}
+					if part.Tool != "" {
+						meta["tool"] = part.Tool
+					}
+					toolType := "tool_use"
+					content := part.Text
+					if part.State != nil {
+						var state OpenCodeToolState
+						if json.Unmarshal(part.State, &state) == nil {
+							meta["status"] = state.Status
+							if state.Title != "" {
+								meta["title"] = state.Title
+							}
+							// Completed and error tools are results
+							if state.Status == "completed" || state.Status == "error" {
+								toolType = "tool_result"
+								if state.Output != "" {
+									content = truncateString(state.Output, 500)
+								}
+							}
+						}
+					}
+					partID := part.MessageID + "-" + part.Type
+					if part.CallID != "" {
+						partID = part.MessageID + "-" + part.CallID
+					}
 					messages = append(messages, HistoryMessage{
-						ID:        part.MessageID + "-" + part.Type,
+						ID:        partID,
 						Role:      "assistant",
-						Content:   part.Text,
+						Content:   content,
 						Timestamp: timestamp,
-						Type:      "tool_use",
+						Type:      toolType,
+						Meta:      meta,
 					})
 				}
 			}
