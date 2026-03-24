@@ -308,11 +308,15 @@ export function useAgent(sessionId: string) {
       mark('agent_full', 'end')
     }
 
-    // Flush any remaining buffered text to TTS
+    // Flush any remaining buffered text to TTS.
+    // Tool batcher is flushed silently at end-of-turn — tool summaries are
+    // only spoken when followed by agent text (see useTTSToolBatcher).
+    // Then reset the batcher so the next turn starts fresh.
     if (voiceEnabled.value) {
-      ttsToolBatcher.flush()
+      ttsToolBatcher.flushSilent()
       ttsChunker.flush()
     }
+    ttsToolBatcher.reset()
     ttsCondenser.reset()
     isStreaming.value = false
     currentAssistantId = null

@@ -790,6 +790,34 @@ func (a *OpenCodeAdapter) parsePartUpdate(props json.RawMessage) []Event {
 		return nil
 
 	default:
+		// Unknown part type — log for diagnostics and forward if it carries text.
+		// OpenCode defines additional part types (agent, subtask, file, snapshot,
+		// patch, retry, compaction, etc.) that may carry user-facing content such
+		// as agent option prompts. Rather than silently dropping them, surface any
+		// text content as a regular EventText so the frontend can display it and
+		// TTS can speak it.
+		if part.Text != "" {
+			log.Printf("SSE: forwarding unknown part type %q (id=%s) with %d chars of text", part.Type, part.ID, len(part.Text))
+			// Apply the same delta-dedup logic as the "text" case: if deltas
+			// already streamed this part's content, the final snapshot is redundant.
+			a.deltaPartMu.RLock()
+			_, hadDeltas := a.deltaPartIDs[part.ID]
+			a.deltaPartMu.RUnlock()
+			if hadDeltas {
+				a.deltaPartMu.Lock()
+				delete(a.deltaPartIDs, part.ID)
+				a.deltaPartMu.Unlock()
+				return nil
+			}
+			return []Event{{
+				Type:      EventText,
+				SessionID: part.SessionID,
+				MessageID: part.MessageID,
+				PartID:    part.ID,
+				Content:   part.Text,
+			}}
+		}
+		log.Printf("SSE: ignoring unknown part type %q (id=%s) with no text content", part.Type, part.ID)
 		return nil
 	}
 }
