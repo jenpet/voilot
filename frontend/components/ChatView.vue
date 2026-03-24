@@ -4,11 +4,18 @@
       <p>Start a conversation...</p>
     </div>
 
-    <ChatMessage
-      v-for="msg in messages"
-      :key="msg.id"
-      :message="msg"
-    />
+    <template v-for="(item, idx) in groupedMessages" :key="item.key">
+      <!-- Tool group: collapsible block for consecutive tool_use / tool_result -->
+      <ToolGroup
+        v-if="item.kind === 'tool_group'"
+        :messages="item.messages"
+      />
+      <!-- Regular message -->
+      <ChatMessage
+        v-else
+        :message="item.message"
+      />
+    </template>
 
     <div v-if="isStreaming" class="flex items-center gap-2 text-surface-400 text-sm">
       <span class="inline-block w-2 h-2 rounded-full bg-blue-400 animate-pulse" />
@@ -24,6 +31,47 @@ const props = defineProps<{
   messages: Message[]
   isStreaming: boolean
 }>()
+
+// Group consecutive tool_use / tool_result messages into collapsible blocks.
+// Everything else stays as a single message.
+interface SingleItem {
+  kind: 'single'
+  key: string
+  message: Message
+}
+interface ToolGroupItem {
+  kind: 'tool_group'
+  key: string
+  messages: Message[]
+}
+type GroupedItem = SingleItem | ToolGroupItem
+
+const groupedMessages = computed<GroupedItem[]>(() => {
+  const result: GroupedItem[] = []
+  let toolBatch: Message[] = []
+
+  function flushToolBatch() {
+    if (toolBatch.length === 0) return
+    result.push({
+      kind: 'tool_group',
+      key: `tg-${toolBatch[0].id}`,
+      messages: [...toolBatch],
+    })
+    toolBatch = []
+  }
+
+  for (const msg of props.messages) {
+    const isTool = msg.type === 'tool_use' || msg.type === 'tool_result'
+    if (isTool) {
+      toolBatch.push(msg)
+    } else {
+      flushToolBatch()
+      result.push({ kind: 'single', key: msg.id, message: msg })
+    }
+  }
+  flushToolBatch()
+  return result
+})
 
 const scrollContainer = ref<HTMLElement>()
 let isUserScrolled = false
