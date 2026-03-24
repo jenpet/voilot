@@ -18,6 +18,7 @@ type Session struct {
 	ID        string      `json:"id"`
 	Title     string      `json:"title,omitempty"`
 	Mode      SessionMode `json:"mode,omitempty"`
+	Agent     string      `json:"agent,omitempty"` // active agent name (e.g. "build", "planitect")
 	ProjectID string      `json:"projectId,omitempty"`
 	Time      *TimeInfo   `json:"time,omitempty"`
 }
@@ -32,6 +33,7 @@ type TimeInfo struct {
 type SessionOptions struct {
 	Title    string      `json:"title,omitempty"`
 	Mode     SessionMode `json:"mode,omitempty"`
+	Agent    string      `json:"agent,omitempty"` // agent to use (e.g. "build", "planitect")
 	ParentID string      `json:"parentID,omitempty"`
 }
 
@@ -47,6 +49,13 @@ type Status struct {
 	Provider  string `json:"provider"` // e.g. "opencode", "claude"
 	Model     string `json:"model,omitempty"`
 	Version   string `json:"version,omitempty"`
+}
+
+// AgentInfo describes an available agent that can handle messages.
+type AgentInfo struct {
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+	Color       string `json:"color,omitempty"` // hex color for UI display
 }
 
 // HistoryMessage is a simplified message for displaying session history.
@@ -84,11 +93,23 @@ type Adapter interface {
 
 	// SendMessageAsync sends a message without waiting for a response.
 	// Events arrive via the SSE stream.
-	// If mode is ModePlan, the "planitect" agent is selected in OpenCode.
-	SendMessageAsync(ctx context.Context, sessionID string, message string, mode SessionMode) error
+	// The agent parameter specifies which agent to use (e.g. "build", "planitect").
+	// An empty string uses the agent backend's default.
+	SendMessageAsync(ctx context.Context, sessionID string, message string, agentName string) error
 
 	// AbortSession aborts a running session.
 	AbortSession(ctx context.Context, sessionID string) error
+
+	// ListAgents returns the available agents from the backend.
+	// Only returns user-facing agents (filters out hidden/internal ones).
+	ListAgents(ctx context.Context) ([]AgentInfo, error)
+
+	// SetSessionAgent sets the active agent for a session.
+	SetSessionAgent(sessionID string, agentName string)
+
+	// GetSessionAgent returns the active agent for a session.
+	// Returns "planitect" if no agent has been set.
+	GetSessionAgent(sessionID string) string
 
 	// SetSessionMode sets the mode for a session (plan or implement).
 	// Mode is a voilot-level concept and is not forwarded to the agent backend.

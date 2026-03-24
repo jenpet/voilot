@@ -17,11 +17,9 @@ const (
 type AppCommand string
 
 const (
-	AppCommandSwitchPlan      AppCommand = "switch_plan"
-	AppCommandSwitchImplement AppCommand = "switch_implement"
-	AppCommandNewSession      AppCommand = "new_session"
-	AppCommandStop            AppCommand = "stop"
-	AppCommandRepeat          AppCommand = "repeat"
+	AppCommandNewSession AppCommand = "new_session"
+	AppCommandStop       AppCommand = "stop"
+	AppCommandRepeat     AppCommand = "repeat"
 )
 
 // RouteResult is the output of the command router.
@@ -39,10 +37,6 @@ func Route(text string) RouteResult {
 	// App control commands — simple keyword matching.
 	// This can be made more sophisticated later (e.g. fuzzy matching, NLU).
 	switch {
-	case contains(lower, "switch to plan", "planning mode", "plan mode"):
-		return RouteResult{Type: CommandApp, AppCommand: AppCommandSwitchPlan, Text: text}
-	case contains(lower, "switch to implement", "implement mode", "implementation mode", "implement this"):
-		return RouteResult{Type: CommandApp, AppCommand: AppCommandSwitchImplement, Text: text}
 	case contains(lower, "new session", "create session", "start new"):
 		return RouteResult{Type: CommandApp, AppCommand: AppCommandNewSession, Text: text}
 	case lower == "stop" || lower == "cancel" || lower == "shut up":

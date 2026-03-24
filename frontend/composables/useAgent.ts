@@ -218,8 +218,10 @@ export function useAgent(sessionId: string) {
         }
         break
       case 'session_updated':
-        // Update session title or mode if changed
-        if (session.value && event.meta?.mode) {
+        // Update session agent, title, or mode if changed
+        if (session.value && event.meta?.agent) {
+          session.value.agent = event.meta.agent as string
+        } else if (session.value && event.meta?.mode) {
           session.value.mode = event.meta.mode as 'plan' | 'implement'
         } else if (session.value && event.content) {
           session.value.title = event.content
@@ -378,38 +380,24 @@ export function useAgent(sessionId: string) {
     }
   }
 
-  // Toggle between plan and implement mode
-  function toggleMode() {
+  // Switch the active agent for this session
+  function setAgent(agentName: string) {
     if (!session.value) return
-    const newMode = session.value.mode === 'plan' ? 'implement' : 'plan'
+    if (session.value.agent === agentName) return
     const sent = send({
-      type: 'set_mode',
+      type: 'set_agent',
       sessionId,
-      content: newMode,
+      content: agentName,
     })
     if (sent) {
-      session.value.mode = newMode
+      session.value.agent = agentName
     } else {
-      appendSystemMessage('Failed to change mode: not connected to backend')
+      appendSystemMessage('Failed to switch agent: not connected to backend')
     }
   }
 
   function handleCommand(command: string) {
     switch (command) {
-      case 'switch_plan':
-        if (session.value && session.value.mode !== 'plan') {
-          send({ type: 'set_mode', sessionId, content: 'plan' })
-          session.value.mode = 'plan'
-          appendSystemMessage('Switched to Planning mode')
-        }
-        break
-      case 'switch_implement':
-        if (session.value && session.value.mode !== 'implement') {
-          send({ type: 'set_mode', sessionId, content: 'implement' })
-          session.value.mode = 'implement'
-          appendSystemMessage('Switched to Implement mode')
-        }
-        break
       case 'stop':
         abortSession()
         break
@@ -438,7 +426,7 @@ export function useAgent(sessionId: string) {
     sendMessage,
     abortSession,
     stopTTS,
-    toggleMode,
+    setAgent,
     toggleVoice,
   }
 }

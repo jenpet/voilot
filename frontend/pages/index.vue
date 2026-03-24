@@ -39,7 +39,7 @@ const router = useRouter()
 const { sessions, createSession: doCreateSession, deleteSession: doDeleteSession } = useSession()
 
 async function createSession() {
-  const session = await doCreateSession({ mode: 'plan' })
+  const session = await doCreateSession({ mode: 'plan', agent: 'planitect' })
   if (session) {
     router.push(`/session/${session.id}`)
   }

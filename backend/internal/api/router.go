@@ -44,6 +44,9 @@ func (s *Server) registerRoutes() {
 	// Agent status
 	api.HandleFunc("/status", s.handleStatus).Methods("GET")
 
+	// Agents
+	api.HandleFunc("/agents", s.handleListAgents).Methods("GET")
+
 	// Sessions
 	api.HandleFunc("/sessions", s.handleListSessions).Methods("GET")
 	api.HandleFunc("/sessions", s.handleCreateSession).Methods("POST")

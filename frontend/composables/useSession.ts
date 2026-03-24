@@ -2,6 +2,7 @@ export interface Session {
   id: string
   title: string
   mode: 'plan' | 'implement'
+  agent?: string
   projectId?: string
   time?: {
     created: number
@@ -12,6 +13,7 @@ export interface Session {
 interface CreateSessionOptions {
   title?: string
   mode: 'plan' | 'implement'
+  agent?: string
 }
 
 export function useSession() {

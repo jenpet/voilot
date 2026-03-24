@@ -19,9 +19,9 @@ var upgrader = websocket.Upgrader{
 
 // chatInbound is the WebSocket message format from the client.
 type chatInbound struct {
-	Type      string `json:"type"`      // "message", "abort", "set_mode"
+	Type      string `json:"type"`      // "message", "abort", "set_mode", "set_agent"
 	SessionID string `json:"sessionId"` // target session
-	Content   string `json:"content"`   // message text or mode value ("plan"/"implement")
+	Content   string `json:"content"`   // message text, mode value, or agent name
 }
 
 // chatOutbound is the WebSocket message format to the client.
@@ -109,9 +109,9 @@ func (s *Server) handleWSChat(w http.ResponseWriter, r *http.Request) {
 			}
 
 			// Send message asynchronously — response events come via SSE
-			// Use the session's current mode to enforce plan/implement restrictions
-			mode := s.agentAdapter.GetSessionMode(msg.SessionID)
-			if err := s.agentAdapter.SendMessageAsync(ctx, msg.SessionID, result.Text, mode); err != nil {
+			// Use the session's current agent for routing
+			agentName := s.agentAdapter.GetSessionAgent(msg.SessionID)
+			if err := s.agentAdapter.SendMessageAsync(ctx, msg.SessionID, result.Text, agentName); err != nil {
 				writeJSON(chatOutbound{
 					Type:      "error",
 					SessionID: msg.SessionID,
@@ -158,6 +158,36 @@ func (s *Server) handleWSChat(w http.ResponseWriter, r *http.Request) {
 					Content:   string(newMode),
 					Meta: map[string]interface{}{
 						"mode": string(newMode),
+					},
+				},
+			})
+
+		case "set_agent":
+			if msg.SessionID == "" {
+				writeJSON(chatOutbound{
+					Type:    "error",
+					Content: "sessionId is required",
+				})
+				continue
+			}
+			if msg.Content == "" {
+				writeJSON(chatOutbound{
+					Type:      "error",
+					SessionID: msg.SessionID,
+					Content:   "agent name is required",
+				})
+				continue
+			}
+			s.agentAdapter.SetSessionAgent(msg.SessionID, msg.Content)
+			writeJSON(chatOutbound{
+				Type:      "event",
+				SessionID: msg.SessionID,
+				Event: &agent.Event{
+					Type:      agent.EventSessionUpdated,
+					SessionID: msg.SessionID,
+					Content:   msg.Content,
+					Meta: map[string]interface{}{
+						"agent": msg.Content,
 					},
 				},
 			})

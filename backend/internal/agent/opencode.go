@@ -28,6 +28,10 @@ type OpenCodeAdapter struct {
 	modeMu       sync.RWMutex
 	sessionModes map[string]SessionMode
 
+	// Session agent storage: which agent is active per session.
+	agentMu       sync.RWMutex
+	sessionAgents map[string]string
+
 	// Track user message IDs to filter out echoed user messages from SSE.
 	// Entries have a TTL and are periodically cleaned up to prevent unbounded growth.
 	userMsgMu  sync.RWMutex
@@ -52,10 +56,11 @@ func NewOpenCodeAdapter(baseURL string) *OpenCodeAdapter {
 		httpClient: &http.Client{
 			Timeout: 30 * time.Second,
 		},
-		subscribers:  make(map[chan Event]struct{}),
-		sessionModes: make(map[string]SessionMode),
-		userMsgIDs:   make(map[string]time.Time),
-		deltaPartIDs: make(map[string]struct{}),
+		subscribers:   make(map[chan Event]struct{}),
+		sessionModes:  make(map[string]SessionMode),
+		sessionAgents: make(map[string]string),
+		userMsgIDs:    make(map[string]time.Time),
+		deltaPartIDs:  make(map[string]struct{}),
 	}
 
 	// Start background cleanup of expired user message IDs.
@@ -203,6 +208,7 @@ func (a *OpenCodeAdapter) ListSessions(ctx context.Context) ([]Session, error) {
 	for i, ocs := range ocSessions {
 		sessions[i] = ocs.toSession()
 		sessions[i].Mode = a.GetSessionMode(sessions[i].ID)
+		sessions[i].Agent = a.GetSessionAgent(sessions[i].ID)
 	}
 	return sessions, nil
 }
@@ -228,8 +234,12 @@ func (a *OpenCodeAdapter) CreateSession(ctx context.Context, opts SessionOptions
 
 	session := ocs.toSession()
 	session.Mode = opts.Mode
-	// Store the mode in our local mode map
+	session.Agent = opts.Agent
+	// Store the mode and agent in our local maps
 	a.SetSessionMode(session.ID, opts.Mode)
+	if opts.Agent != "" {
+		a.SetSessionAgent(session.ID, opts.Agent)
+	}
 	return &session, nil
 }
 
@@ -246,6 +256,7 @@ func (a *OpenCodeAdapter) ResumeSession(ctx context.Context, id string) (*Sessio
 
 	session := ocs.toSession()
 	session.Mode = a.GetSessionMode(id)
+	session.Agent = a.GetSessionAgent(id)
 	return &session, nil
 }
 
@@ -375,10 +386,13 @@ func (a *OpenCodeAdapter) DeleteSession(ctx context.Context, id string) error {
 		return fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(body))
 	}
 
-	// Clean up stored mode
+	// Clean up stored mode and agent
 	a.modeMu.Lock()
 	delete(a.sessionModes, id)
 	a.modeMu.Unlock()
+	a.agentMu.Lock()
+	delete(a.sessionAgents, id)
+	a.agentMu.Unlock()
 
 	return nil
 }
@@ -409,9 +423,9 @@ func (a *OpenCodeAdapter) SendMessage(ctx context.Context, sessionID string, mes
 		return events, err
 	}
 
-	// Send message asynchronously (use the session's stored mode)
-	mode := a.GetSessionMode(sessionID)
-	if err := a.SendMessageAsync(ctx, sessionID, message, mode); err != nil {
+	// Send message asynchronously — response events come via SSE
+	agentName := a.GetSessionAgent(sessionID)
+	if err := a.SendMessageAsync(ctx, sessionID, message, agentName); err != nil {
 		close(events)
 		return events, err
 	}
@@ -450,10 +464,72 @@ func (a *OpenCodeAdapter) GetSessionMode(sessionID string) SessionMode {
 	return ModePlan
 }
 
+// SetSessionAgent stores the active agent for a session.
+func (a *OpenCodeAdapter) SetSessionAgent(sessionID string, agentName string) {
+	a.agentMu.Lock()
+	defer a.agentMu.Unlock()
+	a.sessionAgents[sessionID] = agentName
+}
+
+// GetSessionAgent returns the active agent for a session, defaulting to "planitect".
+func (a *OpenCodeAdapter) GetSessionAgent(sessionID string) string {
+	a.agentMu.RLock()
+	defer a.agentMu.RUnlock()
+	if agent, ok := a.sessionAgents[sessionID]; ok {
+		return agent
+	}
+	return "planitect"
+}
+
+// openCodeAgent is the JSON shape returned by OpenCode's GET /agent endpoint.
+type openCodeAgent struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	Color       string `json:"color,omitempty"`
+	Mode        string `json:"mode"`   // "primary" or "subagent"
+	Native      bool   `json:"native"` // true for built-in agents
+	Hidden      bool   `json:"hidden,omitempty"`
+}
+
+// ListAgents fetches available agents from OpenCode and filters to user-facing ones.
+func (a *OpenCodeAdapter) ListAgents(ctx context.Context) ([]AgentInfo, error) {
+	resp, err := a.doRequest(ctx, "GET", "/agent", nil)
+	if err != nil {
+		return nil, err
+	}
+
+	ocAgents, err := decodeResponse[[]openCodeAgent](resp)
+	if err != nil {
+		return nil, err
+	}
+
+	var agents []AgentInfo
+	for _, oc := range ocAgents {
+		// Skip hidden agents (compaction, title, summary)
+		if oc.Hidden {
+			continue
+		}
+		// Skip subagents (general, explore) — they are internal to the LLM
+		if oc.Mode == "subagent" {
+			continue
+		}
+		// Skip the built-in "plan" agent — voilot uses "planitect" instead
+		if oc.Name == "plan" {
+			continue
+		}
+		agents = append(agents, AgentInfo{
+			Name:        oc.Name,
+			Description: oc.Description,
+			Color:       oc.Color,
+		})
+	}
+	return agents, nil
+}
+
 // SendMessageAsync sends a message without waiting for a response.
 // Use SubscribeEvents() to receive streaming events.
-// If mode is ModePlan, the "planitect" agent is selected in OpenCode.
-func (a *OpenCodeAdapter) SendMessageAsync(ctx context.Context, sessionID string, message string, mode SessionMode) error {
+// If agentName is non-empty, that agent is selected in OpenCode.
+func (a *OpenCodeAdapter) SendMessageAsync(ctx context.Context, sessionID string, message string, agentName string) error {
 	body := map[string]interface{}{
 		"parts": []map[string]string{
 			{
@@ -463,10 +539,9 @@ func (a *OpenCodeAdapter) SendMessageAsync(ctx context.Context, sessionID string
 		},
 	}
 
-	// In plan mode, delegate to the planitect agent which has restricted
-	// permissions (edit only plans/*.md, bash only git commands).
-	if mode == ModePlan {
-		body["agent"] = "planitect"
+	// Select the specified agent in OpenCode.
+	if agentName != "" {
+		body["agent"] = agentName
 	}
 
 	resp, err := a.doRequest(ctx, "POST", "/session/"+sessionID+"/prompt_async", body)

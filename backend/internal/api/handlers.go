@@ -117,6 +117,15 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 	jsonResponse(w, http.StatusOK, status)
 }
 
+func (s *Server) handleListAgents(w http.ResponseWriter, r *http.Request) {
+	agents, err := s.agentAdapter.ListAgents(r.Context())
+	if err != nil {
+		jsonError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	jsonResponse(w, http.StatusOK, agents)
+}
+
 func (s *Server) handleListSessions(w http.ResponseWriter, r *http.Request) {
 	sessions, err := s.agentAdapter.ListSessions(r.Context())
 	if err != nil {
@@ -134,6 +143,14 @@ func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 	}
 	if opts.Mode == "" {
 		opts.Mode = agent.ModePlan
+	}
+	// Default agent based on mode if not explicitly set
+	if opts.Agent == "" {
+		if opts.Mode == agent.ModePlan {
+			opts.Agent = "planitect"
+		} else {
+			opts.Agent = "build"
+		}
 	}
 	session, err := s.agentAdapter.CreateSession(r.Context(), opts)
 	if err != nil {

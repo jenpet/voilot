@@ -7,12 +7,15 @@
         <h3 class="font-medium truncate">{{ session.title || 'Untitled Session' }}</h3>
         <div class="flex items-center gap-2 mt-1">
           <span
-            class="inline-block px-2 py-0.5 text-xs rounded-full"
-            :class="session.mode === 'plan'
-              ? 'bg-amber-500/20 text-amber-400'
-              : 'bg-green-500/20 text-green-400'"
+            class="inline-flex items-center gap-1 px-2 py-0.5 text-xs rounded-full"
+            :style="agentBadgeStyle"
           >
-            {{ session.mode === 'plan' ? 'Planning' : 'Implementing' }}
+            <span
+              v-if="agentInfo?.color"
+              class="w-1.5 h-1.5 rounded-full flex-shrink-0"
+              :style="{ backgroundColor: agentInfo.color }"
+            />
+            {{ session.agent || 'planitect' }}
           </span>
           <span class="text-xs text-surface-400">{{ session.id.slice(0, 8) }}</span>
         </div>
@@ -30,11 +33,31 @@
 <script setup lang="ts">
 import type { Session } from '~/composables/useSession'
 
-defineProps<{
+const props = defineProps<{
   session: Session
 }>()
 
 defineEmits<{
   delete: []
 }>()
+
+const { agents } = useAgents()
+
+const agentInfo = computed(() =>
+  agents.value.find(a => a.name === (props.session.agent || 'planitect'))
+)
+
+const agentBadgeStyle = computed(() => {
+  const color = agentInfo.value?.color
+  if (color) {
+    return {
+      backgroundColor: `${color}20`,
+      color: color,
+    }
+  }
+  return {
+    backgroundColor: 'rgb(var(--surface-700) / 0.5)',
+    color: 'rgb(var(--surface-300))',
+  }
+})
 </script>
