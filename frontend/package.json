@@ -11,12 +11,15 @@
     "lint:fix": "eslint . --fix"
   },
   "dependencies": {
+    "dompurify": "^3.3.3",
+    "marked": "^17.0.5",
     "nuxt": "^3.16.0",
     "vue": "^3.5.0",
     "vue-router": "^4.5.0"
   },
   "devDependencies": {
     "@nuxtjs/tailwindcss": "^6.12.0",
+    "@types/dompurify": "^3.0.5",
     "@vite-pwa/nuxt": "^0.10.0",
     "typescript": "^5.7.0"
   }

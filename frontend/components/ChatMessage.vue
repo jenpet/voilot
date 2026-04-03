@@ -72,7 +72,14 @@
 
     <!-- Regular text message -->
     <div v-else>
-      <p class="text-sm whitespace-pre-wrap break-words">{{ message.content }}</p>
+      <!-- Assistant: render markdown -->
+      <div
+        v-if="message.role === 'assistant'"
+        class="text-sm break-words prose-chat"
+        v-html="renderedContent"
+      />
+      <!-- User: plain text -->
+      <p v-else class="text-sm whitespace-pre-wrap break-words">{{ message.content }}</p>
       <span class="block mt-1 text-xs text-surface-500">
         {{ message.role === 'user' ? 'You' : 'Agent' }}
       </span>
@@ -83,10 +90,14 @@
 <script setup lang="ts">
 import type { Message } from '~/composables/useAgent'
 import { RespondToPermissionKey } from '~/composables/useAgent'
+import { renderMarkdown } from '~/composables/useMarkdown'
 
 const props = defineProps<{
   message: Message
 }>()
+
+// ─── Markdown rendering (assistant messages only) ──────────────────
+const renderedContent = computed(() => renderMarkdown(props.message.content))
 
 const respondToPermission = inject(RespondToPermissionKey, null)
 

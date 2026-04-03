@@ -24,6 +24,9 @@ export default defineNuxtConfig({
   // PWA disabled during development — re-enable @vite-pwa/nuxt in modules[] when ready
   // pwa: { ... },
 
+  // Global CSS
+  css: ['~/assets/css/markdown.css'],
+
   // App configuration
   app: {
     head: {
