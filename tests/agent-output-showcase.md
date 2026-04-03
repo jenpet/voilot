@@ -9,14 +9,14 @@ correctly in the chat UI and sounds right via TTS.
 1. Open a voilot session (any agent works, but **build** has full tool access).
 2. Say or type: **"Read tests/agent-output-showcase.md and execute section 1"**
 3. Verify the UI and TTS output match the expectations listed below.
-4. Repeat for sections 2 through 11.
+4. Repeat for each section.
 
-> Tip: switch to **planitect** for sections 1-5 (text-only) and **build** for
-> sections 6-11 (tool use required).
+> Tip: switch to **planitect** for sections 1-3 (text-only) and **build** for
+> sections 4-11 (tool use / permissions required).
 
 ---
 
-## Section 1: Short plain text
+## Section 1: Plain text
 
 **Instruction to agent:**
 Respond with exactly one short sentence (under 15 words) that describes what
@@ -33,25 +33,7 @@ sentence.
 
 ---
 
-## Section 2: Long plain text
-
-**Instruction to agent:**
-Respond with exactly 4 sentences explaining how voice-first planning works in
-voilot. Use simple language, no markdown formatting, no code blocks, no bullet
-points. Just four plain sentences in a single paragraph.
-
-**Expected UI:**
-- One assistant message bubble with a paragraph of 4 sentences.
-- Text streams in progressively (visible during response).
-
-**Expected TTS:**
-- Each sentence is spoken as it completes (sentence-chunked).
-- You should hear the first sentence before the full response finishes.
-- No pauses longer than normal speech cadence between sentences.
-
----
-
-## Section 3: Markdown formatting
+## Section 2: Markdown formatting
 
 **Instruction to agent:**
 Respond using the following markdown elements, all in one message. Use each
@@ -79,32 +61,12 @@ The content should be about Vue composables. Keep it to ~80 words total.
 
 ---
 
-## Section 4: Fenced code block
-
-**Instruction to agent:**
-Write a short TypeScript function (5-10 lines) that checks whether a string is
-a palindrome. Put it in a single fenced code block with the `typescript`
-language tag. Add one sentence of explanation before the code and one sentence
-after. No other formatting.
-
-**Expected UI:**
-- One assistant message bubble with: a sentence, then a code block (visible as
-  ``` markers and indented code), then a closing sentence.
-
-**Expected TTS:**
-- First sentence spoken normally.
-- Code block replaced with something like "Wrote 7 lines of typescript."
-- Closing sentence spoken normally.
-- The actual code is NOT read aloud.
-
----
-
-## Section 5: Text with multiple code blocks
+## Section 3: Code blocks
 
 **Instruction to agent:**
 Explain the difference between `ref` and `reactive` in Vue 3. Structure your
 response as:
-1. A 2-sentence introduction.
+1. A 1-sentence introduction.
 2. A short code example using `ref` (3-5 lines, fenced as `typescript`).
 3. A 1-sentence transition.
 4. A short code example using `reactive` (3-5 lines, fenced as `typescript`).
@@ -120,10 +82,11 @@ response as:
 - Second code block: "Wrote N lines of typescript."
 - Conclusion spoken.
 - Two separate code summaries, each announcing its own line count.
+- The actual code is NOT read aloud.
 
 ---
 
-## Section 6: Single tool use (bash)
+## Section 4: Single tool use (bash)
 
 **Instruction to agent:**
 Run `ls -la tests/` in the project root. Then say one sentence describing what
@@ -140,7 +103,7 @@ you see.
 
 ---
 
-## Section 7: Multiple same-tool uses
+## Section 5: Multiple same-tool uses
 
 **Instruction to agent:**
 Read these three files using the read tool (not bash cat):
@@ -163,7 +126,7 @@ successfully."
 
 ---
 
-## Section 8: Mixed tools then text
+## Section 6: Mixed tools then text
 
 **Instruction to agent:**
 First, run `wc -l backend/internal/agent/opencode.go` to count lines. Then
@@ -183,26 +146,30 @@ of what the file appears to do based on those first lines.
 
 ---
 
-## Section 9: Error scenario
+## Section 7: Unexpected error
 
 **Instruction to agent:**
-Try to read the file `/tmp/voilot-does-not-exist-xyz-12345`. This file does not
-exist. After the error, say one sentence acknowledging the file was not found.
+Read the project configuration from `backend/config/settings.yaml` and
+summarize its contents.
+
+> **Note for tester:** This file does not exist. The instruction is
+> deliberately phrased as if it does. The agent should attempt the read,
+> encounter the error naturally, and then report what happened.
 
 **Expected UI:**
 - A ToolGroup showing the failed read attempt. The tool result should show an
   error indicator (red X or error status).
-- Then an assistant text message acknowledging the error.
+- Then an assistant text message acknowledging the file was not found.
 - OR: a system error message if the agent surfaces it as an error event.
 
 **Expected TTS:**
 - Either "Used read." (tool batch) or an error announcement, depending on how
   the agent reports it.
-- Then the acknowledgment sentence spoken normally.
+- Then an acknowledgment or explanation spoken normally.
 
 ---
 
-## Section 10: Long response with embedded code
+## Section 8: Long response with embedded code
 
 **Instruction to agent:**
 Write a brief technical overview (150-200 words) of how the voilot WebSocket
@@ -230,16 +197,14 @@ Base this on the actual code in `backend/internal/api/ws.go`.
 
 ---
 
-## Section 11: Permission prompt
+## Section 9: Permission prompt (external directory)
 
 **Instruction to agent:**
-Try to read a file outside the project directory, for example
-`/etc/hosts`. This should trigger a permission prompt from OpenCode asking
-whether to allow reading an external directory.
+Read the file `/etc/hosts` and tell me what hostnames are defined in it.
 
-If the agent does NOT trigger a permission prompt (e.g., the agent has
-"always allow" configured), instead try: `cat /etc/shadow` via bash, or ask
-the agent to read a file path that you know requires approval.
+> **Prerequisite:** The `external_directory` permission must NOT be set to
+> "always allow" in your OpenCode configuration, otherwise the prompt will be
+> skipped. Reset permissions if needed before running this test.
 
 **Expected UI:**
 - An amber/yellow permission bubble appears in the chat with:
@@ -250,21 +215,95 @@ the agent to read a file path that you know requires approval.
     "Deny" (red).
 - The streaming indicator changes to "Waiting for approval..." with an amber
   dot instead of the usual blue dot.
-- After clicking one of the buttons:
-  - **Allow Once/Always**: The bubble turns green with a checkmark and shows
-    "Allowed once" or "Allowed always". Buttons disappear. The agent
-    continues its work.
-  - **Deny**: The bubble turns red with an X and shows "Denied". Buttons
-    disappear. The agent reports the permission was denied.
-- The streaming indicator returns to normal after resolution.
+- After clicking "Allow Once":
+  - The bubble turns green with a checkmark and shows "Allowed once".
+  - Buttons disappear.
+  - The agent continues, reads `/etc/hosts`, and responds with the hostnames.
+- After clicking "Deny" (alternative test):
+  - The bubble turns red with an X and shows "Denied".
+  - Buttons disappear.
+  - The agent reports that permission was denied and it cannot read the file.
 
 **Expected TTS:**
 - "Permission needed: [title]" announced when the prompt appears.
 - Brief "Permission approved" or "Permission denied" after resolution.
 - Voice loop does NOT auto-start recording while the permission prompt is
   pending (silence detection is paused).
+- After approval: the agent's summary of `/etc/hosts` is spoken normally.
 
 **Testing external resolution:**
 If you have the OpenCode TUI open simultaneously, resolve the permission
 there instead of in voilot. The voilot chat should update the permission
 bubble to show the resolved state (via the `permission.replied` SSE event).
+
+---
+
+## Section 10: Option request — single question
+
+> **Note:** This section tests functionality that is **not yet implemented**.
+> Option/question prompts from the agent currently render as plain text.
+> These expectations document the target behavior for when interactive option
+> handling is built.
+
+**Instruction to agent:**
+I want to add a new API endpoint to the backend. Before writing any code, ask
+me one clarifying question: what HTTP method should the endpoint use? Present
+the options GET, POST, PUT, and DELETE for me to choose from.
+
+**Expected UI (target behavior):**
+- An interactive option bubble appears in the chat with:
+  - The question text displayed clearly.
+  - Four selectable options: "GET", "POST", "PUT", "DELETE".
+  - Each option is a clickable button or radio selection.
+- After selecting an option:
+  - The selected option is highlighted / confirmed in the bubble.
+  - The agent continues its response incorporating the chosen option.
+- If no selection is made, the agent should remain waiting (no auto-timeout).
+
+**Expected UI (current behavior):**
+- The question and options render as plain assistant text in the chat bubble.
+- No interactive buttons or selection UI.
+
+**Expected TTS (target behavior):**
+- The question is spoken aloud: "What HTTP method should the endpoint use?"
+- Options are announced: "GET, POST, PUT, or DELETE."
+- Voice loop pauses auto-recording while the option prompt is pending (same
+  behavior as permission prompts).
+- After selection: the agent's follow-up response is spoken normally.
+
+---
+
+## Section 11: Option request — multiple questions
+
+> **Note:** This section tests functionality that is **not yet implemented**.
+> See Section 10 note. These expectations document target behavior.
+
+**Instruction to agent:**
+I want you to scaffold a new composable for the frontend. Before writing any
+code, ask me these questions in a single response:
+1. What should the composable be named? Suggest three options: `useMetrics`,
+   `useAnalytics`, or `useTracking`.
+2. Should it include a cleanup function on unmount? Yes or No.
+3. What data format should it export? Options: "raw object", "readonly ref",
+   or "computed property".
+
+**Expected UI (target behavior):**
+- A multi-question option bubble (or multiple sequential bubbles) appears with:
+  - Three distinct questions, each with its own set of selectable options.
+  - Q1: three name options as buttons.
+  - Q2: Yes / No toggle or buttons.
+  - Q3: three format options as buttons.
+- Each question can be answered independently.
+- A "Submit" or "Confirm" action sends all answers at once.
+- After submission:
+  - Selected options are highlighted / confirmed in each question.
+  - The agent continues with the scaffolding based on the chosen answers.
+
+**Expected UI (current behavior):**
+- All questions and options render as plain assistant text.
+- No interactive selection UI.
+
+**Expected TTS (target behavior):**
+- Each question is spoken in sequence with its options.
+- Voice loop pauses auto-recording while options are pending.
+- After submission: the agent's follow-up response is spoken normally.
