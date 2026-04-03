@@ -242,6 +242,89 @@ func TestParseToolPart_PendingReturnsNil(t *testing.T) {
 	}
 }
 
+func TestParseToolPart_ErrorEmitsToolResult(t *testing.T) {
+	adapter := NewOpenCodeAdapter("http://localhost:4096")
+
+	part := OpenCodePart{
+		ID:        "part-1",
+		SessionID: "sess-1",
+		MessageID: "msg-1",
+		Type:      "tool",
+		Tool:      "read",
+		State:     json.RawMessage(`{"status": "error", "error": "Tool execution aborted", "input": {"filePath": "/var/log/system.log"}}`),
+	}
+
+	events := adapter.parseToolPart(part, "")
+	if len(events) != 1 {
+		t.Fatalf("expected 1 event, got %d", len(events))
+	}
+
+	evt := events[0]
+	// Must be tool_result, NOT error — avoids redundant TTS/system messages
+	if evt.Type != EventToolResult {
+		t.Errorf("expected event type %q, got %q", EventToolResult, evt.Type)
+	}
+	if evt.Content != "Tool execution aborted" {
+		t.Errorf("expected content %q, got %q", "Tool execution aborted", evt.Content)
+	}
+	if evt.Meta["error"] != "Tool execution aborted" {
+		t.Errorf("expected meta error %q, got %v", "Tool execution aborted", evt.Meta["error"])
+	}
+	if evt.Meta["status"] != "error" {
+		t.Errorf("expected meta status %q, got %v", "error", evt.Meta["status"])
+	}
+}
+
+func TestParseMessageUpdated_SuppressesAbortError(t *testing.T) {
+	adapter := NewOpenCodeAdapter("http://localhost:4096")
+
+	props := json.RawMessage(`{
+		"info": {
+			"id": "msg-1",
+			"sessionID": "sess-1",
+			"role": "assistant",
+			"error": {
+				"name": "MessageAbortedError",
+				"data": {"message": "The operation was aborted."}
+			}
+		}
+	}`)
+
+	events := adapter.parseMessageUpdated(props)
+	if events != nil {
+		t.Errorf("expected nil for MessageAbortedError, got %d events", len(events))
+	}
+}
+
+func TestParseMessageUpdated_PropagatesOtherErrors(t *testing.T) {
+	adapter := NewOpenCodeAdapter("http://localhost:4096")
+
+	props := json.RawMessage(`{
+		"info": {
+			"id": "msg-1",
+			"sessionID": "sess-1",
+			"role": "assistant",
+			"error": {
+				"name": "RateLimitError",
+				"data": {"message": "Too many requests"}
+			}
+		}
+	}`)
+
+	events := adapter.parseMessageUpdated(props)
+	if len(events) != 1 {
+		t.Fatalf("expected 1 event for non-abort error, got %d", len(events))
+	}
+
+	evt := events[0]
+	if evt.Type != EventError {
+		t.Errorf("expected event type %q, got %q", EventError, evt.Type)
+	}
+	if evt.Content != "Error (RateLimitError)" {
+		t.Errorf("expected content %q, got %q", "Error (RateLimitError)", evt.Content)
+	}
+}
+
 // --- RespondToPermission HTTP tests ---
 
 func TestRespondToPermission_Success(t *testing.T) {

@@ -864,8 +864,12 @@ func (a *OpenCodeAdapter) parseToolPart(part OpenCodePart, delta string) []Event
 			evt.Meta["title"] = state.Title
 		}
 	case "error":
-		evt.Type = EventError
+		// Emit as tool_result (not error) so the UI updates the tool group
+		// without triggering redundant system error messages and TTS
+		// announcements. This covers permission denials and aborted tools.
+		evt.Type = EventToolResult
 		evt.Content = state.Error
+		evt.Meta["error"] = state.Error
 	default:
 		// pending — skip
 		return nil
@@ -1004,6 +1008,13 @@ func (a *OpenCodeAdapter) parseMessageUpdated(props json.RawMessage) []Event {
 	}
 
 	if msg.Error != nil {
+		// Suppress MessageAbortedError — this is a downstream consequence of
+		// permission denials or user-initiated aborts and carries no useful
+		// information beyond what the permission_replied or tool_result already
+		// conveys. Other error types (rate limits, API errors) still propagate.
+		if msg.Error.Name == "MessageAbortedError" {
+			return nil
+		}
 		return []Event{{
 			Type:      EventError,
 			SessionID: msg.SessionID,
