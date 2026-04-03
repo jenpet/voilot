@@ -19,9 +19,12 @@ var upgrader = websocket.Upgrader{
 
 // chatInbound is the WebSocket message format from the client.
 type chatInbound struct {
-	Type      string `json:"type"`      // "message", "abort", "set_mode", "set_agent"
-	SessionID string `json:"sessionId"` // target session
-	Content   string `json:"content"`   // message text, mode value, or agent name
+	Type         string `json:"type"`                   // "message", "abort", "set_mode", "set_agent", "permission_response"
+	SessionID    string `json:"sessionId"`              // target session
+	Content      string `json:"content"`                // message text, mode value, or agent name
+	PermissionID string `json:"permissionId,omitempty"` // for permission_response
+	Response     string `json:"response,omitempty"`     // "once", "always", "reject"
+	Remember     bool   `json:"remember,omitempty"`     // persist the permission rule
 }
 
 // chatOutbound is the WebSocket message format to the client.
@@ -191,6 +194,38 @@ func (s *Server) handleWSChat(w http.ResponseWriter, r *http.Request) {
 					},
 				},
 			})
+
+		case "permission_response":
+			if msg.SessionID == "" {
+				writeJSON(chatOutbound{
+					Type:    "error",
+					Content: "sessionId is required",
+				})
+				continue
+			}
+			if msg.PermissionID == "" {
+				writeJSON(chatOutbound{
+					Type:      "error",
+					SessionID: msg.SessionID,
+					Content:   "permissionId is required",
+				})
+				continue
+			}
+			if msg.Response != "once" && msg.Response != "always" && msg.Response != "reject" {
+				writeJSON(chatOutbound{
+					Type:      "error",
+					SessionID: msg.SessionID,
+					Content:   "Invalid response: " + msg.Response + " (must be 'once', 'always', or 'reject')",
+				})
+				continue
+			}
+			if err := s.agentAdapter.RespondToPermission(ctx, msg.SessionID, msg.PermissionID, msg.Response, msg.Remember); err != nil {
+				writeJSON(chatOutbound{
+					Type:      "error",
+					SessionID: msg.SessionID,
+					Content:   "Failed to respond to permission: " + err.Error(),
+				})
+			}
 
 		default:
 			writeJSON(chatOutbound{

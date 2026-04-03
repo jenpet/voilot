@@ -26,6 +26,10 @@ const (
 	EventSessionCreated EventType = "session_created"
 	// EventSessionUpdated signals a session was updated (title, etc).
 	EventSessionUpdated EventType = "session_updated"
+	// EventPermissionRequest signals a permission prompt that needs user approval.
+	EventPermissionRequest EventType = "permission_request"
+	// EventPermissionReplied signals a permission prompt was resolved.
+	EventPermissionReplied EventType = "permission_replied"
 )
 
 // Event represents a single streaming event from an agent.
@@ -106,4 +110,29 @@ type OpenCodeMessageInfo struct {
 type OpenCodeSessionError struct {
 	SessionID string          `json:"sessionID,omitempty"`
 	Error     json.RawMessage `json:"error,omitempty"`
+}
+
+// OpenCodePermission is the properties payload for "permission.asked".
+// Represents a permission prompt that needs user approval.
+type OpenCodePermission struct {
+	ID         string                 `json:"id"`
+	Permission string                 `json:"permission"`         // "external_directory", "bash", "edit", etc.
+	Patterns   []string               `json:"patterns,omitempty"` // patterns to approve (e.g. ["/etc/*"])
+	Always     []string               `json:"always,omitempty"`   // patterns for "always" approval
+	SessionID  string                 `json:"sessionID"`
+	Tool       OpenCodePermissionTool `json:"tool"`               // nested: messageID + callID
+	Metadata   map[string]interface{} `json:"metadata,omitempty"` // e.g. {"filepath": "/etc/hosts", "parentDir": "/etc"}
+}
+
+// OpenCodePermissionTool holds the tool reference inside a permission event.
+type OpenCodePermissionTool struct {
+	MessageID string `json:"messageID"`
+	CallID    string `json:"callID,omitempty"`
+}
+
+// OpenCodePermissionReply is the properties payload for "permission.replied".
+type OpenCodePermissionReply struct {
+	SessionID string `json:"sessionID"`
+	RequestID string `json:"requestID"` // permission ID being responded to
+	Reply     string `json:"reply"`     // "once", "always", "reject"
 }

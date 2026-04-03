@@ -712,6 +712,12 @@ func (a *OpenCodeAdapter) parseSSEData(data string) []Event {
 	case "server.connected":
 		log.Println("SSE: connected to OpenCode server")
 
+	case "permission.asked":
+		return a.parsePermissionAsked(raw.Properties)
+
+	case "permission.replied":
+		return a.parsePermissionReplied(raw.Properties)
+
 	case "server.heartbeat", "session.diff":
 		// Ignore heartbeats and diffs
 	}
@@ -1028,6 +1034,87 @@ func (a *OpenCodeAdapter) parseSessionError(props json.RawMessage) []Event {
 		SessionID: errInfo.SessionID,
 		Content:   content,
 	}}
+}
+
+// parsePermissionUpdated handles "permission.updated" SSE events.
+// These fire when a tool needs user approval (e.g. external_directory, bash).
+func (a *OpenCodeAdapter) parsePermissionAsked(props json.RawMessage) []Event {
+	var perm OpenCodePermission
+	if err := json.Unmarshal(props, &perm); err != nil {
+		log.Printf("Failed to parse permission.asked: %v", err)
+		return nil
+	}
+
+	// Build a human-readable title from the permission type and metadata
+	title := perm.Permission
+	if filepath, ok := perm.Metadata["filepath"].(string); ok {
+		title = perm.Permission + ": " + filepath
+	}
+
+	meta := map[string]interface{}{
+		"permissionId":   perm.ID,
+		"permissionType": perm.Permission,
+		"title":          title,
+	}
+	if perm.Tool.CallID != "" {
+		meta["callID"] = perm.Tool.CallID
+	}
+	if len(perm.Patterns) > 0 {
+		meta["pattern"] = perm.Patterns
+	}
+	if perm.Metadata != nil {
+		meta["metadata"] = perm.Metadata
+	}
+
+	return []Event{{
+		Type:      EventPermissionRequest,
+		SessionID: perm.SessionID,
+		MessageID: perm.Tool.MessageID,
+		Content:   title,
+		Meta:      meta,
+	}}
+}
+
+// parsePermissionReplied handles "permission.replied" SSE events.
+// These fire when someone (this client, TUI, or another client) responds to a permission prompt.
+func (a *OpenCodeAdapter) parsePermissionReplied(props json.RawMessage) []Event {
+	var reply OpenCodePermissionReply
+	if err := json.Unmarshal(props, &reply); err != nil {
+		log.Printf("Failed to parse permission.replied: %v", err)
+		return nil
+	}
+
+	return []Event{{
+		Type:      EventPermissionReplied,
+		SessionID: reply.SessionID,
+		Content:   reply.Reply,
+		Meta: map[string]interface{}{
+			"permissionId": reply.RequestID,
+			"response":     reply.Reply,
+		},
+	}}
+}
+
+// RespondToPermission sends a response to a pending permission prompt via the OpenCode API.
+func (a *OpenCodeAdapter) RespondToPermission(ctx context.Context, sessionID, permissionID, response string, remember bool) error {
+	body := map[string]interface{}{
+		"response": response,
+	}
+	if remember {
+		body["remember"] = true
+	}
+
+	resp, err := a.doRequest(ctx, "POST", "/session/"+sessionID+"/permissions/"+permissionID, body)
+	if err != nil {
+		return fmt.Errorf("respond to permission: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		respBody, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(respBody))
+	}
+	return nil
 }
 
 // truncateString truncates s to maxLen characters, appending "..." if truncated.

@@ -18,8 +18,11 @@
     </template>
 
     <div v-if="isStreaming" class="flex items-center gap-2 text-surface-400 text-sm">
-      <span class="inline-block w-2 h-2 rounded-full bg-blue-400 animate-pulse" />
-      <span>Agent is responding...</span>
+      <span
+        class="inline-block w-2 h-2 rounded-full animate-pulse"
+        :class="hasPendingPermission ? 'bg-amber-400' : 'bg-blue-400'"
+      />
+      <span>{{ hasPendingPermission ? 'Waiting for approval...' : 'Agent is responding...' }}</span>
     </div>
   </div>
 </template>
@@ -30,6 +33,7 @@ import type { Message } from '~/composables/useAgent'
 const props = defineProps<{
   messages: Message[]
   isStreaming: boolean
+  hasPendingPermission: boolean
 }>()
 
 // Group consecutive tool_use / tool_result messages into collapsible blocks.

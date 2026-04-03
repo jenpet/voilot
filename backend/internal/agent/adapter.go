@@ -125,4 +125,9 @@ type Adapter interface {
 	// SubscribeEvents returns a channel that receives all SSE events from the agent.
 	// The channel is closed when the context is cancelled or the connection drops.
 	SubscribeEvents(ctx context.Context) (<-chan Event, error)
+
+	// RespondToPermission sends a response to a pending permission prompt.
+	// response must be "once", "always", or "reject".
+	// If remember is true, the rule is persisted for the session.
+	RespondToPermission(ctx context.Context, sessionID, permissionID, response string, remember bool) error
 }

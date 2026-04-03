@@ -6,7 +6,7 @@
  */
 
 export interface AgentEvent {
-  type: 'text' | 'code' | 'tool_use' | 'tool_result' | 'thinking' | 'error' | 'done' | 'status' | 'session_created' | 'session_updated'
+  type: 'text' | 'code' | 'tool_use' | 'tool_result' | 'thinking' | 'error' | 'done' | 'status' | 'session_created' | 'session_updated' | 'permission_request' | 'permission_replied'
   sessionId?: string
   messageId?: string
   partId?: string
@@ -182,7 +182,7 @@ export function useWebSocket() {
     disconnectInternal(state)
   }
 
-  function send(msg: { type: string; sessionId: string; content?: string }): boolean {
+  function send(msg: { type: string; sessionId: string; [key: string]: unknown }): boolean {
     if (!state.ws || state.ws.readyState !== WebSocket.OPEN) {
       console.warn('[ws] Cannot send, not connected')
       return false

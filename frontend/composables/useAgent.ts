@@ -1,5 +1,6 @@
 import type { Session } from './useSession'
 import type { AgentEvent } from './useWebSocket'
+import type { InjectionKey } from 'vue'
 import { useTTSChunker } from './useTTSChunker'
 import { useTTSCondenser } from './useTTSCondenser'
 import { useTTSToolBatcher } from './useTTSToolBatcher'
@@ -13,6 +14,11 @@ export interface Message {
   type?: AgentEvent['type']
   meta?: Record<string, unknown>
 }
+
+// Injection key for respondToPermission — allows ChatMessage to call it without prop drilling.
+export const RespondToPermissionKey: InjectionKey<
+  (permissionId: string, response: 'once' | 'always' | 'reject') => void
+> = Symbol('respondToPermission')
 
 let messageIdCounter = 0
 function nextMessageId(): string {
@@ -43,6 +49,10 @@ export function useAgent(sessionId: string) {
   // When false (text-typed input), the mic auto-loop does NOT re-activate.
   const voiceInitiatedTurn = ref(false)
 
+  // Derived: true when any permission_request message is unresolved
+  const hasPendingPermission = computed(() =>
+    messages.value.some(m => m.type === 'permission_request' && m.meta?.resolved !== true),
+  )
   // Track the current assistant message being streamed
   let currentAssistantId: string | null = null
   // Track which partId maps to which text so far (for delta accumulation)
@@ -77,6 +87,8 @@ export function useAgent(sessionId: string) {
   // Called when the agent's turn is fully over (streaming done + TTS finished).
   function startLoopRecording() {
     if (!voiceEnabled.value || !voiceInitiatedTurn.value || isRecording.value || isStreaming.value || isTTSPlaying.value) return
+    // Don't auto-record while waiting for user to respond to a permission prompt
+    if (hasPendingPermission.value) return
     loopRecordingActive.value = true
     startRecording() // reuses existing mic stream via ensureMicAndAnalyser()
   }
@@ -178,7 +190,13 @@ export function useAgent(sessionId: string) {
     // Feed non-text events through the tool batcher — it batches consecutive
     // tool_use events into a single TTS summary and passes other events
     // (error, code, etc.) through filterForTTS as before.
-    if (voiceEnabled.value && event.type !== 'text' && event.type !== 'done' && event.type !== 'status') {
+    // Exclude permission events and control events from the batcher.
+    if (voiceEnabled.value
+      && event.type !== 'text'
+      && event.type !== 'done'
+      && event.type !== 'status'
+      && event.type !== 'permission_request'
+      && event.type !== 'permission_replied') {
       ttsToolBatcher.push(event)
     }
 
@@ -230,6 +248,12 @@ export function useAgent(sessionId: string) {
         } else if (session.value && event.content) {
           session.value.title = event.content
         }
+        break
+      case 'permission_request':
+        handlePermissionRequest(event)
+        break
+      case 'permission_replied':
+        handlePermissionReplied(event)
         break
     }
   }
@@ -416,6 +440,84 @@ export function useAgent(sessionId: string) {
     }
   }
 
+  // ─── Permission Handling ──────────────────────────────────────────
+
+  function handlePermissionRequest(event: AgentEvent) {
+    const permissionId = event.meta?.permissionId as string | undefined
+    const title = event.meta?.title as string || event.content || 'Permission needed'
+
+    // Add permission request as a special message in the chat
+    messages.value.push({
+      id: nextMessageId(),
+      role: 'system',
+      content: title,
+      timestamp: Date.now(),
+      type: 'permission_request',
+      meta: {
+        permissionId,
+        permissionType: event.meta?.permissionType,
+        pattern: event.meta?.pattern,
+        title,
+        resolved: false,
+      },
+    })
+
+    // Announce via TTS
+    if (voiceEnabled.value) {
+      ttsToolBatcher.flush()
+      enqueueTTS(`Permission needed: ${title}`)
+    }
+  }
+
+  function handlePermissionReplied(event: AgentEvent) {
+    const permissionId = event.meta?.permissionId as string | undefined
+    const response = event.meta?.response as string || event.content
+
+    if (!permissionId) return
+
+    // Find the matching permission_request message and mark it resolved
+    const msg = messages.value.find(
+      m => m.type === 'permission_request' && m.meta?.permissionId === permissionId,
+    )
+    if (msg && msg.meta) {
+      msg.meta.resolved = true
+      msg.meta.resolvedResponse = response
+    }
+
+    // Brief TTS announcement
+    if (voiceEnabled.value) {
+      const label = response === 'reject' ? 'Permission denied' : 'Permission approved'
+      enqueueTTS(label)
+    }
+  }
+
+  // Respond to a pending permission prompt via WebSocket
+  function respondToPermission(permissionId: string, response: 'once' | 'always' | 'reject') {
+    const sent = send({
+      type: 'permission_response',
+      sessionId,
+      permissionId,
+      response,
+      remember: response === 'always',
+    })
+
+    if (sent) {
+      // Optimistically mark the message as resolved
+      const msg = messages.value.find(
+        m => m.type === 'permission_request' && m.meta?.permissionId === permissionId,
+      )
+      if (msg && msg.meta) {
+        msg.meta.resolved = true
+        msg.meta.resolvedResponse = response
+      }
+    } else {
+      appendSystemMessage('Failed to respond to permission: not connected to backend')
+    }
+  }
+
+  // Provide respondToPermission so ChatMessage can access it via inject()
+  provide(RespondToPermissionKey, respondToPermission)
+
   // Initialize
   fetchSession()
   fetchMessages()
@@ -430,6 +532,7 @@ export function useAgent(sessionId: string) {
     session: readonly(session),
     messages,
     isStreaming: readonly(isStreaming),
+    hasPendingPermission,
     isTTSPlaying,
     isRecording,
     isMonitoring,
@@ -440,5 +543,6 @@ export function useAgent(sessionId: string) {
     stopTTS,
     setAgent,
     toggleVoice,
+    respondToPermission,
   }
 }

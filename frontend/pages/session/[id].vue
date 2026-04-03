@@ -47,6 +47,7 @@
       class="flex-1 overflow-y-auto"
       :messages="messages"
       :is-streaming="isStreaming"
+      :has-pending-permission="hasPendingPermission"
     />
 
     <!-- Round-trip timing display (shows after a voice interaction) -->
@@ -105,6 +106,7 @@ const {
   session,
   messages,
   isStreaming,
+  hasPendingPermission,
   isTTSPlaying,
   isRecording,
   voiceEnabled,
