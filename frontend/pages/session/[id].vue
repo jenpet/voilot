@@ -127,12 +127,15 @@ function handleSend() {
   const text = inputText.value.trim()
   if (!text || isStreaming.value) return
   inputText.value = ''
-  sendMessage(text)
+  sendMessage(text, { origin: 'text' })
 }
 
 function handleTranscription(text: string) {
   inputText.value = text
   // Auto-send voice input
-  handleSend()
+  const trimmed = inputText.value.trim()
+  if (!trimmed || isStreaming.value) return
+  inputText.value = ''
+  sendMessage(trimmed, { origin: 'voice' })
 }
 </script>

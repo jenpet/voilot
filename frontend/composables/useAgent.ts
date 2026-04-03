@@ -39,6 +39,10 @@ export function useAgent(sessionId: string) {
   const isStreaming = ref(false)
   const voiceEnabled = ref(true)
 
+  // Track whether the current conversation turn was started by voice input.
+  // When false (text-typed input), the mic auto-loop does NOT re-activate.
+  const voiceInitiatedTurn = ref(false)
+
   // Track the current assistant message being streamed
   let currentAssistantId: string | null = null
   // Track which partId maps to which text so far (for delta accumulation)
@@ -72,7 +76,7 @@ export function useAgent(sessionId: string) {
   // Start recording for the next conversational turn.
   // Called when the agent's turn is fully over (streaming done + TTS finished).
   function startLoopRecording() {
-    if (!voiceEnabled.value || isRecording.value || isStreaming.value || isTTSPlaying.value) return
+    if (!voiceEnabled.value || !voiceInitiatedTurn.value || isRecording.value || isStreaming.value || isTTSPlaying.value) return
     loopRecordingActive.value = true
     startRecording() // reuses existing mic stream via ensureMicAndAnalyser()
   }
@@ -88,7 +92,7 @@ export function useAgent(sessionId: string) {
     loopRecordingActive.value = false
 
     if (text) {
-      sendMessage(text)
+      sendMessage(text, { origin: 'voice' })
     } else {
       // No speech detected (empty/too short) — start recording again
       startLoopRecording()
@@ -331,7 +335,11 @@ export function useAgent(sessionId: string) {
   }
 
   // Send a message via WebSocket
-  function sendMessage(text: string) {
+  function sendMessage(text: string, options?: { origin?: 'voice' | 'text' }) {
+    // Track whether this turn was started by voice so the mic auto-loop
+    // only re-activates after voice-initiated turns (not after typing).
+    voiceInitiatedTurn.value = options?.origin === 'voice'
+
     // Only mark agent timing if this is part of a voice round-trip
     if (isTimerActive()) {
       mark('agent_ttft', 'start')
