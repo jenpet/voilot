@@ -20,6 +20,20 @@ export const RespondToPermissionKey: InjectionKey<
   (permissionId: string, response: 'once' | 'always' | 'reject') => void
 > = Symbol('respondToPermission')
 
+// Injection key for respondToQuestion — allows ChatMessage to select an option.
+export const RespondToQuestionKey: InjectionKey<
+  (questionId: string, questionIndex: number, selectedLabels: string[]) => void
+> = Symbol('respondToQuestion')
+
+// Injection key for rejectQuestion — allows ChatMessage to dismiss a question.
+export const RejectQuestionKey: InjectionKey<
+  (questionId: string) => void
+> = Symbol('rejectQuestion')
+
+// Injection key for the currently active (first unanswered) question identifier.
+// Format: "questionId:questionIndex" or null if no question is pending.
+export const ActiveQuestionKey: InjectionKey<Ref<string | null>> = Symbol('activeQuestion')
+
 let messageIdCounter = 0
 function nextMessageId(): string {
   return `msg-${Date.now()}-${++messageIdCounter}`
@@ -53,6 +67,13 @@ export function useAgent(sessionId: string) {
   const hasPendingPermission = computed(() =>
     messages.value.some(m => m.type === 'permission_request' && m.meta?.resolved !== true),
   )
+  // Derived: true when any question_request message is unresolved
+  const hasPendingQuestion = computed(() =>
+    messages.value.some(m => m.type === 'question_request' && m.meta?.resolved !== true),
+  )
+  // Track partial answers for multi-question batches.
+  // Key: questionId, Value: { totalQuestions, answers: Map<index, string[]> }
+  const pendingQuestionAnswers = new Map<string, { totalQuestions: number; answers: Map<number, string[]> }>()
   // Track the current assistant message being streamed
   let currentAssistantId: string | null = null
   // Track which partId maps to which text so far (for delta accumulation)
@@ -71,6 +92,11 @@ export function useAgent(sessionId: string) {
   // during auto-loop recordings (as opposed to manual VoiceButton taps).
   const loopRecordingActive = useState<boolean>('voice-loop-active', () => false)
 
+  // Synchronous guard to prevent duplicate startLoopRecording calls.
+  // startRecording() is async — between the call and isRecording.value=true,
+  // a second caller can slip through the isRecording.value check.
+  let loopStartPending = false
+
   // ─── Conversational Voice Loop ──────────────────────────────────
   //
   // Turn-based conversation — no interruption, no monitoring:
@@ -84,11 +110,18 @@ export function useAgent(sessionId: string) {
   // user gesture.
 
   // Start recording for the next conversational turn.
-  // Called when the agent's turn is fully over (streaming done + TTS finished).
+  // Called when the agent's turn is fully over (streaming done + TTS finished),
+  // OR when a question is pending and the user needs to answer by voice.
   function startLoopRecording() {
-    if (!voiceEnabled.value || !voiceInitiatedTurn.value || isRecording.value || isStreaming.value || isTTSPlaying.value) return
+    if (!voiceEnabled.value || !voiceInitiatedTurn.value || isRecording.value || isTTSPlaying.value || loopStartPending) {
+      return
+    }
     // Don't auto-record while waiting for user to respond to a permission prompt
     if (hasPendingPermission.value) return
+    // When a question is pending, allow recording (user answers by voice).
+    // Otherwise, block if the agent is still streaming.
+    if (!hasPendingQuestion.value && isStreaming.value) return
+    loopStartPending = true
     loopRecordingActive.value = true
     startRecording() // reuses existing mic stream via ensureMicAndAnalyser()
   }
@@ -102,6 +135,7 @@ export function useAgent(sessionId: string) {
     // Keep mic open so we can start recording again after the next agent turn.
     const text = await stopRecording(voiceEnabled.value)
     loopRecordingActive.value = false
+    loopStartPending = false
 
     if (text) {
       sendMessage(text, { origin: 'voice' })
@@ -112,9 +146,10 @@ export function useAgent(sessionId: string) {
   })
 
   // When TTS finishes and the agent is done streaming, start recording
-  // for the user's next turn.
+  // for the user's next turn. Also triggers when TTS finishes announcing
+  // a question (isStreaming is still true but hasPendingQuestion allows it).
   watch(isTTSPlaying, (playing) => {
-    if (!playing && !isStreaming.value) {
+    if (!playing && (!isStreaming.value || hasPendingQuestion.value)) {
       startLoopRecording()
     }
   })
@@ -190,13 +225,15 @@ export function useAgent(sessionId: string) {
     // Feed non-text events through the tool batcher — it batches consecutive
     // tool_use events into a single TTS summary and passes other events
     // (error, code, etc.) through filterForTTS as before.
-    // Exclude permission events and control events from the batcher.
+    // Exclude permission events, question events, and control events from the batcher.
     if (voiceEnabled.value
       && event.type !== 'text'
       && event.type !== 'done'
       && event.type !== 'status'
       && event.type !== 'permission_request'
-      && event.type !== 'permission_replied') {
+      && event.type !== 'permission_replied'
+      && event.type !== 'question_request'
+      && event.type !== 'question_replied') {
       ttsToolBatcher.push(event)
     }
 
@@ -254,6 +291,12 @@ export function useAgent(sessionId: string) {
         break
       case 'permission_replied':
         handlePermissionReplied(event)
+        break
+      case 'question_request':
+        handleQuestionRequest(event)
+        break
+      case 'question_replied':
+        handleQuestionReplied(event)
         break
     }
   }
@@ -360,6 +403,24 @@ export function useAgent(sessionId: string) {
 
   // Send a message via WebSocket
   function sendMessage(text: string, options?: { origin?: 'voice' | 'text' }) {
+    // If there's a pending question, intercept the input as a custom answer
+    if (hasPendingQuestion.value && tryAnswerPendingQuestion(text)) {
+      // Preserve voice-initiated state so the mic loop continues for
+      // subsequent questions in a batch (the early return below would
+      // otherwise skip the voiceInitiatedTurn assignment).
+      if (options?.origin === 'voice') {
+        voiceInitiatedTurn.value = true
+      }
+      // Show the custom answer as a user message in the chat
+      messages.value.push({
+        id: nextMessageId(),
+        role: 'user',
+        content: text,
+        timestamp: Date.now(),
+      })
+      return
+    }
+
     // Track whether this turn was started by voice so the mic auto-loop
     // only re-activates after voice-initiated turns (not after typing).
     voiceInitiatedTurn.value = options?.origin === 'voice'
@@ -518,6 +579,219 @@ export function useAgent(sessionId: string) {
   // Provide respondToPermission so ChatMessage can access it via inject()
   provide(RespondToPermissionKey, respondToPermission)
 
+  // ─── Question Handling ────────────────────────────────────────────
+
+  /**
+   * Speak a question and its options via TTS.
+   * Reused both on initial arrival (first question) and after answering
+   * the previous question in a multi-question batch.
+   */
+  function announceQuestion(questionText: string, options: Array<{ label: string; description: string }>) {
+    let ttsText = questionText
+    if (options.length > 0) {
+      const optLabels = options.map(o => o.label)
+      const lastLabel = optLabels.pop()
+      ttsText += `. ${optLabels.length > 0 ? optLabels.join(', ') + ', or ' : ''}${lastLabel}.`
+    }
+    enqueueTTS(ttsText)
+  }
+
+  function handleQuestionRequest(event: AgentEvent) {
+    const questionId = event.meta?.questionId as string | undefined
+    const questionIndex = event.meta?.questionIndex as number ?? 0
+    const totalQuestions = event.meta?.totalQuestions as number ?? 1
+    const header = event.meta?.header as string || ''
+    const options = event.meta?.options as Array<{ label: string; description: string }> || []
+    const multiple = event.meta?.multiple as boolean || false
+
+    // Break the current assistant message so that any text the agent sends
+    // after the question is answered appears as a new chat bubble.
+    currentAssistantId = null
+    partContents.clear()
+
+    // Initialize answer tracking for this question batch
+    if (questionId && !pendingQuestionAnswers.has(questionId)) {
+      pendingQuestionAnswers.set(questionId, {
+        totalQuestions,
+        answers: new Map(),
+      })
+    }
+
+    // Add question as a special message in the chat
+    messages.value.push({
+      id: nextMessageId(),
+      role: 'system',
+      content: event.content || header || 'Question',
+      timestamp: Date.now(),
+      type: 'question_request',
+      meta: {
+        questionId,
+        questionIndex,
+        totalQuestions,
+        header,
+        options,
+        multiple,
+        resolved: false,
+      },
+    })
+
+    // TTS: Flush any buffered text from the agent's preamble so it
+    // speaks in correct order before the question announcement.
+    // For multi-question batches, announce overview + first question only.
+    // Subsequent questions are announced after the previous one is answered
+    // (see respondToQuestion).
+    if (voiceEnabled.value && questionIndex === 0) {
+      ttsToolBatcher.flush()
+      ttsChunker.flush()
+      if (totalQuestions > 1) {
+        enqueueTTS(`I have ${totalQuestions} questions for you.`)
+      }
+      announceQuestion(event.content || header, options)
+    }
+  }
+
+  function handleQuestionReplied(event: AgentEvent) {
+    const questionId = event.meta?.questionId as string | undefined
+    const rejected = event.meta?.rejected as boolean || false
+
+    if (!questionId) return
+
+    // Mark all question messages for this batch as resolved
+    messages.value
+      .filter(m => m.type === 'question_request' && m.meta?.questionId === questionId)
+      .forEach((msg) => {
+        if (msg.meta) {
+          msg.meta.resolved = true
+          msg.meta.rejected = rejected
+          if (!rejected && event.meta?.answers) {
+            const answers = event.meta.answers as string[][]
+            const idx = msg.meta.questionIndex as number
+            if (answers[idx]) {
+              msg.meta.selectedLabels = answers[idx]
+            }
+          }
+        }
+      })
+
+    // Clean up answer tracking
+    pendingQuestionAnswers.delete(questionId)
+  }
+
+  /**
+   * Respond to a single question within a batch.
+   * Tracks partial answers; sends the full answers array to the backend
+   * only when all questions in the batch have been answered.
+   */
+  function respondToQuestion(questionId: string, questionIndex: number, selectedLabels: string[]) {
+    const batch = pendingQuestionAnswers.get(questionId)
+    if (!batch) return
+
+    // Store this answer
+    batch.answers.set(questionIndex, selectedLabels)
+
+    // Optimistically mark this question as resolved
+    const msg = messages.value.find(
+      m => m.type === 'question_request'
+        && m.meta?.questionId === questionId
+        && m.meta?.questionIndex === questionIndex,
+    )
+    if (msg && msg.meta) {
+      msg.meta.resolved = true
+      msg.meta.selectedLabels = selectedLabels
+    }
+
+    // Check if all questions in the batch have been answered
+    if (batch.answers.size >= batch.totalQuestions) {
+      // Assemble the answers array in order
+      const answers: string[][] = []
+      for (let i = 0; i < batch.totalQuestions; i++) {
+        answers.push(batch.answers.get(i) || [])
+      }
+
+      const sent = send({
+        type: 'question_response',
+        sessionId,
+        questionId,
+        answers,
+      })
+
+      if (!sent) {
+        appendSystemMessage('Failed to respond to question: not connected to backend')
+      }
+
+      pendingQuestionAnswers.delete(questionId)
+    } else if (voiceEnabled.value) {
+      // More questions remain — announce the next unanswered one via TTS
+      const nextMsg = messages.value.find(
+        m => m.type === 'question_request'
+          && m.meta?.questionId === questionId
+          && m.meta?.resolved !== true,
+      )
+      if (nextMsg && nextMsg.meta) {
+        const opts = (nextMsg.meta.options as Array<{ label: string; description: string }>) || []
+        announceQuestion(nextMsg.content, opts)
+      }
+    }
+  }
+
+  function rejectQuestion(questionId: string) {
+    const sent = send({
+      type: 'question_reject',
+      sessionId,
+      questionId,
+    })
+
+    if (sent) {
+      // Optimistically mark all questions in this batch as rejected
+      messages.value
+        .filter(m => m.type === 'question_request' && m.meta?.questionId === questionId)
+        .forEach((msg) => {
+          if (msg.meta) {
+            msg.meta.resolved = true
+            msg.meta.rejected = true
+          }
+        })
+      pendingQuestionAnswers.delete(questionId)
+    } else {
+      appendSystemMessage('Failed to reject question: not connected to backend')
+    }
+  }
+
+  /**
+   * Handle a custom answer submitted via the chat input (text or voice).
+   * Returns true if the input was consumed as a question answer, false if
+   * it should be sent as a regular agent message.
+   */
+  function tryAnswerPendingQuestion(text: string): boolean {
+    // Find the first unanswered question
+    const pendingMsg = messages.value.find(
+      m => m.type === 'question_request' && m.meta?.resolved !== true,
+    )
+    if (!pendingMsg || !pendingMsg.meta) return false
+
+    const questionId = pendingMsg.meta.questionId as string
+    const questionIndex = pendingMsg.meta.questionIndex as number
+
+    // Use the text as a custom answer (single selection)
+    respondToQuestion(questionId, questionIndex, [text.trim()])
+    return true
+  }
+
+  provide(RespondToQuestionKey, respondToQuestion)
+  provide(RejectQuestionKey, rejectQuestion)
+
+  // The currently active question: first unanswered question_request message.
+  // ChatMessage uses this to decide whether to show interactive buttons or a
+  // dimmed "waiting" state for not-yet-active questions in a multi-question batch.
+  const activeQuestion = computed<string | null>(() => {
+    const pending = messages.value.find(
+      m => m.type === 'question_request' && m.meta?.resolved !== true,
+    )
+    if (!pending || !pending.meta) return null
+    return `${pending.meta.questionId}:${pending.meta.questionIndex}`
+  })
+  provide(ActiveQuestionKey, activeQuestion)
+
   // Initialize
   fetchSession()
   fetchMessages()
@@ -533,6 +807,7 @@ export function useAgent(sessionId: string) {
     messages,
     isStreaming: readonly(isStreaming),
     hasPendingPermission,
+    hasPendingQuestion,
     isTTSPlaying,
     isRecording,
     isMonitoring,
@@ -544,5 +819,7 @@ export function useAgent(sessionId: string) {
     setAgent,
     toggleVoice,
     respondToPermission,
+    respondToQuestion,
+    rejectQuestion,
   }
 }

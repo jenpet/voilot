@@ -6,7 +6,7 @@
  */
 
 export interface AgentEvent {
-  type: 'text' | 'code' | 'tool_use' | 'tool_result' | 'thinking' | 'error' | 'done' | 'status' | 'session_created' | 'session_updated' | 'permission_request' | 'permission_replied'
+  type: 'text' | 'code' | 'tool_use' | 'tool_result' | 'thinking' | 'error' | 'done' | 'status' | 'session_created' | 'session_updated' | 'permission_request' | 'permission_replied' | 'question_request' | 'question_replied'
   sessionId?: string
   messageId?: string
   partId?: string

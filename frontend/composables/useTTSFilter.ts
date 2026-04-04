@@ -67,6 +67,22 @@ export function filterForTTS(event: AgentEvent): FilterResult {
         shouldSpeak: true,
       }
 
+    case 'question_request': {
+      // Speak the question text and enumerate options
+      const question = (event.content || '').trim()
+      if (!question) {
+        return { textForTTS: '', shouldSpeak: false }
+      }
+      const options = (event.meta?.options as Array<{ label: string }>) || []
+      if (options.length > 0) {
+        const labels = options.map(o => o.label)
+        const last = labels.pop()
+        const optList = labels.length > 0 ? `${labels.join(', ')}, or ${last}` : last
+        return { textForTTS: `${question}. ${optList}.`, shouldSpeak: true }
+      }
+      return { textForTTS: question, shouldSpeak: true }
+    }
+
     case 'done':
       if (event.content) {
         return { textForTTS: event.content, shouldSpeak: true }

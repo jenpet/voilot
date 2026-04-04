@@ -130,4 +130,11 @@ type Adapter interface {
 	// response must be "once", "always", or "reject".
 	// If remember is true, the rule is persisted for the session.
 	RespondToPermission(ctx context.Context, sessionID, permissionID, response string, remember bool) error
+
+	// RespondToQuestion sends answers to a pending question prompt.
+	// answers is a parallel array: one inner array per question, each containing selected labels.
+	RespondToQuestion(ctx context.Context, requestID string, answers [][]string) error
+
+	// RejectQuestion dismisses a pending question prompt without answering.
+	RejectQuestion(ctx context.Context, requestID string) error
 }

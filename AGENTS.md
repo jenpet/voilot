@@ -145,7 +145,18 @@ TTS_URL=http://tts:8880 STT_URL=http://stt:5003 \
 ### Commits
 
 - Conventional commits: `type: message` or `type(scope): message`
-- Types: feat, fix, docs, style, refactor, test, chore
+- Types: feat, fix, docs, refactor, test, chore
+- Keep commit messages short and concise
+- Limit the subject line to 50 characters
+- Capitalize the subject/description line
+- Do not end the subject line with a period
+- Use imperative mood in the subject line
+- Include a body only when it adds important context
+- If a body is included, separate it from the subject with a blank line
+- Wrap commit body lines at 72 characters
+- Maintain a linear history on `main`
+- Only use rebase-based updates and fast-forward merges
+- Do not create merge commits
 
 ## External Service APIs
 

@@ -374,9 +374,10 @@ export function useVoice() {
           releaseMic()
         }
 
-        // Skip STT for tiny recordings (< 1 KB) — these are almost certainly
-        // empty or corrupt and would cause a server-side decode error.
-        if (audioBlob.size < 1024) {
+        // Only skip completely empty payloads. Very short valid utterances
+        // (for example, one-word answers like "yes") can be smaller than 1 KB,
+        // especially with opus/webm, and should still be sent to STT.
+        if (audioBlob.size === 0) {
           mark('stt', 'end')
           resolve(null)
           return

@@ -718,6 +718,15 @@ func (a *OpenCodeAdapter) parseSSEData(data string) []Event {
 	case "permission.replied":
 		return a.parsePermissionReplied(raw.Properties)
 
+	case "question.asked":
+		return a.parseQuestionAsked(raw.Properties)
+
+	case "question.replied":
+		return a.parseQuestionReplied(raw.Properties)
+
+	case "question.rejected":
+		return a.parseQuestionRejected(raw.Properties)
+
 	case "server.heartbeat", "session.diff":
 		// Ignore heartbeats and diffs
 	}
@@ -829,6 +838,13 @@ func (a *OpenCodeAdapter) parsePartUpdate(props json.RawMessage) []Event {
 }
 
 func (a *OpenCodeAdapter) parseToolPart(part OpenCodePart, delta string) []Event {
+	// The "question" tool is handled via dedicated question.asked / question.replied
+	// SSE events, similar to how permissions work. Suppress the generic tool_use /
+	// tool_result events to avoid duplicating the question in the chat UI.
+	if part.Tool == "question" {
+		return nil
+	}
+
 	if part.State == nil {
 		return nil
 	}
@@ -1118,6 +1134,141 @@ func (a *OpenCodeAdapter) RespondToPermission(ctx context.Context, sessionID, pe
 	resp, err := a.doRequest(ctx, "POST", "/session/"+sessionID+"/permissions/"+permissionID, body)
 	if err != nil {
 		return fmt.Errorf("respond to permission: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		respBody, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(respBody))
+	}
+	return nil
+}
+
+// ─── Question Handling ──────────────────────────────────────────
+
+// parseQuestionAsked processes a "question.asked" SSE event from OpenCode.
+// Multi-question batches are split into one EventQuestionRequest per question
+// so the frontend renders each as an individual chat bubble.
+func (a *OpenCodeAdapter) parseQuestionAsked(props json.RawMessage) []Event {
+	var q OpenCodeQuestion
+	if err := json.Unmarshal(props, &q); err != nil {
+		log.Printf("SSE: failed to parse question.asked: %v", err)
+		return nil
+	}
+
+	if len(q.Questions) == 0 {
+		return nil
+	}
+
+	total := len(q.Questions)
+	events := make([]Event, 0, total)
+	for i, item := range q.Questions {
+		// Build a human-readable options list for TTS/display fallback
+		optionLabels := make([]string, len(item.Options))
+		for j, opt := range item.Options {
+			optionLabels[j] = opt.Label
+		}
+
+		// Serialize the options array for the frontend
+		optionsList := make([]interface{}, len(item.Options))
+		for j, opt := range item.Options {
+			optionsList[j] = map[string]interface{}{
+				"label":       opt.Label,
+				"description": opt.Description,
+			}
+		}
+
+		events = append(events, Event{
+			Type:      EventQuestionRequest,
+			SessionID: q.SessionID,
+			Content:   item.Question,
+			Meta: map[string]interface{}{
+				"questionId":     q.ID,
+				"questionIndex":  i,
+				"totalQuestions": total,
+				"header":         item.Header,
+				"options":        optionsList,
+				"multiple":       item.Multiple,
+			},
+		})
+	}
+
+	return events
+}
+
+// parseQuestionReplied processes a "question.replied" SSE event.
+func (a *OpenCodeAdapter) parseQuestionReplied(props json.RawMessage) []Event {
+	var reply OpenCodeQuestionReply
+	if err := json.Unmarshal(props, &reply); err != nil {
+		log.Printf("SSE: failed to parse question.replied: %v", err)
+		return nil
+	}
+
+	// Flatten answers into a readable summary for the event content
+	summary := ""
+	for i, ans := range reply.Answers {
+		if i > 0 {
+			summary += "; "
+		}
+		summary += strings.Join(ans, ", ")
+	}
+
+	return []Event{{
+		Type:      EventQuestionReplied,
+		SessionID: reply.SessionID,
+		Content:   summary,
+		Meta: map[string]interface{}{
+			"questionId": reply.RequestID,
+			"answers":    reply.Answers,
+			"rejected":   false,
+		},
+	}}
+}
+
+// parseQuestionRejected processes a "question.rejected" SSE event.
+func (a *OpenCodeAdapter) parseQuestionRejected(props json.RawMessage) []Event {
+	var rejected OpenCodeQuestionRejected
+	if err := json.Unmarshal(props, &rejected); err != nil {
+		log.Printf("SSE: failed to parse question.rejected: %v", err)
+		return nil
+	}
+
+	return []Event{{
+		Type:      EventQuestionReplied,
+		SessionID: rejected.SessionID,
+		Content:   "Question dismissed",
+		Meta: map[string]interface{}{
+			"questionId": rejected.RequestID,
+			"rejected":   true,
+		},
+	}}
+}
+
+// RespondToQuestion sends answers to a pending question prompt via the OpenCode API.
+// The endpoint is NOT session-scoped: POST /question/{requestID}/reply.
+func (a *OpenCodeAdapter) RespondToQuestion(ctx context.Context, requestID string, answers [][]string) error {
+	body := map[string]interface{}{
+		"answers": answers,
+	}
+
+	resp, err := a.doRequest(ctx, "POST", "/question/"+requestID+"/reply", body)
+	if err != nil {
+		return fmt.Errorf("respond to question: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		respBody, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(respBody))
+	}
+	return nil
+}
+
+// RejectQuestion dismisses a pending question prompt via the OpenCode API.
+func (a *OpenCodeAdapter) RejectQuestion(ctx context.Context, requestID string) error {
+	resp, err := a.doRequest(ctx, "POST", "/question/"+requestID+"/reject", nil)
+	if err != nil {
+		return fmt.Errorf("reject question: %w", err)
 	}
 	defer resp.Body.Close()
 

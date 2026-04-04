@@ -61,6 +61,15 @@ func FilterForTTS(event agent.Event) FilterResult {
 			ShouldSpeak: true,
 		}
 
+	case agent.EventQuestionRequest:
+		// Speak the question text. Options are announced by the frontend TTS filter
+		// which has access to the structured meta; here we just speak the question itself.
+		text := strings.TrimSpace(event.Content)
+		if text == "" {
+			return FilterResult{ShouldSpeak: false}
+		}
+		return FilterResult{TextForTTS: fmt.Sprintf("Question: %s", text), ShouldSpeak: true}
+
 	case agent.EventDone:
 		// Optionally announce completion.
 		if event.Content != "" {

@@ -240,43 +240,44 @@ bubble to show the resolved state (via the `permission.replied` SSE event).
 
 ## Section 10: Option request — single question
 
-> **Note:** This section tests functionality that is **not yet implemented**.
-> Option/question prompts from the agent currently render as plain text.
-> These expectations document the target behavior for when interactive option
-> handling is built.
-
 **Instruction to agent:**
 I want to add a new API endpoint to the backend. Before writing any code, ask
 me one clarifying question: what HTTP method should the endpoint use? Present
 the options GET, POST, PUT, and DELETE for me to choose from.
 
-**Expected UI (target behavior):**
-- An interactive option bubble appears in the chat with:
-  - The question text displayed clearly.
-  - Four selectable options: "GET", "POST", "PUT", "DELETE".
-  - Each option is a clickable button or radio selection.
-- After selecting an option:
-  - The selected option is highlighted / confirmed in the bubble.
+**Expected UI:**
+- An indigo-themed question bubble appears in the chat with:
+  - The question header shown as a bold label.
+  - The question text displayed clearly below.
+  - Four selectable option buttons: "GET", "POST", "PUT", "DELETE".
+  - Each option button shows the label and description (if any).
+  - A "Dismiss" link at the bottom to reject the question.
+- The streaming indicator changes to "Answer a question..." with an indigo
+  dot instead of the usual blue dot.
+- A hint appears above the chat input: "Answering question — type a custom
+  answer or pick an option above."
+- After clicking an option button:
+  - The bubble turns from pending to resolved state with a checkmark.
+  - The selected option label is shown (e.g., "POST").
+  - Buttons disappear.
   - The agent continues its response incorporating the chosen option.
-- If no selection is made, the agent should remain waiting (no auto-timeout).
+- Alternatively, typing a custom answer in the chat input sends it as the
+  answer (intercepted by `tryAnswerPendingQuestion`).
+- After clicking "Dismiss":
+  - The bubble shows "Dismissed" in the resolved state.
+  - The question is rejected via the backend.
+- If no selection is made, the agent remains waiting (no auto-timeout).
 
-**Expected UI (current behavior):**
-- The question and options render as plain assistant text in the chat bubble.
-- No interactive buttons or selection UI.
-
-**Expected TTS (target behavior):**
+**Expected TTS:**
 - The question is spoken aloud: "What HTTP method should the endpoint use?"
-- Options are announced: "GET, POST, PUT, or DELETE."
-- Voice loop pauses auto-recording while the option prompt is pending (same
-  behavior as permission prompts).
+- Options are announced: "Options: GET, POST, PUT, DELETE."
+- Voice loop does NOT auto-start recording while the question prompt is
+  pending (same behavior as permission prompts).
 - After selection: the agent's follow-up response is spoken normally.
 
 ---
 
 ## Section 11: Option request — multiple questions
-
-> **Note:** This section tests functionality that is **not yet implemented**.
-> See Section 10 note. These expectations document target behavior.
 
 **Instruction to agent:**
 I want you to scaffold a new composable for the frontend. Before writing any
@@ -287,23 +288,24 @@ code, ask me these questions in a single response:
 3. What data format should it export? Options: "raw object", "readonly ref",
    or "computed property".
 
-**Expected UI (target behavior):**
-- A multi-question option bubble (or multiple sequential bubbles) appears with:
-  - Three distinct questions, each with its own set of selectable options.
-  - Q1: three name options as buttons.
-  - Q2: Yes / No toggle or buttons.
-  - Q3: three format options as buttons.
-- Each question can be answered independently.
-- A "Submit" or "Confirm" action sends all answers at once.
-- After submission:
-  - Selected options are highlighted / confirmed in each question.
+**Expected UI:**
+- Three separate indigo-themed question bubbles appear in the chat (the
+  backend splits multi-question batches into individual events):
+  - Q1: three name option buttons (`useMetrics`, `useAnalytics`, `useTracking`).
+  - Q2: Yes / No option buttons.
+  - Q3: three format option buttons.
+- Each question bubble has its own header, question text, options, and
+  "Dismiss" link.
+- Questions are answered sequentially — the first unanswered question
+  accepts input (button click or typed custom answer).
+- After all three questions are answered:
+  - All answers are assembled into a single response and sent to the backend.
+  - Each bubble shows its resolved state with the selected option.
   - The agent continues with the scaffolding based on the chosen answers.
+- If any question is dismissed, the entire question batch is rejected.
 
-**Expected UI (current behavior):**
-- All questions and options render as plain assistant text.
-- No interactive selection UI.
-
-**Expected TTS (target behavior):**
-- Each question is spoken in sequence with its options.
-- Voice loop pauses auto-recording while options are pending.
-- After submission: the agent's follow-up response is spoken normally.
+**Expected TTS:**
+- Each question is spoken in sequence with its options enumerated.
+- Voice loop does NOT auto-start recording while questions are pending.
+- After all answers are submitted: the agent's follow-up response is spoken
+  normally.

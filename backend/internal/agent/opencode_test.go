@@ -425,3 +425,542 @@ func TestRespondToPermission_ServerError(t *testing.T) {
 		t.Error("error message should not be empty")
 	}
 }
+
+// --- Question SSE event parsing tests ---
+
+func TestParseQuestionAsked_SingleQuestion(t *testing.T) {
+	adapter := NewOpenCodeAdapter("http://localhost:4096")
+
+	props := json.RawMessage(`{
+		"id": "question_1",
+		"sessionID": "ses_q1",
+		"questions": [
+			{
+				"question": "What HTTP method should the endpoint use?",
+				"header": "HTTP Method",
+				"options": [
+					{"label": "GET", "description": "Read-only endpoint"},
+					{"label": "POST", "description": "Create a new resource"},
+					{"label": "PUT", "description": "Update an existing resource"},
+					{"label": "DELETE", "description": "Remove a resource"}
+				],
+				"multiple": false
+			}
+		],
+		"tool": {"messageID": "msg_q1", "callID": "call_q1"}
+	}`)
+
+	events := adapter.parseQuestionAsked(props)
+	if len(events) != 1 {
+		t.Fatalf("expected 1 event, got %d", len(events))
+	}
+
+	evt := events[0]
+	if evt.Type != EventQuestionRequest {
+		t.Errorf("expected type %q, got %q", EventQuestionRequest, evt.Type)
+	}
+	if evt.SessionID != "ses_q1" {
+		t.Errorf("expected sessionID %q, got %q", "ses_q1", evt.SessionID)
+	}
+	if evt.Content != "What HTTP method should the endpoint use?" {
+		t.Errorf("unexpected content: %q", evt.Content)
+	}
+	if evt.Meta["questionId"] != "question_1" {
+		t.Errorf("expected questionId %q, got %v", "question_1", evt.Meta["questionId"])
+	}
+	if evt.Meta["questionIndex"] != 0 {
+		t.Errorf("expected questionIndex 0, got %v", evt.Meta["questionIndex"])
+	}
+	if evt.Meta["totalQuestions"] != 1 {
+		t.Errorf("expected totalQuestions 1, got %v", evt.Meta["totalQuestions"])
+	}
+	if evt.Meta["header"] != "HTTP Method" {
+		t.Errorf("expected header %q, got %v", "HTTP Method", evt.Meta["header"])
+	}
+	if evt.Meta["multiple"] != false {
+		t.Errorf("expected multiple false, got %v", evt.Meta["multiple"])
+	}
+
+	// Verify options are passed through
+	options, ok := evt.Meta["options"].([]interface{})
+	if !ok {
+		t.Fatalf("expected options to be []interface{}, got %T", evt.Meta["options"])
+	}
+	if len(options) != 4 {
+		t.Fatalf("expected 4 options, got %d", len(options))
+	}
+	firstOpt, ok := options[0].(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected option to be map[string]interface{}, got %T", options[0])
+	}
+	if firstOpt["label"] != "GET" {
+		t.Errorf("expected first option label %q, got %v", "GET", firstOpt["label"])
+	}
+	if firstOpt["description"] != "Read-only endpoint" {
+		t.Errorf("expected first option description %q, got %v", "Read-only endpoint", firstOpt["description"])
+	}
+}
+
+func TestParseQuestionAsked_MultiQuestion(t *testing.T) {
+	adapter := NewOpenCodeAdapter("http://localhost:4096")
+
+	props := json.RawMessage(`{
+		"id": "question_2",
+		"sessionID": "ses_q2",
+		"questions": [
+			{
+				"question": "What should the composable be named?",
+				"header": "Name",
+				"options": [
+					{"label": "useMetrics", "description": "Metrics tracking"},
+					{"label": "useAnalytics", "description": "Analytics tracking"},
+					{"label": "useTracking", "description": "General tracking"}
+				]
+			},
+			{
+				"question": "Include cleanup on unmount?",
+				"header": "Cleanup",
+				"options": [
+					{"label": "Yes", "description": "Add cleanup function"},
+					{"label": "No", "description": "Skip cleanup"}
+				]
+			},
+			{
+				"question": "What data format?",
+				"header": "Format",
+				"options": [
+					{"label": "raw object", "description": "Plain object"},
+					{"label": "readonly ref", "description": "Vue readonly ref"},
+					{"label": "computed", "description": "Computed property"}
+				]
+			}
+		],
+		"tool": {"messageID": "msg_q2", "callID": "call_q2"}
+	}`)
+
+	events := adapter.parseQuestionAsked(props)
+	if len(events) != 3 {
+		t.Fatalf("expected 3 events (one per question), got %d", len(events))
+	}
+
+	// Verify each event has correct index and totalQuestions
+	for i, evt := range events {
+		if evt.Type != EventQuestionRequest {
+			t.Errorf("event %d: expected type %q, got %q", i, EventQuestionRequest, evt.Type)
+		}
+		if evt.Meta["questionId"] != "question_2" {
+			t.Errorf("event %d: expected questionId %q, got %v", i, "question_2", evt.Meta["questionId"])
+		}
+		if evt.Meta["questionIndex"] != i {
+			t.Errorf("event %d: expected questionIndex %d, got %v", i, i, evt.Meta["questionIndex"])
+		}
+		if evt.Meta["totalQuestions"] != 3 {
+			t.Errorf("event %d: expected totalQuestions 3, got %v", i, evt.Meta["totalQuestions"])
+		}
+	}
+
+	// Verify individual question content
+	if events[0].Content != "What should the composable be named?" {
+		t.Errorf("event 0: unexpected content: %q", events[0].Content)
+	}
+	if events[1].Content != "Include cleanup on unmount?" {
+		t.Errorf("event 1: unexpected content: %q", events[1].Content)
+	}
+	if events[2].Content != "What data format?" {
+		t.Errorf("event 2: unexpected content: %q", events[2].Content)
+	}
+}
+
+func TestParseQuestionAsked_NoOptions(t *testing.T) {
+	adapter := NewOpenCodeAdapter("http://localhost:4096")
+
+	// A question with no predefined options (free-form input expected)
+	props := json.RawMessage(`{
+		"id": "question_3",
+		"sessionID": "ses_q3",
+		"questions": [
+			{
+				"question": "What should the project be named?",
+				"header": "Project Name",
+				"options": []
+			}
+		],
+		"tool": {"messageID": "msg_q3", "callID": "call_q3"}
+	}`)
+
+	events := adapter.parseQuestionAsked(props)
+	if len(events) != 1 {
+		t.Fatalf("expected 1 event, got %d", len(events))
+	}
+
+	evt := events[0]
+	options, ok := evt.Meta["options"].([]interface{})
+	if !ok {
+		t.Fatalf("expected options to be []interface{}, got %T", evt.Meta["options"])
+	}
+	if len(options) != 0 {
+		t.Errorf("expected 0 options, got %d", len(options))
+	}
+}
+
+func TestParseQuestionAsked_InvalidJSON(t *testing.T) {
+	adapter := NewOpenCodeAdapter("http://localhost:4096")
+
+	events := adapter.parseQuestionAsked(json.RawMessage(`{broken`))
+	if len(events) != 0 {
+		t.Errorf("expected 0 events for invalid JSON, got %d", len(events))
+	}
+}
+
+func TestParseQuestionAsked_EmptyQuestions(t *testing.T) {
+	adapter := NewOpenCodeAdapter("http://localhost:4096")
+
+	props := json.RawMessage(`{
+		"id": "question_4",
+		"sessionID": "ses_q4",
+		"questions": [],
+		"tool": {"messageID": "msg_q4"}
+	}`)
+
+	events := adapter.parseQuestionAsked(props)
+	if events != nil {
+		t.Errorf("expected nil for empty questions, got %d events", len(events))
+	}
+}
+
+func TestParseQuestionReplied(t *testing.T) {
+	adapter := NewOpenCodeAdapter("http://localhost:4096")
+
+	props := json.RawMessage(`{
+		"sessionID": "ses_q1",
+		"requestID": "question_1",
+		"answers": [["POST"]]
+	}`)
+
+	events := adapter.parseQuestionReplied(props)
+	if len(events) != 1 {
+		t.Fatalf("expected 1 event, got %d", len(events))
+	}
+
+	evt := events[0]
+	if evt.Type != EventQuestionReplied {
+		t.Errorf("expected type %q, got %q", EventQuestionReplied, evt.Type)
+	}
+	if evt.SessionID != "ses_q1" {
+		t.Errorf("expected sessionID %q, got %q", "ses_q1", evt.SessionID)
+	}
+	if evt.Content != "POST" {
+		t.Errorf("expected content %q, got %q", "POST", evt.Content)
+	}
+	if evt.Meta["questionId"] != "question_1" {
+		t.Errorf("expected questionId %q, got %v", "question_1", evt.Meta["questionId"])
+	}
+	if evt.Meta["rejected"] != false {
+		t.Errorf("expected rejected false, got %v", evt.Meta["rejected"])
+	}
+}
+
+func TestParseQuestionReplied_MultiAnswer(t *testing.T) {
+	adapter := NewOpenCodeAdapter("http://localhost:4096")
+
+	props := json.RawMessage(`{
+		"sessionID": "ses_q2",
+		"requestID": "question_2",
+		"answers": [["useMetrics"], ["Yes"], ["readonly ref"]]
+	}`)
+
+	events := adapter.parseQuestionReplied(props)
+	if len(events) != 1 {
+		t.Fatalf("expected 1 event, got %d", len(events))
+	}
+
+	evt := events[0]
+	if evt.Content != "useMetrics; Yes; readonly ref" {
+		t.Errorf("unexpected content: %q", evt.Content)
+	}
+}
+
+func TestParseQuestionReplied_InvalidJSON(t *testing.T) {
+	adapter := NewOpenCodeAdapter("http://localhost:4096")
+
+	events := adapter.parseQuestionReplied(json.RawMessage(`{not valid`))
+	if len(events) != 0 {
+		t.Errorf("expected 0 events for invalid JSON, got %d", len(events))
+	}
+}
+
+func TestParseQuestionRejected(t *testing.T) {
+	adapter := NewOpenCodeAdapter("http://localhost:4096")
+
+	props := json.RawMessage(`{
+		"sessionID": "ses_q1",
+		"requestID": "question_1"
+	}`)
+
+	events := adapter.parseQuestionRejected(props)
+	if len(events) != 1 {
+		t.Fatalf("expected 1 event, got %d", len(events))
+	}
+
+	evt := events[0]
+	if evt.Type != EventQuestionReplied {
+		t.Errorf("expected type %q, got %q", EventQuestionReplied, evt.Type)
+	}
+	if evt.Meta["rejected"] != true {
+		t.Errorf("expected rejected true, got %v", evt.Meta["rejected"])
+	}
+	if evt.Meta["questionId"] != "question_1" {
+		t.Errorf("expected questionId %q, got %v", "question_1", evt.Meta["questionId"])
+	}
+	if evt.Content != "Question dismissed" {
+		t.Errorf("expected content %q, got %q", "Question dismissed", evt.Content)
+	}
+}
+
+func TestParseQuestionRejected_InvalidJSON(t *testing.T) {
+	adapter := NewOpenCodeAdapter("http://localhost:4096")
+
+	events := adapter.parseQuestionRejected(json.RawMessage(`{bad`))
+	if len(events) != 0 {
+		t.Errorf("expected 0 events for invalid JSON, got %d", len(events))
+	}
+}
+
+// --- Question SSE routing tests (via parseSSEData) ---
+
+func TestParseSSEData_QuestionAsked(t *testing.T) {
+	adapter := NewOpenCodeAdapter("http://localhost:4096")
+
+	data := `{
+		"type": "question.asked",
+		"properties": {
+			"id": "question_route1",
+			"sessionID": "ses_route",
+			"questions": [
+				{
+					"question": "Pick a color",
+					"header": "Color",
+					"options": [
+						{"label": "Red", "description": "Warm color"},
+						{"label": "Blue", "description": "Cool color"}
+					]
+				}
+			],
+			"tool": {"messageID": "msg_route", "callID": "call_route"}
+		}
+	}`
+
+	events := adapter.parseSSEData(data)
+	if len(events) != 1 {
+		t.Fatalf("expected 1 event, got %d", len(events))
+	}
+	if events[0].Type != EventQuestionRequest {
+		t.Errorf("expected type %q, got %q", EventQuestionRequest, events[0].Type)
+	}
+}
+
+func TestParseSSEData_QuestionReplied(t *testing.T) {
+	adapter := NewOpenCodeAdapter("http://localhost:4096")
+
+	data := `{
+		"type": "question.replied",
+		"properties": {
+			"sessionID": "ses_route",
+			"requestID": "question_route1",
+			"answers": [["Blue"]]
+		}
+	}`
+
+	events := adapter.parseSSEData(data)
+	if len(events) != 1 {
+		t.Fatalf("expected 1 event, got %d", len(events))
+	}
+	if events[0].Type != EventQuestionReplied {
+		t.Errorf("expected type %q, got %q", EventQuestionReplied, events[0].Type)
+	}
+	if events[0].Content != "Blue" {
+		t.Errorf("expected content %q, got %q", "Blue", events[0].Content)
+	}
+}
+
+func TestParseSSEData_QuestionRejected(t *testing.T) {
+	adapter := NewOpenCodeAdapter("http://localhost:4096")
+
+	data := `{
+		"type": "question.rejected",
+		"properties": {
+			"sessionID": "ses_route",
+			"requestID": "question_route1"
+		}
+	}`
+
+	events := adapter.parseSSEData(data)
+	if len(events) != 1 {
+		t.Fatalf("expected 1 event, got %d", len(events))
+	}
+	if events[0].Type != EventQuestionReplied {
+		t.Errorf("expected type %q, got %q", EventQuestionReplied, events[0].Type)
+	}
+	if events[0].Meta["rejected"] != true {
+		t.Errorf("expected rejected true, got %v", events[0].Meta["rejected"])
+	}
+}
+
+// --- Question tool suppression test ---
+
+func TestParseToolPart_QuestionToolSkipped(t *testing.T) {
+	adapter := NewOpenCodeAdapter("http://localhost:4096")
+
+	// The "question" tool should be suppressed — it's handled via question.asked events
+	part := OpenCodePart{
+		ID:        "part-q1",
+		SessionID: "sess-1",
+		MessageID: "msg-1",
+		Type:      "tool",
+		Tool:      "question",
+		State:     json.RawMessage(`{"status": "running", "input": {"questions": [{"question": "Pick one"}]}}`),
+	}
+
+	events := adapter.parseToolPart(part, "")
+	if events != nil {
+		t.Errorf("expected nil for question tool part, got %d events", len(events))
+	}
+}
+
+func TestParseToolPart_QuestionToolCompletedSkipped(t *testing.T) {
+	adapter := NewOpenCodeAdapter("http://localhost:4096")
+
+	part := OpenCodePart{
+		ID:        "part-q2",
+		SessionID: "sess-1",
+		MessageID: "msg-1",
+		Type:      "tool",
+		Tool:      "question",
+		State:     json.RawMessage(`{"status": "completed", "title": "Asked 1 question(s)", "output": "User has answered your questions: POST"}`),
+	}
+
+	events := adapter.parseToolPart(part, "")
+	if events != nil {
+		t.Errorf("expected nil for question tool completion, got %d events", len(events))
+	}
+}
+
+// --- RespondToQuestion HTTP tests ---
+
+func TestRespondToQuestion_Success(t *testing.T) {
+	var capturedPath, capturedMethod string
+	var capturedBody map[string]interface{}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		capturedPath = r.URL.Path
+		capturedMethod = r.Method
+		body, _ := io.ReadAll(r.Body)
+		json.Unmarshal(body, &capturedBody)
+		w.WriteHeader(200)
+	}))
+	defer server.Close()
+
+	adapter := NewOpenCodeAdapter(server.URL)
+	err := adapter.RespondToQuestion(context.Background(), "question_1", [][]string{{"POST"}})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if capturedMethod != "POST" {
+		t.Errorf("expected POST, got %s", capturedMethod)
+	}
+	if capturedPath != "/question/question_1/reply" {
+		t.Errorf("expected path %q, got %q", "/question/question_1/reply", capturedPath)
+	}
+
+	answers, ok := capturedBody["answers"].([]interface{})
+	if !ok {
+		t.Fatalf("expected answers to be array, got %T", capturedBody["answers"])
+	}
+	if len(answers) != 1 {
+		t.Fatalf("expected 1 answer group, got %d", len(answers))
+	}
+}
+
+func TestRespondToQuestion_MultiAnswer(t *testing.T) {
+	var capturedBody map[string]interface{}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		json.Unmarshal(body, &capturedBody)
+		w.WriteHeader(200)
+	}))
+	defer server.Close()
+
+	adapter := NewOpenCodeAdapter(server.URL)
+	err := adapter.RespondToQuestion(context.Background(), "question_2", [][]string{
+		{"useMetrics"},
+		{"Yes"},
+		{"readonly ref"},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	answers, ok := capturedBody["answers"].([]interface{})
+	if !ok {
+		t.Fatalf("expected answers to be array, got %T", capturedBody["answers"])
+	}
+	if len(answers) != 3 {
+		t.Errorf("expected 3 answer groups, got %d", len(answers))
+	}
+}
+
+func TestRespondToQuestion_ServerError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(404)
+		w.Write([]byte(`{"error": "question not found"}`))
+	}))
+	defer server.Close()
+
+	adapter := NewOpenCodeAdapter(server.URL)
+	err := adapter.RespondToQuestion(context.Background(), "question_missing", [][]string{{"x"}})
+	if err == nil {
+		t.Fatal("expected error for 404 response")
+	}
+}
+
+// --- RejectQuestion HTTP tests ---
+
+func TestRejectQuestion_Success(t *testing.T) {
+	var capturedPath, capturedMethod string
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		capturedPath = r.URL.Path
+		capturedMethod = r.Method
+		w.WriteHeader(200)
+	}))
+	defer server.Close()
+
+	adapter := NewOpenCodeAdapter(server.URL)
+	err := adapter.RejectQuestion(context.Background(), "question_1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if capturedMethod != "POST" {
+		t.Errorf("expected POST, got %s", capturedMethod)
+	}
+	if capturedPath != "/question/question_1/reject" {
+		t.Errorf("expected path %q, got %q", "/question/question_1/reject", capturedPath)
+	}
+}
+
+func TestRejectQuestion_ServerError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(500)
+		w.Write([]byte(`internal server error`))
+	}))
+	defer server.Close()
+
+	adapter := NewOpenCodeAdapter(server.URL)
+	err := adapter.RejectQuestion(context.Background(), "question_missing")
+	if err == nil {
+		t.Fatal("expected error for 500 response")
+	}
+}

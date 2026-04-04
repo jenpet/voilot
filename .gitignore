@@ -12,6 +12,7 @@ backend/main
 # Build output
 dist/
 frontend/dist/
+frontend/dist
 
 # Environment
 .env

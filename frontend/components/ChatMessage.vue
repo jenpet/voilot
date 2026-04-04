@@ -50,6 +50,66 @@
       </div>
     </div>
 
+    <!-- Question request -->
+    <div v-else-if="message.type === 'question_request'" class="min-w-0">
+      <!-- Header row: icon + question -->
+      <div class="flex items-start gap-2">
+        <span v-if="isQuestionResolved" class="text-sm mt-0.5 flex-shrink-0">
+          <span v-if="isQuestionRejected" class="text-red-400">&#x2717;</span>
+          <span v-else class="text-indigo-400">&#x2713;</span>
+        </span>
+        <span v-else class="text-sm mt-0.5 flex-shrink-0 text-indigo-400">?</span>
+        <div class="flex-1 min-w-0">
+          <p v-if="questionHeader" class="text-[10px] font-semibold uppercase tracking-wider mb-0.5"
+            :class="isQuestionResolved ? 'text-surface-500' : 'text-indigo-400/70'">
+            {{ questionHeader }}
+          </p>
+          <p class="text-xs font-medium" :class="isQuestionResolved ? 'text-surface-300' : 'text-indigo-200'">
+            {{ message.content }}
+          </p>
+        </div>
+      </div>
+
+      <!-- Resolved: show selected answer or rejection -->
+      <div v-if="isQuestionResolved" class="mt-2">
+        <p v-if="isQuestionRejected" class="text-xs text-red-400/80">
+          Dismissed
+        </p>
+        <p v-else class="text-xs text-indigo-400/80">
+          {{ questionSelectedLabel }}
+        </p>
+      </div>
+
+      <!-- Pending: option buttons (only for the active question) -->
+      <div v-else-if="isActiveQuestion" class="mt-3">
+        <div class="flex flex-wrap gap-2">
+          <button
+            v-for="option in questionOptions"
+            :key="option.label"
+            class="px-3 py-1.5 text-xs rounded-lg bg-indigo-600/25 text-indigo-300 hover:bg-indigo-600/45 active:bg-indigo-600/65 transition-colors"
+            :title="option.description"
+            @click="selectOption(option.label)"
+          >
+            {{ option.label }}
+          </button>
+        </div>
+        <!-- Dismiss button -->
+        <button
+          class="mt-2 px-2 py-1 text-[10px] rounded text-surface-500 hover:text-red-400 hover:bg-red-600/15 transition-colors"
+          @click="dismissQuestion"
+        >
+          Dismiss
+        </button>
+      </div>
+
+      <!-- Waiting: not yet active in multi-question batch -->
+      <div v-else class="mt-2">
+        <p class="text-[10px] text-surface-500 italic">
+          Waiting for previous question...
+        </p>
+      </div>
+    </div>
+
     <!-- Tool use / tool result -->
     <div v-else-if="message.type === 'tool_use' || message.type === 'tool_result'" class="flex items-start gap-2">
       <span class="text-xs mt-0.5 flex-shrink-0">
@@ -89,7 +149,7 @@
 
 <script setup lang="ts">
 import type { Message } from '~/composables/useAgent'
-import { RespondToPermissionKey } from '~/composables/useAgent'
+import { RespondToPermissionKey, RespondToQuestionKey, RejectQuestionKey, ActiveQuestionKey } from '~/composables/useAgent'
 import { renderMarkdown } from '~/composables/useMarkdown'
 
 const props = defineProps<{
@@ -100,6 +160,9 @@ const props = defineProps<{
 const renderedContent = computed(() => renderMarkdown(props.message.content))
 
 const respondToPermission = inject(RespondToPermissionKey, null)
+const respondToQuestion = inject(RespondToQuestionKey, null)
+const rejectQuestion = inject(RejectQuestionKey, null)
+const activeQuestion = inject(ActiveQuestionKey, ref(null))
 
 // ─── Permission helpers ────────────────────────────────────────────
 
@@ -131,6 +194,47 @@ function respond(response: 'once' | 'always' | 'reject') {
   respondToPermission(permissionId, response)
 }
 
+// ─── Question helpers ──────────────────────────────────────────────
+
+const isQuestionResolved = computed(() => props.message.meta?.resolved === true)
+const isQuestionRejected = computed(() => props.message.meta?.rejected === true)
+
+const questionHeader = computed(() => props.message.meta?.header as string || '')
+
+const questionOptions = computed(() => {
+  return (props.message.meta?.options as Array<{ label: string; description: string }>) || []
+})
+
+const questionSelectedLabel = computed(() => {
+  const labels = props.message.meta?.selectedLabels as string[] | undefined
+  if (!labels || labels.length === 0) return 'Answered'
+  return labels.join(', ')
+})
+
+// Is this the currently active (first unanswered) question in the batch?
+// Only the active question shows interactive buttons; others are dimmed.
+const isActiveQuestion = computed(() => {
+  if (props.message.type !== 'question_request') return false
+  const qid = props.message.meta?.questionId
+  const idx = props.message.meta?.questionIndex
+  if (qid == null || idx == null) return false
+  return activeQuestion.value === `${qid}:${idx}`
+})
+
+function selectOption(label: string) {
+  const questionId = props.message.meta?.questionId as string | undefined
+  const questionIndex = props.message.meta?.questionIndex as number | undefined
+  if (questionId == null || questionIndex == null || !respondToQuestion) return
+  // Single selection: send as a single-item array
+  respondToQuestion(questionId, questionIndex, [label])
+}
+
+function dismissQuestion() {
+  const questionId = props.message.meta?.questionId as string | undefined
+  if (!questionId || !rejectQuestion) return
+  rejectQuestion(questionId)
+}
+
 // ─── Message styling ───────────────────────────────────────────────
 
 const messageClasses = computed(() => {
@@ -141,6 +245,14 @@ const messageClasses = computed(() => {
         : 'mr-auto bg-green-900/20 border border-green-800/30 text-surface-200'
     }
     return 'mr-auto bg-amber-900/20 border border-amber-700/40 text-surface-200'
+  }
+  if (props.message.type === 'question_request') {
+    if (isQuestionResolved.value) {
+      return isQuestionRejected.value
+        ? 'mr-auto bg-red-900/20 border border-red-800/30 text-surface-200'
+        : 'mr-auto bg-indigo-900/20 border border-indigo-800/30 text-surface-200'
+    }
+    return 'mr-auto bg-indigo-900/20 border border-indigo-700/40 text-surface-200'
   }
   if (props.message.role === 'user') {
     return 'ml-auto bg-blue-600/20 text-blue-100'

@@ -30,6 +30,10 @@ const (
 	EventPermissionRequest EventType = "permission_request"
 	// EventPermissionReplied signals a permission prompt was resolved.
 	EventPermissionReplied EventType = "permission_replied"
+	// EventQuestionRequest signals a question prompt that needs user selection/input.
+	EventQuestionRequest EventType = "question_request"
+	// EventQuestionReplied signals a question prompt was answered or rejected.
+	EventQuestionReplied EventType = "question_replied"
 )
 
 // Event represents a single streaming event from an agent.
@@ -135,4 +139,46 @@ type OpenCodePermissionReply struct {
 	SessionID string `json:"sessionID"`
 	RequestID string `json:"requestID"` // permission ID being responded to
 	Reply     string `json:"reply"`     // "once", "always", "reject"
+}
+
+// OpenCodeQuestion is the properties payload for "question.asked".
+// Represents one or more questions that need user selection/input.
+type OpenCodeQuestion struct {
+	ID        string                 `json:"id"`
+	SessionID string                 `json:"sessionID"`
+	Questions []OpenCodeQuestionItem `json:"questions"`
+	Tool      OpenCodeQuestionTool   `json:"tool"`
+}
+
+// OpenCodeQuestionTool holds the tool reference inside a question event.
+type OpenCodeQuestionTool struct {
+	MessageID string `json:"messageID"`
+	CallID    string `json:"callID,omitempty"`
+}
+
+// OpenCodeQuestionItem is a single question within a question.asked event.
+type OpenCodeQuestionItem struct {
+	Question string                   `json:"question"` // full question text
+	Header   string                   `json:"header"`   // short label (max 30 chars)
+	Options  []OpenCodeQuestionOption `json:"options"`
+	Multiple bool                     `json:"multiple,omitempty"` // allow multiple selections
+}
+
+// OpenCodeQuestionOption is a selectable option within a question.
+type OpenCodeQuestionOption struct {
+	Label       string `json:"label"`       // display text (1-5 words)
+	Description string `json:"description"` // explanation of choice
+}
+
+// OpenCodeQuestionReply is the properties payload for "question.replied".
+type OpenCodeQuestionReply struct {
+	SessionID string     `json:"sessionID"`
+	RequestID string     `json:"requestID"` // question ID being responded to
+	Answers   [][]string `json:"answers"`   // one inner array per question
+}
+
+// OpenCodeQuestionRejected is the properties payload for "question.rejected".
+type OpenCodeQuestionRejected struct {
+	SessionID string `json:"sessionID"`
+	RequestID string `json:"requestID"` // question ID being rejected
 }

@@ -20,9 +20,9 @@
     <div v-if="isStreaming" class="flex items-center gap-2 text-surface-400 text-sm">
       <span
         class="inline-block w-2 h-2 rounded-full animate-pulse"
-        :class="hasPendingPermission ? 'bg-amber-400' : 'bg-blue-400'"
+        :class="streamingIndicatorColor"
       />
-      <span>{{ hasPendingPermission ? 'Waiting for approval...' : 'Agent is responding...' }}</span>
+      <span>{{ streamingIndicatorText }}</span>
     </div>
   </div>
 </template>
@@ -34,7 +34,20 @@ const props = defineProps<{
   messages: Message[]
   isStreaming: boolean
   hasPendingPermission: boolean
+  hasPendingQuestion: boolean
 }>()
+
+// Streaming indicator state — priority: permission > question > default
+const streamingIndicatorColor = computed(() => {
+  if (props.hasPendingPermission) return 'bg-amber-400'
+  if (props.hasPendingQuestion) return 'bg-indigo-400'
+  return 'bg-blue-400'
+})
+const streamingIndicatorText = computed(() => {
+  if (props.hasPendingPermission) return 'Waiting for approval...'
+  if (props.hasPendingQuestion) return 'Answer a question...'
+  return 'Agent is responding...'
+})
 
 // Group consecutive tool_use / tool_result messages into collapsible blocks.
 // Everything else stays as a single message.

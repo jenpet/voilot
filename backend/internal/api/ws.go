@@ -19,12 +19,14 @@ var upgrader = websocket.Upgrader{
 
 // chatInbound is the WebSocket message format from the client.
 type chatInbound struct {
-	Type         string `json:"type"`                   // "message", "abort", "set_mode", "set_agent", "permission_response"
-	SessionID    string `json:"sessionId"`              // target session
-	Content      string `json:"content"`                // message text, mode value, or agent name
-	PermissionID string `json:"permissionId,omitempty"` // for permission_response
-	Response     string `json:"response,omitempty"`     // "once", "always", "reject"
-	Remember     bool   `json:"remember,omitempty"`     // persist the permission rule
+	Type         string     `json:"type"`                   // "message", "abort", "set_mode", "set_agent", "permission_response", "question_response", "question_reject"
+	SessionID    string     `json:"sessionId"`              // target session
+	Content      string     `json:"content"`                // message text, mode value, or agent name
+	PermissionID string     `json:"permissionId,omitempty"` // for permission_response
+	Response     string     `json:"response,omitempty"`     // "once", "always", "reject"
+	Remember     bool       `json:"remember,omitempty"`     // persist the permission rule
+	QuestionID   string     `json:"questionId,omitempty"`   // for question_response / question_reject
+	Answers      [][]string `json:"answers,omitempty"`      // assembled answers array for question_response
 }
 
 // chatOutbound is the WebSocket message format to the client.
@@ -224,6 +226,43 @@ func (s *Server) handleWSChat(w http.ResponseWriter, r *http.Request) {
 					Type:      "error",
 					SessionID: msg.SessionID,
 					Content:   "Failed to respond to permission: " + err.Error(),
+				})
+			}
+
+		case "question_response":
+			if msg.QuestionID == "" {
+				writeJSON(chatOutbound{
+					Type:    "error",
+					Content: "questionId is required",
+				})
+				continue
+			}
+			if len(msg.Answers) == 0 {
+				writeJSON(chatOutbound{
+					Type:    "error",
+					Content: "answers are required",
+				})
+				continue
+			}
+			if err := s.agentAdapter.RespondToQuestion(ctx, msg.QuestionID, msg.Answers); err != nil {
+				writeJSON(chatOutbound{
+					Type:    "error",
+					Content: "Failed to respond to question: " + err.Error(),
+				})
+			}
+
+		case "question_reject":
+			if msg.QuestionID == "" {
+				writeJSON(chatOutbound{
+					Type:    "error",
+					Content: "questionId is required",
+				})
+				continue
+			}
+			if err := s.agentAdapter.RejectQuestion(ctx, msg.QuestionID); err != nil {
+				writeJSON(chatOutbound{
+					Type:    "error",
+					Content: "Failed to reject question: " + err.Error(),
 				})
 			}
 

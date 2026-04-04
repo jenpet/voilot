@@ -48,6 +48,7 @@
       :messages="messages"
       :is-streaming="isStreaming"
       :has-pending-permission="hasPendingPermission"
+      :has-pending-question="hasPendingQuestion"
     />
 
     <!-- Round-trip timing display (shows after a voice interaction) -->
@@ -55,6 +56,10 @@
 
     <!-- Input Area -->
     <div class="border-t border-surface-700 bg-surface-800 p-4">
+      <!-- Custom answer hint when a question is pending -->
+      <p v-if="hasPendingQuestion" class="text-xs text-indigo-400/70 mb-2 text-center max-w-2xl mx-auto">
+        Type or speak a custom answer, or select an option above
+      </p>
       <div class="flex items-end gap-3 max-w-2xl mx-auto">
         <template v-if="isBusy && !isRecording">
           <!-- Stop button — replaces input row when agent is streaming or TTS is playing (but not if user is recording) -->
@@ -107,6 +112,7 @@ const {
   messages,
   isStreaming,
   hasPendingPermission,
+  hasPendingQuestion,
   isTTSPlaying,
   isRecording,
   voiceEnabled,
@@ -120,23 +126,30 @@ const {
 // Acoustic feedback: blip on recording start, double-blip on stop
 useRecordingFeedback()
 
-const isBusy = computed(() => isStreaming.value || isTTSPlaying.value)
+// When a question is pending, the agent is technically "busy" (waiting for our
+// answer), but we need the input field visible so the user can type a custom
+// answer or use voice. Override isBusy to false in that case.
+const isBusy = computed(() => {
+  if (hasPendingQuestion.value) return false
+  return isStreaming.value || isTTSPlaying.value
+})
 
 const inputText = ref('')
 const inputRef = ref<HTMLTextAreaElement>()
 
 function handleSend() {
   const text = inputText.value.trim()
-  if (!text || isStreaming.value) return
+  // Allow sending when a question is pending (custom answer), even though isStreaming is true
+  if (!text || (isStreaming.value && !hasPendingQuestion.value)) return
   inputText.value = ''
   sendMessage(text, { origin: 'text' })
 }
 
 function handleTranscription(text: string) {
   inputText.value = text
-  // Auto-send voice input
+  // Auto-send voice input — same override for pending questions
   const trimmed = inputText.value.trim()
-  if (!trimmed || isStreaming.value) return
+  if (!trimmed || (isStreaming.value && !hasPendingQuestion.value)) return
   inputText.value = ''
   sendMessage(trimmed, { origin: 'voice' })
 }
