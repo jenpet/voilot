@@ -31,7 +31,7 @@ import {
 const START_FREQ = 660;   // Original pitch for start
 const STOP_FREQ = 440;    // Lower pitch for stop (A4)
 const BLIP_DURATION_MS = 80;
-const BLIP_VOLUME = 0.35;
+const BLIP_VOLUME = 0.50;
 
 // Pre-generated audio elements (created once, reused)
 let _startAudio: HTMLAudioElement | null = null;

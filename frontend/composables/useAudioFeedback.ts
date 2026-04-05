@@ -34,13 +34,22 @@ export const HUM_HARD_CAP_MS = 90_000;
 export const WATCHDOG_TIMEOUT_MS = 5_000;
 export const DEBOUNCE_MS = 700;
 
+// ── Volume hierarchy ────────────────────────────────────────────────
+// TTS voice plays at 1.0 (loudest). All synth sounds sit below TTS
+// but are clearly audible. Grouped into tiers:
+const VOL_ALERT   = 0.55;  // error, warning, permission — attention-critical
+const VOL_BLIP    = 0.50;  // recording start/stop blips (in useRecordingFeedback)
+const VOL_CHIME   = 0.45;  // handoff, question, success, cancel, STT failure
+const VOL_SUBTLE  = 0.35;  // loop tick, mode signature, reconnect chime
+const VOL_HUM     = 0.20;  // ambient heartbeat working loop
+
 // ── Sound definitions ───────────────────────────────────────────────
 
 /** Ascending two-tone chime (reuses existing thinking jingle frequencies). */
 function buildHandoffTone(): Float32Array {
-  const t1 = generateSineBlip(523, 70, 0.25, SAMPLE_RATE);  // C5
+  const t1 = generateSineBlip(523, 70, VOL_CHIME, SAMPLE_RATE);  // C5
   const gap = generateSilence(30, SAMPLE_RATE);
-  const t2 = generateSineBlip(659, 70, 0.25, SAMPLE_RATE);  // E5
+  const t2 = generateSineBlip(659, 70, VOL_CHIME, SAMPLE_RATE);  // E5
   return concatSamples(t1, gap, t2);
 }
 
@@ -54,7 +63,7 @@ function buildHumChunk(): Float32Array {
   const beatMs = 60_000 / bpm; // 1500ms
   const numSamples = Math.floor((beatMs / 1000) * SAMPLE_RATE);
   const samples = new Float32Array(numSamples);
-  const vol = 0.06;
+  const vol = VOL_HUM;
 
   const lubFreq = 90;
   const dubFreq = 110;
@@ -104,68 +113,68 @@ function buildHumChunk(): Float32Array {
 
 /** Descending two-tone: attention + friendly. */
 function buildQuestionChime(): Float32Array {
-  const t1 = generateSineBlip(1047, 90, 0.25, SAMPLE_RATE);  // C6
+  const t1 = generateSineBlip(1047, 90, VOL_CHIME, SAMPLE_RATE);  // C6
   const gap = generateSilence(20, SAMPLE_RATE);
-  const t2 = generateSineBlip(880, 90, 0.25, SAMPLE_RATE);   // A5
+  const t2 = generateSineBlip(880, 90, VOL_CHIME, SAMPLE_RATE);   // A5
   return concatSamples(t1, gap, t2);
 }
 
 /** Descending two-tone: slightly urgent. */
 function buildPermissionChime(): Float32Array {
-  const t1 = generateSineBlip(587, 90, 0.30, SAMPLE_RATE);  // D5
+  const t1 = generateSineBlip(587, 90, VOL_ALERT, SAMPLE_RATE);  // D5
   const gap = generateSilence(20, SAMPLE_RATE);
-  const t2 = generateSineBlip(440, 90, 0.30, SAMPLE_RATE);  // A4
+  const t2 = generateSineBlip(440, 90, VOL_ALERT, SAMPLE_RATE);  // A4
   return concatSamples(t1, gap, t2);
 }
 
 /** Ascending triad: positive resolution. */
 function buildSuccessChime(): Float32Array {
-  const t1 = generateSineBlip(523, 80, 0.20, SAMPLE_RATE);  // C5
+  const t1 = generateSineBlip(523, 80, VOL_CHIME, SAMPLE_RATE);  // C5
   const g1 = generateSilence(20, SAMPLE_RATE);
-  const t2 = generateSineBlip(659, 80, 0.20, SAMPLE_RATE);  // E5
+  const t2 = generateSineBlip(659, 80, VOL_CHIME, SAMPLE_RATE);  // E5
   const g2 = generateSilence(20, SAMPLE_RATE);
-  const t3 = generateSineBlip(784, 80, 0.20, SAMPLE_RATE);  // G5
+  const t3 = generateSineBlip(784, 80, VOL_CHIME, SAMPLE_RATE);  // G5
   return concatSamples(t1, g1, t2, g2, t3);
 }
 
 /** Single low tone: generic error. */
 function buildErrorTone(): Float32Array {
-  return generateSineBlip(330, 200, 0.30, SAMPLE_RATE);
+  return generateSineBlip(330, 200, VOL_ALERT, SAMPLE_RATE);
 }
 
 /** Alternating two tones: system warning. */
 function buildWarningTone(): Float32Array {
-  const t1 = generateSineBlip(440, 120, 0.25, SAMPLE_RATE);
+  const t1 = generateSineBlip(440, 120, VOL_ALERT, SAMPLE_RATE);
   const gap = generateSilence(20, SAMPLE_RATE);
-  const t2 = generateSineBlip(330, 120, 0.25, SAMPLE_RATE);
+  const t2 = generateSineBlip(330, 120, VOL_ALERT, SAMPLE_RATE);
   return concatSamples(t1, gap, t2);
 }
 
 /** Single short tap: mode identity. */
 function buildModeSignature(): Float32Array {
-  return generateSineBlip(392, 100, 0.15, SAMPLE_RATE);
+  return generateSineBlip(392, 100, VOL_SUBTLE, SAMPLE_RATE);
 }
 
 /** Very short tick: "mic is hot" in voice loop. */
 function buildLoopListeningTick(): Float32Array {
-  return generateSineBlip(1200, 30, 0.10, SAMPLE_RATE);
+  return generateSineBlip(1200, 30, VOL_SUBTLE, SAMPLE_RATE);
 }
 
 /** Descending sweep: "didn't catch that". */
 function buildSTTFailureTone(): Float32Array {
-  return generateSweep(350, 280, 150, 0.20, SAMPLE_RATE);
+  return generateSweep(350, 280, 150, VOL_CHIME, SAMPLE_RATE);
 }
 
 /** Descending sweep: abort confirmed. */
 function buildCancelTone(): Float32Array {
-  return generateSweep(500, 350, 120, 0.20, SAMPLE_RATE);
+  return generateSweep(500, 350, 120, VOL_CHIME, SAMPLE_RATE);
 }
 
 /** Ascending two-tone: connection restored. */
 function buildReconnectChime(): Float32Array {
-  const t1 = generateSineBlip(600, 65, 0.15, SAMPLE_RATE);
+  const t1 = generateSineBlip(600, 65, VOL_SUBTLE, SAMPLE_RATE);
   const gap = generateSilence(20, SAMPLE_RATE);
-  const t2 = generateSineBlip(800, 65, 0.15, SAMPLE_RATE);
+  const t2 = generateSineBlip(800, 65, VOL_SUBTLE, SAMPLE_RATE);
   return concatSamples(t1, gap, t2);
 }
 
