@@ -444,6 +444,17 @@ export function playSTTFailureTone(): void {
   playOneShot('sttFailureTone');
 }
 
+/**
+ * Play STT failure tone + spoken announcement.
+ * Used in manual recording mode where the user needs verbal feedback.
+ */
+export function announceSTTFailure(): void {
+  playSTTFailureTone();
+  if (_enqueueTTS) {
+    _enqueueTTS("I didn't hear anything.");
+  }
+}
+
 /** Play cancel/abort tone. */
 export function playCancelTone(): void {
   if (shouldDebounce('cancelTone')) return;

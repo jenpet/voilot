@@ -14,6 +14,11 @@ import {
   playPermissionChime,
   playErrorTone,
   playCancelTone,
+  playLoopListeningTick,
+  playSTTFailureTone,
+  playWarningTone,
+  playReconnectChime,
+  playModeSignature,
   notifyToolActivity,
   startWatchdog,
   cancelWatchdog,
@@ -145,6 +150,8 @@ export function useAgent(sessionId: string) {
     if (!hasPendingQuestion.value && isStreaming.value) return
     loopStartPending = true
     loopRecordingActive.value = true
+    // Subtle tick so the user knows the mic is hot (Phase 3)
+    playLoopListeningTick()
     startRecording() // reuses existing mic stream via ensureMicAndAnalyser()
   }
 
@@ -162,7 +169,8 @@ export function useAgent(sessionId: string) {
     if (text) {
       sendMessage(text, { origin: 'voice' })
     } else {
-      // No speech detected (empty/too short) — start recording again
+      // No speech detected (empty/too short) — play failure tone, then retry
+      playSTTFailureTone()
       startLoopRecording()
     }
   })
@@ -180,6 +188,20 @@ export function useAgent(sessionId: string) {
   watch(() => voiceEnabled.value, (enabled) => {
     if (!enabled) {
       stopMonitoring()
+    }
+  })
+
+  // ─── WebSocket disconnect/reconnect audio (Phase 5a) ────────────
+  watch(connectionState, (newState, oldState) => {
+    if (!voiceEnabled.value) return
+    if (newState === 'disconnected' && oldState === 'connected') {
+      stopWorkingHum().then(() => {
+        playWarningTone()
+        enqueueTTS('Connection lost.')
+      })
+    } else if (newState === 'connected' && oldState !== 'connected') {
+      playReconnectChime()
+      enqueueTTS('Reconnected.')
     }
   })
 
@@ -323,6 +345,10 @@ export function useAgent(sessionId: string) {
           session.value.lastUsedModel = event.meta.lastUsedModel as string
         } else if (session.value && event.meta?.mode) {
           session.value.mode = event.meta.mode as 'plan' | 'implement'
+          // Audio cue for mode switch (Phase 5b)
+          if (voiceEnabled.value) {
+            playModeSignature()
+          }
         } else if (session.value && event.content) {
           session.value.title = event.content
         }
