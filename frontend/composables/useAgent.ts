@@ -4,7 +4,21 @@ import type { InjectionKey } from 'vue'
 import { useTTSChunker } from './useTTSChunker'
 import { useTTSCondenser } from './useTTSCondenser'
 import { useTTSToolBatcher } from './useTTSToolBatcher'
-import { playThinkingJingle } from './useRecordingFeedback'
+import { suppressNextStopBlip } from './useRecordingFeedback'
+import {
+  playHandoff,
+  startWorkingHum,
+  stopWorkingHum,
+  playSuccessChime,
+  playQuestionChime,
+  playPermissionChime,
+  playErrorTone,
+  playCancelTone,
+  notifyToolActivity,
+  startWatchdog,
+  cancelWatchdog,
+  setTTSEnqueue,
+} from './useAudioFeedback'
 
 export interface Message {
   id: string
@@ -44,6 +58,10 @@ export function useAgent(sessionId: string) {
   const apiBase = `${config.public.backendUrl}/api`
   const { send, subscribe, connectionState } = useWebSocket()
   const { enqueue: enqueueTTS, stop: stopTTS, isPlaying: isTTSPlaying } = useTTS()
+
+  // Wire TTS into the audio feedback manager so it can speak
+  // check-in messages and error announcements.
+  setTTSEnqueue(enqueueTTS)
   const { mark, isActive: isTimerActive } = useRoundTripTimer()
   const {
     isRecording,
@@ -58,6 +76,10 @@ export function useAgent(sessionId: string) {
   const messages = ref<Message[]>([])
   const isStreaming = ref(false)
   const voiceEnabled = ref(true)
+
+  // Track whether the current turn was aborted by the user.
+  // Prevents finishStreaming() from playing a success chime after abort.
+  let abortedTurn = false
 
   // Track whether the current conversation turn was started by voice input.
   // When false (text-typed input), the mic auto-loop does NOT re-activate.
@@ -222,10 +244,14 @@ export function useAgent(sessionId: string) {
   })
 
   function handleAgentEvent(event: AgentEvent) {
+    // Cancel watchdog on any agent event — confirms the agent is alive
+    cancelWatchdog()
+
     // Feed non-text events through the tool batcher — it batches consecutive
     // tool_use events into a single TTS summary and passes other events
     // (error, code, etc.) through filterForTTS as before.
-    // Exclude permission events, question events, and control events from the batcher.
+    // Exclude permission events, question events, control events, and
+    // error events during aborted turns from the batcher.
     if (voiceEnabled.value
       && event.type !== 'text'
       && event.type !== 'done'
@@ -233,7 +259,8 @@ export function useAgent(sessionId: string) {
       && event.type !== 'permission_request'
       && event.type !== 'permission_replied'
       && event.type !== 'question_request'
-      && event.type !== 'question_replied') {
+      && event.type !== 'question_replied'
+      && !(event.type === 'error' && abortedTurn)) {
       ttsToolBatcher.push(event)
     }
 
@@ -246,6 +273,8 @@ export function useAgent(sessionId: string) {
         if (event.partId) {
           toolStartTimes.set(event.partId, Date.now())
         }
+        // Notify audio feedback that tools are active (for spoken check-in context)
+        notifyToolActivity()
         appendAssistantMeta(event.content, 'tool_use', event.meta)
         break
       case 'tool_result': {
@@ -263,9 +292,17 @@ export function useAgent(sessionId: string) {
         // Show thinking indicator but don't add to message content
         isStreaming.value = true
         break
-      case 'error':
-        appendSystemMessage(`Error: ${event.content}`)
+      case 'error': {
+        // Abort errors (e.g. MessageAbortedError) are expected after the
+        // user hits stop — don't play error tones or speak the raw error.
+        const isAbortError = abortedTurn
+          || (event.content && event.content.includes('Aborted'));
+        if (!isAbortError) {
+          stopWorkingHum().then(() => playErrorTone())
+          appendSystemMessage(`Error: ${event.content}`)
+        }
         break
+      }
       case 'done':
         finishStreaming()
         break
@@ -383,6 +420,18 @@ export function useAgent(sessionId: string) {
       mark('agent_full', 'end')
     }
 
+    // Stop working hum and play success chime when agent finishes.
+    // Skip the chime if this turn was aborted — abortSession() already
+    // played the cancel tone, so a success chime would be confusing.
+    if (voiceEnabled.value) {
+      if (abortedTurn) {
+        stopWorkingHum()
+      } else {
+        stopWorkingHum().then(() => playSuccessChime())
+      }
+    }
+    abortedTurn = false
+
     // Flush any remaining buffered text to TTS.
     // Tool batcher is flushed silently at end-of-turn — tool summaries are
     // only spoken when followed by agent text (see useTTSToolBatcher).
@@ -407,6 +456,7 @@ export function useAgent(sessionId: string) {
 
   // Send a message via WebSocket
   function sendMessage(text: string, options?: { origin?: 'voice' | 'text' }) {
+    abortedTurn = false
     // If there's a pending question, intercept the input as a custom answer
     if (hasPendingQuestion.value && tryAnswerPendingQuestion(text)) {
       // Preserve voice-initiated state so the mic loop continues for
@@ -435,9 +485,17 @@ export function useAgent(sessionId: string) {
       mark('agent_full', 'start')
     }
 
-    // Play subtle "thinking" jingle so the user knows the agent is working
+    // Play handoff tone + start working hum so the user knows
+    // the agent received the message and is working.
+    // Suppress stop blip for voice-originated messages to prevent
+    // double-beep (stop blip + handoff tone overlap).
     if (voiceEnabled.value) {
-      playThinkingJingle()
+      if (options?.origin === 'voice') {
+        suppressNextStopBlip()
+      }
+      playHandoff()
+      startWorkingHum()
+      startWatchdog()
     }
 
     // Add user message immediately
@@ -461,11 +519,21 @@ export function useAgent(sessionId: string) {
 
   // Abort the current session
   function abortSession() {
+    abortedTurn = true
     stopTTS() // Stop any ongoing TTS playback
     stopMonitoring() // Stop mic monitoring if active
     ttsChunker.reset()
     ttsCondenser.reset()
     ttsToolBatcher.reset()
+
+    // Audio feedback: stop hum, play cancel tone, announce "Stopped."
+    if (voiceEnabled.value) {
+      stopWorkingHum().then(() => {
+        playCancelTone()
+        enqueueTTS('Stopped.')
+      })
+    }
+
     send({
       type: 'abort',
       sessionId,
@@ -544,10 +612,13 @@ export function useAgent(sessionId: string) {
       },
     })
 
-    // Announce via TTS
+    // Announce via TTS with permission chime
     if (voiceEnabled.value) {
       ttsToolBatcher.flush()
-      enqueueTTS(`Permission needed: ${title}`)
+      stopWorkingHum().then(() => {
+        playPermissionChime()
+        enqueueTTS(`Permission needed: ${title}`)
+      })
     }
   }
 
@@ -664,10 +735,13 @@ export function useAgent(sessionId: string) {
     if (voiceEnabled.value && questionIndex === 0) {
       ttsToolBatcher.flush()
       ttsChunker.flush()
-      if (totalQuestions > 1) {
-        enqueueTTS(`I have ${totalQuestions} questions for you.`)
-      }
-      announceQuestion(event.content || header, options)
+      stopWorkingHum().then(() => {
+        playQuestionChime()
+        if (totalQuestions > 1) {
+          enqueueTTS(`I have ${totalQuestions} questions for you.`)
+        }
+        announceQuestion(event.content || header, options)
+      })
     }
   }
 
