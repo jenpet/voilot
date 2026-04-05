@@ -277,9 +277,13 @@ export function useAgent(sessionId: string) {
         }
         break
       case 'session_updated':
-        // Update session agent, title, or mode if changed
+        // Update session agent, model, title, or mode if changed
         if (session.value && event.meta?.agent) {
           session.value.agent = event.meta.agent as string
+        } else if (session.value && event.meta?.model !== undefined) {
+          session.value.model = event.meta.model as string
+        } else if (session.value && event.meta?.lastUsedModel) {
+          session.value.lastUsedModel = event.meta.lastUsedModel as string
         } else if (session.value && event.meta?.mode) {
           session.value.mode = event.meta.mode as 'plan' | 'implement'
         } else if (session.value && event.content) {
@@ -490,6 +494,23 @@ export function useAgent(sessionId: string) {
       session.value.agent = agentName
     } else {
       appendSystemMessage('Failed to switch agent: not connected to backend')
+    }
+  }
+
+  // Switch the active model override for this session
+  function setModel(modelID: string) {
+    if (!session.value) return
+    const current = session.value.model || ''
+    if (current === modelID) return
+    const sent = send({
+      type: 'set_model',
+      sessionId,
+      content: modelID,
+    })
+    if (sent) {
+      session.value.model = modelID
+    } else {
+      appendSystemMessage('Failed to switch model: not connected to backend')
     }
   }
 
@@ -817,6 +838,7 @@ export function useAgent(sessionId: string) {
     abortSession,
     stopTTS,
     setAgent,
+    setModel,
     toggleVoice,
     respondToPermission,
     respondToQuestion,

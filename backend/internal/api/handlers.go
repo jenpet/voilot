@@ -126,6 +126,15 @@ func (s *Server) handleListAgents(w http.ResponseWriter, r *http.Request) {
 	jsonResponse(w, http.StatusOK, agents)
 }
 
+func (s *Server) handleListModels(w http.ResponseWriter, r *http.Request) {
+	models, err := s.agentAdapter.ListModels(r.Context())
+	if err != nil {
+		jsonError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	jsonResponse(w, http.StatusOK, models)
+}
+
 func (s *Server) handleListSessions(w http.ResponseWriter, r *http.Request) {
 	sessions, err := s.agentAdapter.ListSessions(r.Context())
 	if err != nil {

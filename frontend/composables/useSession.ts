@@ -3,6 +3,8 @@ export interface Session {
   title: string
   mode: 'plan' | 'implement'
   agent?: string
+  model?: string
+  lastUsedModel?: string
   projectId?: string
   time?: {
     created: number

@@ -15,12 +15,14 @@ const (
 // Session represents an active conversation with an agent.
 // Aligned with OpenCode's Session type.
 type Session struct {
-	ID        string      `json:"id"`
-	Title     string      `json:"title,omitempty"`
-	Mode      SessionMode `json:"mode,omitempty"`
-	Agent     string      `json:"agent,omitempty"` // active agent name (e.g. "build", "planitect")
-	ProjectID string      `json:"projectId,omitempty"`
-	Time      *TimeInfo   `json:"time,omitempty"`
+	ID            string      `json:"id"`
+	Title         string      `json:"title,omitempty"`
+	Mode          SessionMode `json:"mode,omitempty"`
+	Agent         string      `json:"agent,omitempty"`         // active agent name (e.g. "build", "planitect")
+	Model         string      `json:"model,omitempty"`         // active model override (provider/model)
+	LastUsedModel string      `json:"lastUsedModel,omitempty"` // last model used in this session (provider/model)
+	ProjectID     string      `json:"projectId,omitempty"`
+	Time          *TimeInfo   `json:"time,omitempty"`
 }
 
 // TimeInfo tracks creation/update timestamps.
@@ -34,6 +36,7 @@ type SessionOptions struct {
 	Title    string      `json:"title,omitempty"`
 	Mode     SessionMode `json:"mode,omitempty"`
 	Agent    string      `json:"agent,omitempty"` // agent to use (e.g. "build", "planitect")
+	Model    string      `json:"model,omitempty"` // model override (provider/model)
 	ParentID string      `json:"parentID,omitempty"`
 }
 
@@ -56,6 +59,20 @@ type AgentInfo struct {
 	Name        string `json:"name"`
 	Description string `json:"description,omitempty"`
 	Color       string `json:"color,omitempty"` // hex color for UI display
+}
+
+// ModelInfo describes an available model that can be selected for a session.
+type ModelInfo struct {
+	ID           string `json:"id"`                     // provider/model
+	Name         string `json:"name,omitempty"`         // human-friendly model name
+	ProviderID   string `json:"providerId,omitempty"`   // provider key
+	ProviderName string `json:"providerName,omitempty"` // provider display name
+}
+
+// ModelCatalog describes selectable models and the OpenCode default model.
+type ModelCatalog struct {
+	Models       []ModelInfo `json:"models"`
+	DefaultModel string      `json:"defaultModel,omitempty"`
 }
 
 // HistoryMessage is a simplified message for displaying session history.
@@ -94,8 +111,9 @@ type Adapter interface {
 	// SendMessageAsync sends a message without waiting for a response.
 	// Events arrive via the SSE stream.
 	// The agent parameter specifies which agent to use (e.g. "build", "planitect").
-	// An empty string uses the agent backend's default.
-	SendMessageAsync(ctx context.Context, sessionID string, message string, agentName string) error
+	// The model parameter is an optional per-session override in provider/model format.
+	// Empty values use the agent backend's defaults.
+	SendMessageAsync(ctx context.Context, sessionID string, message string, agentName string, modelID string) error
 
 	// AbortSession aborts a running session.
 	AbortSession(ctx context.Context, sessionID string) error
@@ -110,6 +128,17 @@ type Adapter interface {
 	// GetSessionAgent returns the active agent for a session.
 	// Returns "planitect" if no agent has been set.
 	GetSessionAgent(sessionID string) string
+
+	// ListModels returns selectable models and the OpenCode default model.
+	ListModels(ctx context.Context) (*ModelCatalog, error)
+
+	// SetSessionModel sets the active model override for a session.
+	// Empty modelID clears the override and falls back to OpenCode default.
+	SetSessionModel(sessionID string, modelID string)
+
+	// GetSessionModel returns the model override for a session.
+	// Returns empty string when no override is set.
+	GetSessionModel(sessionID string) string
 
 	// SetSessionMode sets the mode for a session (plan or implement).
 	// Mode is a voilot-level concept and is not forwarded to the agent backend.

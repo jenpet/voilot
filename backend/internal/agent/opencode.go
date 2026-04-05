@@ -9,6 +9,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -31,6 +32,14 @@ type OpenCodeAdapter struct {
 	// Session agent storage: which agent is active per session.
 	agentMu       sync.RWMutex
 	sessionAgents map[string]string
+
+	// Session model storage: model override per session (provider/model).
+	modelMu       sync.RWMutex
+	sessionModels map[string]string
+
+	// Session last-used model storage: latest observed model per session.
+	lastModelMu       sync.RWMutex
+	sessionLastModels map[string]string
 
 	// Track user message IDs to filter out echoed user messages from SSE.
 	// Entries have a TTL and are periodically cleaned up to prevent unbounded growth.
@@ -56,11 +65,13 @@ func NewOpenCodeAdapter(baseURL string) *OpenCodeAdapter {
 		httpClient: &http.Client{
 			Timeout: 30 * time.Second,
 		},
-		subscribers:   make(map[chan Event]struct{}),
-		sessionModes:  make(map[string]SessionMode),
-		sessionAgents: make(map[string]string),
-		userMsgIDs:    make(map[string]time.Time),
-		deltaPartIDs:  make(map[string]struct{}),
+		subscribers:       make(map[chan Event]struct{}),
+		sessionModes:      make(map[string]SessionMode),
+		sessionAgents:     make(map[string]string),
+		sessionModels:     make(map[string]string),
+		sessionLastModels: make(map[string]string),
+		userMsgIDs:        make(map[string]time.Time),
+		deltaPartIDs:      make(map[string]struct{}),
 	}
 
 	// Start background cleanup of expired user message IDs.
@@ -209,6 +220,8 @@ func (a *OpenCodeAdapter) ListSessions(ctx context.Context) ([]Session, error) {
 		sessions[i] = ocs.toSession()
 		sessions[i].Mode = a.GetSessionMode(sessions[i].ID)
 		sessions[i].Agent = a.GetSessionAgent(sessions[i].ID)
+		sessions[i].Model = a.GetSessionModel(sessions[i].ID)
+		sessions[i].LastUsedModel = a.GetSessionLastUsedModel(sessions[i].ID)
 	}
 	return sessions, nil
 }
@@ -220,6 +233,9 @@ func (a *OpenCodeAdapter) CreateSession(ctx context.Context, opts SessionOptions
 	}
 	if opts.ParentID != "" {
 		body["parentID"] = opts.ParentID
+	}
+	if opts.Model != "" {
+		body["model"] = opts.Model
 	}
 
 	resp, err := a.doRequest(ctx, "POST", "/session", body)
@@ -235,10 +251,15 @@ func (a *OpenCodeAdapter) CreateSession(ctx context.Context, opts SessionOptions
 	session := ocs.toSession()
 	session.Mode = opts.Mode
 	session.Agent = opts.Agent
+	session.Model = opts.Model
+	session.LastUsedModel = a.GetSessionLastUsedModel(session.ID)
 	// Store the mode and agent in our local maps
 	a.SetSessionMode(session.ID, opts.Mode)
 	if opts.Agent != "" {
 		a.SetSessionAgent(session.ID, opts.Agent)
+	}
+	if opts.Model != "" {
+		a.SetSessionModel(session.ID, opts.Model)
 	}
 	return &session, nil
 }
@@ -257,14 +278,40 @@ func (a *OpenCodeAdapter) ResumeSession(ctx context.Context, id string) (*Sessio
 	session := ocs.toSession()
 	session.Mode = a.GetSessionMode(id)
 	session.Agent = a.GetSessionAgent(id)
+	session.Model = a.GetSessionModel(id)
+	lastUsed := a.GetSessionLastUsedModel(id)
+	if lastUsed == "" {
+		if messages, msgErr := a.GetMessages(ctx, id); msgErr == nil {
+			for i := len(messages) - 1; i >= 0; i-- {
+				meta := messages[i].Meta
+				if meta == nil {
+					continue
+				}
+				if model, ok := meta["model"].(string); ok && model != "" {
+					lastUsed = model
+					break
+				}
+			}
+		}
+		if lastUsed != "" {
+			a.SetSessionLastUsedModel(id, lastUsed)
+		}
+	}
+	session.LastUsedModel = lastUsed
 	return &session, nil
 }
 
 // openCodeMessageResponse is the JSON shape of a message from OpenCode's /session/:id/message endpoint.
 type openCodeMessageResponse struct {
 	Info struct {
-		ID   string `json:"id"`
-		Role string `json:"role"`
+		ID         string `json:"id"`
+		Role       string `json:"role"`
+		ProviderID string `json:"providerID,omitempty"`
+		ModelID    string `json:"modelID,omitempty"`
+		Model      *struct {
+			ProviderID string `json:"providerID"`
+			ModelID    string `json:"modelID"`
+		} `json:"model,omitempty"`
 		Time struct {
 			Created   int64 `json:"created"`
 			Completed int64 `json:"completed,omitempty"`
@@ -295,6 +342,12 @@ func (a *OpenCodeAdapter) GetMessages(ctx context.Context, sessionID string) ([]
 	for _, ocMsg := range ocMessages {
 		role := ocMsg.Info.Role
 		timestamp := ocMsg.Info.Time.Created
+		model := ""
+		if ocMsg.Info.ProviderID != "" && ocMsg.Info.ModelID != "" {
+			model = ocMsg.Info.ProviderID + "/" + ocMsg.Info.ModelID
+		} else if ocMsg.Info.Model != nil && ocMsg.Info.Model.ProviderID != "" && ocMsg.Info.Model.ModelID != "" {
+			model = ocMsg.Info.Model.ProviderID + "/" + ocMsg.Info.Model.ModelID
+		}
 
 		switch role {
 		case "user":
@@ -306,11 +359,16 @@ func (a *OpenCodeAdapter) GetMessages(ctx context.Context, sessionID string) ([]
 				}
 			}
 			if len(textParts) > 0 {
+				meta := map[string]interface{}{}
+				if model != "" {
+					meta["model"] = model
+				}
 				messages = append(messages, HistoryMessage{
 					ID:        ocMsg.Info.ID,
 					Role:      "user",
 					Content:   strings.Join(textParts, "\n"),
 					Timestamp: timestamp,
+					Meta:      meta,
 				})
 			}
 		case "assistant":
@@ -361,13 +419,29 @@ func (a *OpenCodeAdapter) GetMessages(ctx context.Context, sessionID string) ([]
 				}
 			}
 			if len(textParts) > 0 {
+				meta := map[string]interface{}{}
+				if model != "" {
+					meta["model"] = model
+				}
 				messages = append(messages, HistoryMessage{
 					ID:        ocMsg.Info.ID,
 					Role:      "assistant",
 					Content:   strings.Join(textParts, "\n"),
 					Timestamp: timestamp,
+					Meta:      meta,
 				})
 			}
+		}
+	}
+
+	for i := len(messages) - 1; i >= 0; i-- {
+		meta := messages[i].Meta
+		if meta == nil {
+			continue
+		}
+		if model, ok := meta["model"].(string); ok && model != "" {
+			a.SetSessionLastUsedModel(sessionID, model)
+			break
 		}
 	}
 
@@ -393,6 +467,12 @@ func (a *OpenCodeAdapter) DeleteSession(ctx context.Context, id string) error {
 	a.agentMu.Lock()
 	delete(a.sessionAgents, id)
 	a.agentMu.Unlock()
+	a.modelMu.Lock()
+	delete(a.sessionModels, id)
+	a.modelMu.Unlock()
+	a.lastModelMu.Lock()
+	delete(a.sessionLastModels, id)
+	a.lastModelMu.Unlock()
 
 	return nil
 }
@@ -425,7 +505,8 @@ func (a *OpenCodeAdapter) SendMessage(ctx context.Context, sessionID string, mes
 
 	// Send message asynchronously — response events come via SSE
 	agentName := a.GetSessionAgent(sessionID)
-	if err := a.SendMessageAsync(ctx, sessionID, message, agentName); err != nil {
+	modelID := a.GetSessionModel(sessionID)
+	if err := a.SendMessageAsync(ctx, sessionID, message, agentName, modelID); err != nil {
 		close(events)
 		return events, err
 	}
@@ -481,6 +562,49 @@ func (a *OpenCodeAdapter) GetSessionAgent(sessionID string) string {
 	return "planitect"
 }
 
+// SetSessionModel stores the active model override for a session.
+func (a *OpenCodeAdapter) SetSessionModel(sessionID string, modelID string) {
+	a.modelMu.Lock()
+	defer a.modelMu.Unlock()
+	if modelID == "" {
+		delete(a.sessionModels, sessionID)
+		return
+	}
+	a.sessionModels[sessionID] = modelID
+}
+
+// GetSessionModel returns the active model override for a session.
+// Empty string means "use OpenCode default model".
+func (a *OpenCodeAdapter) GetSessionModel(sessionID string) string {
+	a.modelMu.RLock()
+	defer a.modelMu.RUnlock()
+	if model, ok := a.sessionModels[sessionID]; ok {
+		return model
+	}
+	return ""
+}
+
+// SetSessionLastUsedModel stores the most recently observed model for a session.
+func (a *OpenCodeAdapter) SetSessionLastUsedModel(sessionID string, modelID string) {
+	a.lastModelMu.Lock()
+	defer a.lastModelMu.Unlock()
+	if modelID == "" {
+		delete(a.sessionLastModels, sessionID)
+		return
+	}
+	a.sessionLastModels[sessionID] = modelID
+}
+
+// GetSessionLastUsedModel returns the most recently observed model for a session.
+func (a *OpenCodeAdapter) GetSessionLastUsedModel(sessionID string) string {
+	a.lastModelMu.RLock()
+	defer a.lastModelMu.RUnlock()
+	if model, ok := a.sessionLastModels[sessionID]; ok {
+		return model
+	}
+	return ""
+}
+
 // openCodeAgent is the JSON shape returned by OpenCode's GET /agent endpoint.
 type openCodeAgent struct {
 	Name        string `json:"name"`
@@ -489,6 +613,164 @@ type openCodeAgent struct {
 	Mode        string `json:"mode"`   // "primary" or "subagent"
 	Native      bool   `json:"native"` // true for built-in agents
 	Hidden      bool   `json:"hidden,omitempty"`
+}
+
+type openCodeProvider struct {
+	ID     string          `json:"id"`
+	Name   string          `json:"name"`
+	Models json.RawMessage `json:"models"`
+}
+
+type openCodeModelDef struct {
+	ID   string `json:"id,omitempty"`
+	Name string `json:"name,omitempty"`
+}
+
+type openCodeProviderResponse struct {
+	All       []openCodeProvider `json:"all"`
+	Default   map[string]string  `json:"default"`
+	Provider  []openCodeProvider `json:"providers"`
+	Connected []string           `json:"connected"`
+}
+
+func parseOpenCodeModelEntries(raw json.RawMessage) map[string]openCodeModelDef {
+	if len(raw) == 0 {
+		return map[string]openCodeModelDef{}
+	}
+
+	var asMap map[string]openCodeModelDef
+	if err := json.Unmarshal(raw, &asMap); err == nil {
+		return asMap
+	}
+
+	var asArray []openCodeModelDef
+	if err := json.Unmarshal(raw, &asArray); err == nil {
+		out := make(map[string]openCodeModelDef, len(asArray))
+		for _, item := range asArray {
+			id := item.ID
+			if id == "" {
+				continue
+			}
+			out[id] = item
+		}
+		return out
+	}
+
+	return map[string]openCodeModelDef{}
+}
+
+func (a *OpenCodeAdapter) fetchProviderCatalog(ctx context.Context) (*openCodeProviderResponse, error) {
+	resp, err := a.doRequest(ctx, "GET", "/provider", nil)
+	if err == nil {
+		catalog, decodeErr := decodeResponse[openCodeProviderResponse](resp)
+		if decodeErr == nil {
+			return &catalog, nil
+		}
+	}
+
+	resp, err = a.doRequest(ctx, "GET", "/config/providers", nil)
+	if err != nil {
+		return nil, err
+	}
+	catalog, err := decodeResponse[openCodeProviderResponse](resp)
+	if err != nil {
+		return nil, err
+	}
+	return &catalog, nil
+}
+
+// ListModels fetches available models and the default model from OpenCode.
+func (a *OpenCodeAdapter) ListModels(ctx context.Context) (*ModelCatalog, error) {
+	catalogRaw, err := a.fetchProviderCatalog(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	providers := catalogRaw.All
+	if len(providers) == 0 {
+		providers = catalogRaw.Provider
+	}
+
+	connected := make(map[string]struct{}, len(catalogRaw.Connected))
+	for _, providerID := range catalogRaw.Connected {
+		if providerID == "" {
+			continue
+		}
+		connected[providerID] = struct{}{}
+	}
+
+	seen := make(map[string]ModelInfo)
+	for _, provider := range providers {
+		providerID := provider.ID
+		if providerID == "" {
+			continue
+		}
+		if len(connected) > 0 {
+			if _, ok := connected[providerID]; !ok {
+				continue
+			}
+		}
+		providerName := provider.Name
+		if providerName == "" {
+			providerName = providerID
+		}
+
+		models := parseOpenCodeModelEntries(provider.Models)
+		for modelKey, modelDef := range models {
+			modelID := modelKey
+			if modelID == "" {
+				modelID = modelDef.ID
+			}
+			if modelID == "" {
+				continue
+			}
+			fullID := providerID + "/" + modelID
+			name := modelDef.Name
+			if name == "" {
+				name = modelID
+			}
+			seen[fullID] = ModelInfo{
+				ID:           fullID,
+				Name:         name,
+				ProviderID:   providerID,
+				ProviderName: providerName,
+			}
+		}
+	}
+
+	models := make([]ModelInfo, 0, len(seen))
+	for _, model := range seen {
+		models = append(models, model)
+	}
+	sort.Slice(models, func(i, j int) bool {
+		if models[i].ProviderName == models[j].ProviderName {
+			return models[i].Name < models[j].Name
+		}
+		return models[i].ProviderName < models[j].ProviderName
+	})
+
+	defaultModel := ""
+	resp, err := a.doRequest(ctx, "GET", "/config", nil)
+	if err == nil {
+		defer resp.Body.Close()
+		if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+			var cfg struct {
+				Model string `json:"model"`
+			}
+			if decodeErr := json.NewDecoder(resp.Body).Decode(&cfg); decodeErr == nil {
+				defaultModel = cfg.Model
+			}
+		}
+	}
+
+	// If /config does not expose a global default model, keep this empty.
+	// The /provider default map is provider-specific and does not represent a
+	// single global default model, and iterating that map is nondeterministic.
+
+	return &ModelCatalog{
+		Models:       models,
+		DefaultModel: defaultModel,
+	}, nil
 }
 
 // ListAgents fetches available agents from OpenCode and filters to user-facing ones.
@@ -529,7 +811,7 @@ func (a *OpenCodeAdapter) ListAgents(ctx context.Context) ([]AgentInfo, error) {
 // SendMessageAsync sends a message without waiting for a response.
 // Use SubscribeEvents() to receive streaming events.
 // If agentName is non-empty, that agent is selected in OpenCode.
-func (a *OpenCodeAdapter) SendMessageAsync(ctx context.Context, sessionID string, message string, agentName string) error {
+func (a *OpenCodeAdapter) SendMessageAsync(ctx context.Context, sessionID string, message string, agentName string, modelID string) error {
 	body := map[string]interface{}{
 		"parts": []map[string]string{
 			{
@@ -542,6 +824,20 @@ func (a *OpenCodeAdapter) SendMessageAsync(ctx context.Context, sessionID string
 	// Select the specified agent in OpenCode.
 	if agentName != "" {
 		body["agent"] = agentName
+	}
+	if modelID != "" {
+		providerID := ""
+		providerModelID := modelID
+		if idx := strings.Index(modelID, "/"); idx > 0 && idx < len(modelID)-1 {
+			providerID = modelID[:idx]
+			providerModelID = modelID[idx+1:]
+		}
+		if providerID != "" {
+			body["model"] = map[string]string{
+				"providerID": providerID,
+				"modelID":    providerModelID,
+			}
+		}
 	}
 
 	resp, err := a.doRequest(ctx, "POST", "/session/"+sessionID+"/prompt_async", body)
@@ -1003,10 +1299,16 @@ func (a *OpenCodeAdapter) parseMessageUpdated(props json.RawMessage) []Event {
 
 	// Parse message to check role and errors
 	var msg struct {
-		ID        string `json:"id"`
-		SessionID string `json:"sessionID"`
-		Role      string `json:"role"`
-		Error     *struct {
+		ID         string `json:"id"`
+		SessionID  string `json:"sessionID"`
+		Role       string `json:"role"`
+		ProviderID string `json:"providerID,omitempty"`
+		ModelID    string `json:"modelID,omitempty"`
+		Model      *struct {
+			ProviderID string `json:"providerID"`
+			ModelID    string `json:"modelID"`
+		} `json:"model,omitempty"`
+		Error *struct {
 			Name string          `json:"name"`
 			Data json.RawMessage `json:"data"`
 		} `json:"error,omitempty"`
@@ -1015,13 +1317,41 @@ func (a *OpenCodeAdapter) parseMessageUpdated(props json.RawMessage) []Event {
 		return nil
 	}
 
+	setLastUsedModel := func(model string) []Event {
+		if model == "" {
+			return nil
+		}
+		if a.GetSessionLastUsedModel(msg.SessionID) == model {
+			return nil
+		}
+		a.SetSessionLastUsedModel(msg.SessionID, model)
+		return []Event{{
+			Type:      EventSessionUpdated,
+			SessionID: msg.SessionID,
+			Meta: map[string]interface{}{
+				"lastUsedModel": model,
+			},
+		}}
+	}
+
+	assistantModel := ""
+	if msg.ProviderID != "" && msg.ModelID != "" {
+		assistantModel = msg.ProviderID + "/" + msg.ModelID
+	}
+	userModel := ""
+	if msg.Model != nil && msg.Model.ProviderID != "" && msg.Model.ModelID != "" {
+		userModel = msg.Model.ProviderID + "/" + msg.Model.ModelID
+	}
+
 	// Track user message IDs so we can skip their part updates
 	if msg.Role == "user" {
 		a.userMsgMu.Lock()
 		a.userMsgIDs[msg.ID] = time.Now()
 		a.userMsgMu.Unlock()
-		return nil
+		return setLastUsedModel(userModel)
 	}
+
+	modelEvents := setLastUsedModel(assistantModel)
 
 	if msg.Error != nil {
 		// Suppress MessageAbortedError — this is a downstream consequence of
@@ -1029,9 +1359,9 @@ func (a *OpenCodeAdapter) parseMessageUpdated(props json.RawMessage) []Event {
 		// information beyond what the permission_replied or tool_result already
 		// conveys. Other error types (rate limits, API errors) still propagate.
 		if msg.Error.Name == "MessageAbortedError" {
-			return nil
+			return modelEvents
 		}
-		return []Event{{
+		errEvt := Event{
 			Type:      EventError,
 			SessionID: msg.SessionID,
 			MessageID: msg.ID,
@@ -1039,10 +1369,11 @@ func (a *OpenCodeAdapter) parseMessageUpdated(props json.RawMessage) []Event {
 			Meta: map[string]interface{}{
 				"errorName": msg.Error.Name,
 			},
-		}}
+		}
+		return append(modelEvents, errEvt)
 	}
 
-	return nil
+	return modelEvents
 }
 
 func (a *OpenCodeAdapter) parseSessionError(props json.RawMessage) []Event {

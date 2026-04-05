@@ -13,7 +13,10 @@
           <h1 class="text-sm font-medium truncate">{{ session?.title || 'Untitled Session' }}</h1>
           <StatusIndicator />
         </div>
-        <AgentSelector :agent="session?.agent || 'planitect'" @select="setAgent" />
+        <div class="flex items-center gap-2 mt-0.5">
+          <AgentSelector :agent="session?.agent || 'planitect'" @select="setAgent" />
+          <ModelSelector :model="session?.model || ''" :last-used-model="session?.lastUsedModel || ''" @select="setModel" />
+        </div>
       </div>
       <!-- Contextual voice button: Stop when TTS playing, otherwise Voice ON/OFF -->
       <button
@@ -120,6 +123,7 @@ const {
   abortSession,
   stopTTS,
   setAgent,
+  setModel,
   toggleVoice,
 } = useAgent(sessionId)
 

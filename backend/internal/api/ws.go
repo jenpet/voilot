@@ -19,9 +19,9 @@ var upgrader = websocket.Upgrader{
 
 // chatInbound is the WebSocket message format from the client.
 type chatInbound struct {
-	Type         string     `json:"type"`                   // "message", "abort", "set_mode", "set_agent", "permission_response", "question_response", "question_reject"
+	Type         string     `json:"type"`                   // "message", "abort", "set_mode", "set_agent", "set_model", "permission_response", "question_response", "question_reject"
 	SessionID    string     `json:"sessionId"`              // target session
-	Content      string     `json:"content"`                // message text, mode value, or agent name
+	Content      string     `json:"content"`                // message text, mode/agent/model value
 	PermissionID string     `json:"permissionId,omitempty"` // for permission_response
 	Response     string     `json:"response,omitempty"`     // "once", "always", "reject"
 	Remember     bool       `json:"remember,omitempty"`     // persist the permission rule
@@ -114,9 +114,10 @@ func (s *Server) handleWSChat(w http.ResponseWriter, r *http.Request) {
 			}
 
 			// Send message asynchronously — response events come via SSE
-			// Use the session's current agent for routing
+			// Use the session's current agent and model override for routing
 			agentName := s.agentAdapter.GetSessionAgent(msg.SessionID)
-			if err := s.agentAdapter.SendMessageAsync(ctx, msg.SessionID, result.Text, agentName); err != nil {
+			modelID := s.agentAdapter.GetSessionModel(msg.SessionID)
+			if err := s.agentAdapter.SendMessageAsync(ctx, msg.SessionID, result.Text, agentName, modelID); err != nil {
 				writeJSON(chatOutbound{
 					Type:      "error",
 					SessionID: msg.SessionID,
@@ -193,6 +194,28 @@ func (s *Server) handleWSChat(w http.ResponseWriter, r *http.Request) {
 					Content:   msg.Content,
 					Meta: map[string]interface{}{
 						"agent": msg.Content,
+					},
+				},
+			})
+
+		case "set_model":
+			if msg.SessionID == "" {
+				writeJSON(chatOutbound{
+					Type:    "error",
+					Content: "sessionId is required",
+				})
+				continue
+			}
+			s.agentAdapter.SetSessionModel(msg.SessionID, msg.Content)
+			writeJSON(chatOutbound{
+				Type:      "event",
+				SessionID: msg.SessionID,
+				Event: &agent.Event{
+					Type:      agent.EventSessionUpdated,
+					SessionID: msg.SessionID,
+					Content:   msg.Content,
+					Meta: map[string]interface{}{
+						"model": msg.Content,
 					},
 				},
 			})
