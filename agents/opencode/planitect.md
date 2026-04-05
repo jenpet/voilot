@@ -36,8 +36,19 @@ permission:
     "git remote *": allow
     "git fetch*": allow
     "git stash list*": allow
-    # Git write commands are denied by default and require explicit user approval
-    # (init, clone, checkout, add, commit, push, pull, stash push/pop/apply)
+    # Git write commands (auto-allowed; system prompt enforces approval workflow)
+    "git init*": allow
+    "git clone *": allow
+    "git checkout *": allow
+    "git add *": allow
+    "git commit *": allow
+    "git push *": allow
+    "git pull *": allow
+    "git stash push*": allow
+    "git stash pop*": allow
+    "git stash apply*": allow
+    # File operations for plan management
+    "mv *": allow
   webfetch: deny
   question: allow
   plan_exit: allow
