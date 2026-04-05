@@ -19,7 +19,6 @@ func main() {
 		hostname     = flag.String("hostname", "0.0.0.0", "Hostname to bind to")
 		opencodeURL  = flag.String("opencode-url", "http://localhost:4096", "OpenCode server URL")
 		ttsURL       = flag.String("tts-url", "", "TTS server URL (optional)")
-		ttsProvider_ = flag.String("tts-provider", "kokoro", "TTS provider: kokoro (default) or coqui")
 		sttURL       = flag.String("stt-url", "", "faster-whisper server URL (optional)")
 		allowOrigins = flag.String("cors-origins", "*", "Allowed CORS origins (comma-separated)")
 	)
@@ -31,16 +30,8 @@ func main() {
 	// Initialize TTS provider (optional)
 	var ttsProvider tts.Provider
 	if *ttsURL != "" {
-		switch *ttsProvider_ {
-		case "kokoro":
-			ttsProvider = tts.NewKokoroProvider(*ttsURL)
-			log.Printf("TTS enabled: Kokoro at %s", *ttsURL)
-		case "coqui":
-			ttsProvider = tts.NewCoquiProvider(*ttsURL)
-			log.Printf("TTS enabled: Coqui at %s", *ttsURL)
-		default:
-			log.Fatalf("Unknown TTS provider: %s (use 'kokoro' or 'coqui')", *ttsProvider_)
-		}
+		ttsProvider = tts.NewKokoroProvider(*ttsURL)
+		log.Printf("TTS enabled: Kokoro at %s", *ttsURL)
 	} else {
 		log.Println("TTS disabled (no --tts-url provided)")
 	}

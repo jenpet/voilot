@@ -38,7 +38,7 @@ Kokoro TTS (:8880)   faster-whisper STT (:5003)   OpenCode (:4096)
 ```
 voilot/
 ├── backend/
-│   ├── cmd/server/main.go       # Entrypoint, CLI flags (--tts-provider, --tts-url, etc.)
+│   ├── cmd/server/main.go       # Entrypoint, CLI flags (--tts-url, etc.)
 │   ├── go.mod                   # Module: github.com/jenpet/voilot
 │   └── internal/
 │       ├── agent/               # Adapter interface + OpenCode implementation
@@ -49,10 +49,9 @@ voilot/
 │       │   ├── router.go        # Route registration
 │       │   ├── handlers.go      # REST handlers (sessions, STT, TTS, abort, mode)
 │       │   └── ws.go            # WebSocket chat handler + voice stub (/ws/voice is still a stub)
-│       ├── tts/                 # TTS provider interface + implementations
+│       ├── tts/                 # TTS provider interface + Kokoro implementation
 │       │   ├── provider.go      # Provider interface (Synthesize, ListVoices, Name)
-│       │   ├── kokoro.go        # Kokoro-FastAPI client (OpenAI-compatible API) — DEFAULT
-│       │   └── coqui.go         # Coqui XTTSv2 client (legacy fallback)
+│       │   └── kokoro.go        # Kokoro-FastAPI client (OpenAI-compatible API)
 │       ├── stt/                 # STT provider interface + implementation
 │       │   ├── provider.go      # Provider interface
 │       │   └── whisper.go       # faster-whisper HTTP client
@@ -79,9 +78,7 @@ voilot/
 │   ├── Dockerfile.backend       # Multi-stage Go build
 │   ├── Dockerfile.frontend      # Multi-stage Nuxt generate + nginx (NUXT_PUBLIC_BACKEND_URL="")
 │   ├── Dockerfile.stt           # Python 3.11 + faster-whisper + gunicorn
-│   ├── Dockerfile.tts           # Legacy Coqui XTTSv2 (unused, consider removing)
 │   ├── stt-server.py            # Flask app wrapping faster-whisper (/transcribe, /health)
-│   └── tts-server.py            # Legacy Flask app for Coqui (unused, consider removing)
 └── README.md
 ```
 
@@ -100,7 +97,6 @@ go test ./internal/agent -run TestName  # Run specific test
 # Run locally:
 ./server --opencode-url http://localhost:4096 \
          --tts-url http://localhost:8880 \
-         --tts-provider kokoro \
          --stt-url http://localhost:5003
 ```
 
@@ -233,7 +229,6 @@ Custom Flask sidecar wrapping the faster-whisper library.
 
 - `/ws/voice` WebSocket endpoint is still a stub (may not be needed — current architecture uses REST for STT/TTS)
 - Session modes are in-memory only, reset on backend restart
-- `docker/Dockerfile.tts` and `docker/tts-server.py` are dead code from the Coqui era — can be removed
 - Browser end-to-end testing not yet done (mic -> STT -> OpenCode -> TTS playback in a real browser)
 - WebSocket reconnect uses exponential backoff (1s base, 30s max, 1.5x multiplier) with HMR-safe global state on `window.__voilot_ws`
 - Voice-based permission responses: permission prompts currently require screen tap (allow/always/reject). Voice loop is blocked during `hasPendingPermission`. A voice command router that parses "allow", "always allow", "reject" from speech would make permissions fully screenless.

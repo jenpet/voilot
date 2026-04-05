@@ -22,7 +22,6 @@ type Response struct {
 }
 
 // Provider defines the interface for text-to-speech backends.
-// First implementation: Coqui XTTSv2 via HTTP.
 type Provider interface {
 	// Synthesize converts text to speech audio.
 	Synthesize(ctx context.Context, req Request) (*Response, error)
@@ -30,7 +29,7 @@ type Provider interface {
 	// ListVoices returns available voice options.
 	ListVoices(ctx context.Context) ([]Voice, error)
 
-	// Name returns the provider identifier (e.g. "coqui", "openai").
+	// Name returns the provider identifier (e.g. "kokoro").
 	Name() string
 }
 

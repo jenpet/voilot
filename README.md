@@ -61,7 +61,6 @@ Environment variables (set in `.env` or pass to `docker compose`):
 | `VOILOT_PORT` | `3000` | Port to expose the frontend |
 | `OPENCODE_URL` | `http://host.docker.internal:4096` | OpenCode server URL |
 | `TTS_URL` | (empty) | TTS server URL (e.g. `http://tts:8880` for Kokoro) |
-| `TTS_PROVIDER` | `kokoro` | TTS engine: `kokoro` (default) or `coqui` |
 | `STT_URL` | (empty) | faster-whisper server URL |
 | `KOKORO_DEFAULT_VOICE` | `af_heart` | Default Kokoro TTS voice |
 | `WHISPER_MODEL` | `base` | Whisper model size (`tiny`, `base`, `small`, `medium`, `large-v3`) |
@@ -104,7 +103,7 @@ voilot/
 │   └── internal/
 │       ├── agent/               # Agent adapter interface + OpenCode impl
 │       ├── api/                 # HTTP routes, handlers, WebSocket
-│       ├── tts/                 # TTS provider interface + Kokoro/Coqui impl
+│       ├── tts/                 # TTS provider interface + Kokoro impl
 │       ├── stt/                 # STT provider interface + Whisper impl
 │       └── voice/               # Command router + TTS filter
 ├── frontend/
@@ -117,9 +116,7 @@ voilot/
     ├── nginx.conf
     ├── Dockerfile.backend
     ├── Dockerfile.frontend
-    ├── Dockerfile.tts
     ├── Dockerfile.stt
-    ├── tts-server.py
     └── stt-server.py
 ```
 
@@ -159,6 +156,5 @@ voilot/
 - [x] Phase 5: TTS service integration
 - [x] Phase 6: Voice pipeline (mic → STT → agent → TTS → speaker)
 - [x] Phase 7: Plan/Implement mode switching
-- [x] TTS engine swap: Coqui XTTSv2 → Kokoro-FastAPI (5-6x faster)
 - [ ] Phase 8: Browser end-to-end testing
 - [ ] Phase 9: Production deployment + Tailscale
