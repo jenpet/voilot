@@ -192,14 +192,22 @@ export function useAgent(sessionId: string) {
   })
 
   // ─── WebSocket disconnect/reconnect audio (Phase 5a) ────────────
+  // Track whether we've seen a successful connection. The initial
+  // page-load connection (disconnected → connected) is silent — only
+  // a real drop (connected → disconnected → connected) plays audio.
+  let hadConnection = false
   watch(connectionState, (newState, oldState) => {
+    if (newState === 'connected' && !hadConnection) {
+      hadConnection = true
+      return // Initial connection on page load — silent
+    }
     if (!voiceEnabled.value) return
     if (newState === 'disconnected' && oldState === 'connected') {
       stopWorkingHum().then(() => {
         playWarningTone()
         enqueueTTS('Connection lost.')
       })
-    } else if (newState === 'connected' && oldState !== 'connected') {
+    } else if (newState === 'connected' && oldState !== 'connected' && hadConnection) {
       playReconnectChime()
       enqueueTTS('Reconnected.')
     }
