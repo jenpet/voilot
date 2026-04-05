@@ -64,7 +64,6 @@
 <script setup lang="ts">
 import { unlockAudio } from '~/composables/useTTS'
 import { playStartBlip } from '~/composables/useRecordingFeedback'
-import { announceSTTFailure } from '~/composables/useAudioFeedback'
 
 const props = defineProps<{
   keepMicOpen?: boolean
@@ -155,9 +154,11 @@ async function finishRecording() {
       showStatus('', 0)
       emit('transcription', text)
     } else {
+      // No usable transcription — silently reset without announcing failure.
+      // Whether the recording was too short, ambient noise only, or STT
+      // returned empty, the user doesn't need a spoken "I didn't hear anything"
+      // interruption. A brief visual hint is sufficient.
       showStatus('No speech detected', 2000)
-      // Manual recording: play failure tone + TTS "I didn't hear anything."
-      announceSTTFailure()
     }
   } finally {
     isProcessing.value = false

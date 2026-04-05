@@ -941,6 +941,7 @@ export function useAgent(sessionId: string) {
     isRecording,
     isMonitoring,
     voiceEnabled: readonly(voiceEnabled),
+    loopRecordingActive: readonly(loopRecordingActive),
     connectionState,
     sendMessage,
     abortSession,

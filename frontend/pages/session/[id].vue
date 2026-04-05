@@ -87,7 +87,7 @@
           />
           <VoiceButton
             class="flex-shrink-0"
-            :keep-mic-open="voiceEnabled"
+            :keep-mic-open="loopRecordingActive"
             @transcription="handleTranscription"
           />
           <button
@@ -119,6 +119,7 @@ const {
   isTTSPlaying,
   isRecording,
   voiceEnabled,
+  loopRecordingActive,
   sendMessage,
   abortSession,
   stopTTS,

@@ -374,9 +374,7 @@ export function useVoice() {
           releaseMic()
         }
 
-        // Only skip completely empty payloads. Very short valid utterances
-        // (for example, one-word answers like "yes") can be smaller than 1 KB,
-        // especially with opus/webm, and should still be sent to STT.
+        // Skip if no audio data was captured at all
         if (audioBlob.size === 0) {
           mark('stt', 'end')
           resolve(null)
