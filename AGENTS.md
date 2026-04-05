@@ -236,6 +236,7 @@ Custom Flask sidecar wrapping the faster-whisper library.
 - `docker/Dockerfile.tts` and `docker/tts-server.py` are dead code from the Coqui era — can be removed
 - Browser end-to-end testing not yet done (mic -> STT -> OpenCode -> TTS playback in a real browser)
 - WebSocket reconnect uses exponential backoff (1s base, 30s max, 1.5x multiplier) with HMR-safe global state on `window.__voilot_ws`
+- Voice-based permission responses: permission prompts currently require screen tap (allow/always/reject). Voice loop is blocked during `hasPendingPermission`. A voice command router that parses "allow", "always allow", "reject" from speech would make permissions fully screenless.
 
 ---
 
