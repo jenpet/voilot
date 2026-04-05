@@ -95,6 +95,10 @@ export function useTTS() {
   // Track whether the first TTS item in a round-trip has been marked
   let firstSynthMarked = false
 
+  // Abort controller — cancelled by stop() to interrupt in-flight fetches
+  // and pending decodes/playback.
+  let _abortCtrl: AbortController | null = null
+
   // Process the queue sequentially
   async function processQueue() {
     if (isPlaying.value || queue.value.length === 0) return
@@ -103,6 +107,10 @@ export function useTTS() {
     const item = queue.value[0]
     const shouldMark = isTimerActive()
     const isFirstItem = !firstSynthMarked
+
+    // Fresh abort controller for this item
+    _abortCtrl = new AbortController()
+    const signal = _abortCtrl.signal
 
     try {
       // Mark TTS synthesis start (only for the first item in a round-trip)
@@ -118,12 +126,17 @@ export function useTTS() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ text: item.text }),
+        signal,
       })
 
       if (!response.ok) {
         const errBody = await response.text().catch(() => '')
         throw new Error(`TTS synthesis failed: ${response.status} ${errBody}`)
       }
+
+      // Check abort after fetch completes (response may have arrived
+      // just before abort was signalled)
+      if (signal.aborted) throw new DOMException('Aborted', 'AbortError')
 
       const contentType = response.headers.get('Content-Type') || 'unknown'
       console.log('[TTS] Got audio response, Content-Type:', contentType)
@@ -132,6 +145,8 @@ export function useTTS() {
       console.log('[TTS] Blob size:', audioBlob.size, 'type:', audioBlob.type)
 
       if (shouldMark && isFirstItem) mark('tts_synth', 'end')
+
+      if (signal.aborted) throw new DOMException('Aborted', 'AbortError')
 
       // ── Web Audio API playback (works on iOS Safari) ──
       const ctx = getOrCreateAudioContext()
@@ -148,8 +163,12 @@ export function useTTS() {
       const arrayBuffer = await audioBlob.arrayBuffer()
       console.log('[TTS] ArrayBuffer size:', arrayBuffer.byteLength)
 
+      if (signal.aborted) throw new DOMException('Aborted', 'AbortError')
+
       const audioBuffer = await ctx.decodeAudioData(arrayBuffer)
       console.log('[TTS] Decoded audio buffer: duration=', audioBuffer.duration, 'sampleRate=', audioBuffer.sampleRate)
+
+      if (signal.aborted) throw new DOMException('Aborted', 'AbortError')
 
       // Mark TTS playback start on first item
       if (shouldMark && isFirstItem) mark('tts_play', 'start')
@@ -163,7 +182,15 @@ export function useTTS() {
         // Store source on queue item so stop() can cancel it
         item.sourceNode = source
 
+        // Listen for abort to stop playback mid-stream
+        const onAbort = () => {
+          try { source.stop() } catch { /* may already be stopped */ }
+          resolve()
+        }
+        signal.addEventListener('abort', onAbort, { once: true })
+
         source.onended = () => {
+          signal.removeEventListener('abort', onAbort)
           console.log('[TTS] Playback ended for item')
           resolve()
         }
@@ -172,15 +199,21 @@ export function useTTS() {
           source.start(0)
           console.log('[TTS] Playback started')
         } catch (err) {
+          signal.removeEventListener('abort', onAbort)
           console.error('[TTS] source.start() failed:', err)
           reject(err)
         }
       })
     } catch (err) {
-      console.error('[TTS] Playback error:', err)
-      // Mark synth end on error if it was the first item and synth start was marked
-      if (shouldMark && isFirstItem && firstSynthMarked) {
-        mark('tts_synth', 'end')
+      // Silently ignore abort errors — they're expected from stop()
+      if (err instanceof DOMException && err.name === 'AbortError') {
+        console.log('[TTS] Playback aborted')
+      } else {
+        console.error('[TTS] Playback error:', err)
+        // Mark synth end on error if it was the first item and synth start was marked
+        if (shouldMark && isFirstItem && firstSynthMarked) {
+          mark('tts_synth', 'end')
+        }
       }
     } finally {
       // Remove processed item
@@ -211,6 +244,13 @@ export function useTTS() {
   // Stop current playback and clear queue
   function stop() {
     console.log('[TTS] Stop requested, queue length:', queue.value.length)
+
+    // Abort any in-flight fetch, decode, or playback
+    if (_abortCtrl) {
+      _abortCtrl.abort()
+      _abortCtrl = null
+    }
+
     const current = queue.value[0]
     if (current?.sourceNode) {
       try {
