@@ -1,10 +1,11 @@
 # voilot Taskfile — run 'task --list' to see available tasks
 #
 # Local dev (hybrid): TTS/STT in Docker, frontend + backend native.
-#   task dev          # starts all three in parallel (frontend, backend, voice containers)
+#   task dev          # starts all (frontend, backend, voice, HTTPS tunnel)
 #   task dev:frontend # just the Nuxt dev server
 #   task dev:backend  # just the Go backend
 #   task dev:voice    # just the TTS + STT Docker containers
+#   task dev:tunnel   # Tailscale HTTPS proxy (pass '-- down' to tear down)
 #
 # Build & check:
 #   task build        # compile backend + generate frontend
@@ -30,8 +31,13 @@ tasks:
   # ── Local development ───────────────────────────────────────────
 
   dev:
-    desc: Start full local dev stack (frontend + backend + voice containers)
-    deps: [dev:voice, dev:backend, dev:frontend]
+    desc: Start full local dev stack (frontend + backend + voice containers + HTTPS tunnel)
+    deps: [dev:tunnel, dev:voice, dev:backend, dev:frontend]
+
+  dev:tunnel:
+    desc: Tailscale HTTPS proxies for mobile access (pass 'down' to tear down)
+    cmds:
+      - ./scripts/tailscale-dev.sh {{.CLI_ARGS}}
 
   dev:frontend:
     desc: Nuxt dev server with HMR (port 3000)

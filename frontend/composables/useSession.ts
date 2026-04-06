@@ -20,8 +20,7 @@ interface CreateSessionOptions {
 
 export function useSession() {
   const sessions = useState<Session[]>('sessions', () => [])
-  const config = useRuntimeConfig()
-  const apiBase = `${config.public.backendUrl}/api`
+  const apiBase = `${resolveBackendUrl()}/api`
 
   async function fetchSessions() {
     try {

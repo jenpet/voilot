@@ -59,8 +59,7 @@ function nextMessageId(): string {
 }
 
 export function useAgent(sessionId: string) {
-  const config = useRuntimeConfig()
-  const apiBase = `${config.public.backendUrl}/api`
+  const apiBase = `${resolveBackendUrl()}/api`
   const { send, subscribe, connectionState } = useWebSocket()
   const { enqueue: enqueueTTS, stop: stopTTS, isPlaying: isTTSPlaying } = useTTS()
 

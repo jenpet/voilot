@@ -16,13 +16,8 @@
 #   # Then: cd backend && go run ./cmd/server --opencode-url http://localhost:4096 --tts-url http://localhost:8880 --stt-url http://localhost:5003
 #   # Then: cd frontend && npm run dev
 #
-# HTTPS is available on port 3443 (CA-signed cert for mobile mic access).
-# Set VOILOT_TLS_SAN to your LAN IP so the cert is trusted after installing the CA:
-#   VOILOT_TLS_SAN=IP:192.168.178.93 docker compose up
-#
-# To install the CA on your mobile device (one-time setup):
-#   docker cp docker-frontend-1:/etc/nginx/ssl/ca.crt ./voilot-ca.crt
-#   # Then AirDrop/share to phone and install as trusted certificate
+# HTTPS: Use Tailscale for TLS termination (tailscale serve).
+# See README.md for details.
 #
 # Voice profile: When using --profile voice, set TTS/STT URLs so the backend
 # can reach the sidecar services:
@@ -34,11 +29,8 @@ services:
     build:
       context: ..
       dockerfile: docker/Dockerfile.frontend
-    environment:
-      - VOILOT_TLS_SAN=${VOILOT_TLS_SAN:-}
     ports:
       - "${VOILOT_PORT:-3000}:80"
-      - "${VOILOT_HTTPS_PORT:-3443}:443"
     depends_on:
       backend:
         condition: service_started

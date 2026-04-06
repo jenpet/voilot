@@ -50,7 +50,7 @@ export function useVoice() {
   const audioLevel = useState('voice-level', () => 0)
   const lastError = useState<string | null>('voice-error', () => null)
 
-  const config = useRuntimeConfig()
+  const backendUrl = resolveBackendUrl()
   const { mark, reset: resetTimer } = useRoundTripTimer()
 
   /** Check if the current context supports microphone access. */
@@ -384,7 +384,7 @@ export function useVoice() {
         // Send to STT service
         try {
           const result = await $fetch<{ text: string }>(
-            `${config.public.backendUrl}/api/stt/transcribe`,
+            `${backendUrl}/api/stt/transcribe`,
             {
               method: 'POST',
               headers: {

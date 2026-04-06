@@ -52,6 +52,17 @@ TTS_URL=http://tts:8880 STT_URL=http://stt:5003 docker compose --profile voice u
 
 The app will be available at `http://localhost:3000`.
 
+### HTTPS (required for mobile mic access)
+
+Use [Tailscale](https://tailscale.com) for TLS termination. Install Tailscale on your
+dev machine and phone, then proxy the frontend:
+
+```bash
+tailscale serve --bg --https=443 http://localhost:3000
+```
+
+Access voilot via `https://<machine>.<tailnet>.ts.net` from any device on your tailnet.
+
 ## Configuration
 
 Environment variables (set in `.env` or pass to `docker compose`):

@@ -18,6 +18,13 @@ export default defineNuxtConfig({
   // This avoids ECONNRESET crashes when the backend is unavailable.
   // In production, Nginx proxies /api and /ws to the backend.
 
+  // Allow Tailscale MagicDNS hostnames through Vite's host check (dev only)
+  vite: {
+    server: {
+      allowedHosts: ['.ts.net'],
+    },
+  },
+
   // Static site generation for production (served by nginx)
   ssr: false,
 

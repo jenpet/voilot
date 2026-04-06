@@ -16,8 +16,7 @@ interface ModelCatalog {
 }
 
 export function useModels() {
-  const config = useRuntimeConfig()
-  const apiBase = `${config.public.backendUrl}/api`
+  const apiBase = `${resolveBackendUrl()}/api`
   const models = useState<ModelInfo[]>('models', () => [])
   const defaultModel = useState<string>('default-model', () => '')
   const loading = useState<boolean>('models-loading', () => false)

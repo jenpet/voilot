@@ -10,8 +10,7 @@ export interface AgentInfo {
 }
 
 export function useAgents() {
-  const config = useRuntimeConfig()
-  const apiBase = `${config.public.backendUrl}/api`
+  const apiBase = `${resolveBackendUrl()}/api`
   const agents = useState<AgentInfo[]>('agents', () => [])
   const loading = useState<boolean>('agents-loading', () => false)
 

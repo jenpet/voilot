@@ -31,8 +31,7 @@ const health = ref<DetailedHealth>({
 const loading = ref(false);
 
 async function fetchHealth() {
-  const config = useRuntimeConfig();
-  const base = (config.public.backendUrl as string) || '';
+  const base = resolveBackendUrl();
   try {
     loading.value = true;
     const data = await $fetch<DetailedHealth>(`${base}/api/health/detailed`, {

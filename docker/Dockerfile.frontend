@@ -20,19 +20,6 @@ RUN npx nuxt generate
 # Runtime stage: serve with nginx
 FROM nginx:1.27-alpine
 
-# Install openssl for certificate generation
-RUN apk add --no-cache openssl
-
-# Generate CA certificate at build time (install this once on mobile devices).
-# The server certificate is generated at container start by the entrypoint script,
-# so it can include the current LAN IP as a SAN.
-RUN mkdir -p /etc/nginx/ssl && \
-    openssl req -x509 -nodes -days 3650 \
-      -newkey rsa:2048 \
-      -keyout /etc/nginx/ssl/ca.key \
-      -out /etc/nginx/ssl/ca.crt \
-      -subj "/CN=voilot CA/O=voilot-dev"
-
 # Remove default nginx config
 RUN rm /etc/nginx/conf.d/default.conf
 
@@ -41,13 +28,9 @@ RUN mkdir -p /etc/nginx/snippets
 COPY docker/nginx.conf /etc/nginx/conf.d/voilot.conf
 COPY docker/voilot-common.conf /etc/nginx/snippets/voilot-common.conf
 
-# Copy entrypoint script (generates server cert + starts nginx)
-COPY docker/voilot-entrypoint.sh /usr/local/bin/voilot-entrypoint.sh
-RUN chmod +x /usr/local/bin/voilot-entrypoint.sh
-
 # Copy built static files
 COPY --from=builder /app/.output/public /usr/share/nginx/html
 
-EXPOSE 80 443
+EXPOSE 80
 
-ENTRYPOINT ["voilot-entrypoint.sh"]
+CMD ["nginx", "-g", "daemon off;"]

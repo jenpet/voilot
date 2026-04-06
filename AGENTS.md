@@ -74,7 +74,8 @@ voilot/
 │       └── useTTSFilter.ts      # Client-side TTS text filter
 ├── docker/
 │   ├── docker-compose.yml       # Services: frontend, backend, tts (Kokoro), stt (whisper)
-│   ├── nginx.conf               # Production reverse proxy with Docker DNS resolver
+│   ├── nginx.conf               # HTTP-only reverse proxy (TLS via Tailscale)
+│   ├── voilot-common.conf       # Shared nginx location blocks
 │   ├── Dockerfile.backend       # Multi-stage Go build
 │   ├── Dockerfile.frontend      # Multi-stage Nuxt generate + nginx (NUXT_PUBLIC_BACKEND_URL="")
 │   ├── Dockerfile.stt           # Python 3.11 + faster-whisper + gunicorn
@@ -212,11 +213,20 @@ Custom Flask sidecar wrapping the faster-whisper library.
 
 ## Frontend URL Architecture
 
-- All composables use `config.public.backendUrl` (from `nuxt.config.ts` runtimeConfig)
-- Dev: defaults to `http://localhost:8080` (direct to Go backend)
-- Docker: set to `""` via `NUXT_PUBLIC_BACKEND_URL=""` in Dockerfile.frontend so the static JS bundle uses relative URLs behind nginx
+- All composables use `resolveBackendUrl()` from `composables/useBackendUrl.ts`
+- Dev on localhost: returns `http://localhost:8080` (from `config.public.backendUrl`)
+- Dev on LAN IP: auto-rewrites to use the browser's actual hostname (e.g., `http://192.168.178.93:8080`)
+- Docker/production: returns `''` (empty = relative paths behind nginx)
 - WebSocket composable: absolute URL in dev, `window.location`-derived in production
 - No proxying in Nuxt config — Nitro devProxy and Vite server.proxy both crash with ECONNRESET when backend is unavailable
+
+## HTTPS / Network Access
+
+- HTTPS is required for mobile mic access (`getUserMedia` needs a secure context)
+- TLS termination is handled by **Tailscale** (`tailscale serve`), not by nginx
+- Nginx inside Docker serves HTTP only (port 80); Tailscale proxies HTTPS to it
+- For local dev: `tailscale serve --bg --https=443 http://localhost:3000`
+- Access from phone via `https://<machine>.<tailnet>.ts.net` (Tailscale must be installed on both devices)
 
 ## Docker Deployment Notes
 
@@ -224,14 +234,6 @@ Custom Flask sidecar wrapping the faster-whisper library.
 - TTS/STT URLs are NOT auto-wired with `--profile voice` — user must set `TTS_URL` and `STT_URL` env vars
 - `host.docker.internal:host-gateway` extra_hosts needed for backend to reach host's OpenCode server
 - Nginx DNS caching: uses `resolver 127.0.0.11 valid=10s` and a variable for the upstream (`set $backend_upstream http://backend:8080`) so nginx re-resolves on container recreation
-
-## Known Issues / Remaining Work
-
-- `/ws/voice` WebSocket endpoint is still a stub (may not be needed — current architecture uses REST for STT/TTS)
-- Session modes are in-memory only, reset on backend restart
-- Browser end-to-end testing not yet done (mic -> STT -> OpenCode -> TTS playback in a real browser)
-- WebSocket reconnect uses exponential backoff (1s base, 30s max, 1.5x multiplier) with HMR-safe global state on `window.__voilot_ws`
-- Voice-based permission responses: permission prompts currently require screen tap (allow/always/reject). Voice loop is blocked during `hasPendingPermission`. A voice command router that parses "allow", "always allow", "reject" from speech would make permissions fully screenless.
 
 ---
 

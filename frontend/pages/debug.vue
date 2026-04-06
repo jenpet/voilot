@@ -176,7 +176,7 @@ const beepResult = ref('')
 
 const rawMicBtn = ref<HTMLButtonElement | null>(null)
 const activationBtn = ref<HTMLButtonElement | null>(null)
-const config = useRuntimeConfig()
+const backendUrl = resolveBackendUrl()
 
 onMounted(() => {
   userAgent.value = navigator.userAgent
@@ -299,7 +299,7 @@ async function testRecording() {
     // Try sending to STT
     try {
       const result = await $fetch<{ text: string }>(
-        `${config.public.backendUrl}/api/stt/transcribe`,
+        `${backendUrl}/api/stt/transcribe`,
         {
           method: 'POST',
           headers: { 'Content-Type': mimeType || 'application/octet-stream' },
@@ -380,7 +380,7 @@ async function testTTS() {
     log.push('Fetching TTS audio...')
     ttsResult.value = { ok: true, detail: log.join('\n') }
 
-    const response = await fetch(`${config.public.backendUrl}/api/tts/synthesize`, {
+    const response = await fetch(`${backendUrl}/api/tts/synthesize`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ text: 'Hello! This is a test of the text to speech system.' }),

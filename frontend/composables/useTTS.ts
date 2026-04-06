@@ -89,7 +89,7 @@ export function unlockAudio(): void {
 export function useTTS() {
   const queue = useState<TTSQueueItem[]>('tts-queue', () => [])
   const isPlaying = ref(false)
-  const config = useRuntimeConfig()
+  const backendUrl = resolveBackendUrl()
   const { mark, isActive: isTimerActive } = useRoundTripTimer()
 
   // Track whether the first TTS item in a round-trip has been marked
@@ -122,7 +122,7 @@ export function useTTS() {
       console.log('[TTS] Fetching audio for:', item.text.substring(0, 60) + '...')
 
       // Fetch audio from TTS service
-      const response = await fetch(`${config.public.backendUrl}/api/tts/synthesize`, {
+      const response = await fetch(`${backendUrl}/api/tts/synthesize`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ text: item.text }),

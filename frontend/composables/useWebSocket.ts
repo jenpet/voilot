@@ -71,12 +71,10 @@ function getGlobalState(): WsGlobalState {
 
 function getWsUrl(): string {
   if (typeof window === 'undefined') return ''
-  const config = useRuntimeConfig()
-  const backendUrl = config.public.backendUrl as string
+  const backendUrl = resolveBackendUrl()
 
   if (backendUrl) {
-    // Connect directly to backend (dev mode: http://localhost:8080 -> ws://localhost:8080)
-    // In production behind Nginx, backendUrl can be set to '' to use relative paths
+    // Connect directly to backend (dev mode or remote device access)
     const wsUrl = backendUrl.replace(/^http/, 'ws')
     return `${wsUrl}/ws/chat`
   }
