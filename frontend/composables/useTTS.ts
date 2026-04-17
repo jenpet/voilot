@@ -11,6 +11,7 @@ import {
   transitionState,
   getInteractionState,
 } from './useInteractionState';
+import { warmUpBlips } from './useRecordingFeedback';
 
 function _log(level: DebugLogLevel, event: string, data?: Record<string, unknown>) {
   try {
@@ -101,6 +102,10 @@ export function unlockAudio(): void {
   }
 
   console.log('[TTS] unlockAudio: ctx.state =', ctx.state)
+
+  // 3. Pre-warm recording blip HTMLAudioElements so Bluetooth codec
+  //    is negotiated before the first real playStartBlip() call.
+  warmUpBlips();
 }
 
 export function useTTS() {

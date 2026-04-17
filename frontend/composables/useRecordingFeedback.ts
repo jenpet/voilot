@@ -89,6 +89,44 @@ function playStopSound() {
 }
 
 /**
+ * Pre-warm the blip HTMLAudioElement instances so the browser (and
+ * Bluetooth codec) treats them as user-gesture-activated.
+ *
+ * Must be called synchronously inside a user-gesture handler —
+ * typically from `unlockAudio()`.  Each element is played at zero
+ * volume then immediately paused, which:
+ *   1. Satisfies autoplay-policy requirements for future plays.
+ *   2. Spins up the Bluetooth A2DP/AAC codec so the next real play()
+ *      doesn't suffer a ~600 ms cold-start delay that swallows the
+ *      80 ms blip entirely.
+ */
+export function warmUpBlips(): void {
+  ensureAudioElements();
+
+  // Play each element to completion at an inaudible-but-nonzero volume.
+  // iOS ignores volume=0 plays for audio-session promotion, so we use
+  // a tiny value (0.01) that is effectively silent on any output device.
+  // We must NOT pause mid-play — iOS marks paused elements as inactive,
+  // which causes subsequent play() calls to fail silently.
+  // The blips are only ~80ms long so they finish almost instantly.
+  for (const el of [_startAudio, _stopAudio]) {
+    if (!el) continue;
+    const origVolume = el.volume;
+    el.volume = 0.01;
+    el.currentTime = 0;
+    const restore = () => {
+      el.volume = origVolume;
+      el.currentTime = 0;
+      el.removeEventListener('ended', restore);
+    };
+    el.addEventListener('ended', restore);
+    el.play().catch(() => {
+      el.volume = origVolume;
+    });
+  }
+}
+
+/**
  * Play the start-recording blip.
  *
  * Must be called directly from a user-gesture handler (click/tap)
