@@ -30,7 +30,7 @@ export type InteractionState = typeof INTERACTION_STATES[number];
 
 /** Map of each state to its allowed target states. */
 const ALLOWED_TRANSITIONS: Record<InteractionState, readonly InteractionState[]> = {
-  'idle':                      ['mic:acquiring'],
+  'idle':                      ['mic:acquiring', 'agent:submitting'],
   'mic:acquiring':             ['mic:monitoring', 'mic:recording', 'error', 'idle'],
   'mic:monitoring':            ['mic:recording', 'idle', 'error'],
   'mic:recording':             ['stt:transcribing', 'idle', 'error'],
@@ -40,7 +40,7 @@ const ALLOWED_TRANSITIONS: Record<InteractionState, readonly InteractionState[]>
   'agent:awaiting-question':   ['agent:streaming', 'idle', 'error'],
   'agent:awaiting-permission': ['agent:streaming', 'idle', 'error'],
   'tts:speaking':              ['turn:completing', 'mic:recording', 'idle', 'error'],
-  'turn:completing':           ['mic:acquiring', 'idle'],
+  'turn:completing':           ['mic:acquiring', 'idle', 'tts:speaking'],
   'error':                     ['idle', 'mic:acquiring'],
 };
 
@@ -54,6 +54,86 @@ export interface InteractionStateMetadata {
 let _state: Ref<InteractionState> | null = null;
 let _metadata: InteractionStateMetadata = {};
 let _stateAccessorRegistered = false;
+
+// ── Module-level transition helpers ─────────────────────────────────
+//
+// These allow composables that run outside Vue setup() (useVoice,
+// useTTS, useAudioFeedback) to drive state transitions without
+// needing inject/provide or passing the composable around.
+
+function _ensureState(): Ref<InteractionState> {
+  if (!_state) {
+    // This branch is only hit if transitionState / resetState is called
+    // before useInteractionState() — defensive fallback.
+    _state = ref('idle') as Ref<InteractionState>;
+  }
+  return _state;
+}
+
+function _logTransition(
+  level: 'info' | 'warn',
+  event: string,
+  data?: Record<string, unknown>,
+) {
+  try {
+    const { log } = useDebugLog();
+    log(level, 'state', event, data);
+  } catch {
+    // Outside setup — best effort
+  }
+}
+
+/**
+ * Drive a state transition from anywhere (inside or outside setup).
+ * Returns true if the transition was accepted.
+ */
+export function transitionState(
+  to: InteractionState,
+  trigger: string,
+  metadata?: Partial<InteractionStateMetadata>,
+): boolean {
+  const state = _ensureState();
+  const from = state.value;
+
+  if (from === to) return true;
+
+  const allowed = ALLOWED_TRANSITIONS[from];
+  if (!allowed.includes(to)) {
+    _logTransition('warn', 'invalid_transition', { from, to, trigger });
+    return false;
+  }
+
+  _metadata = { trigger, ...metadata };
+  state.value = to;
+
+  _logTransition('info', 'transition', {
+    from,
+    to,
+    trigger,
+    ...(metadata || {}),
+  });
+
+  return true;
+}
+
+/**
+ * Force-reset to idle from anywhere (abort / cleanup scenarios).
+ */
+export function resetState(trigger: string): void {
+  const state = _ensureState();
+  const from = state.value;
+  _metadata = { trigger };
+  state.value = 'idle';
+
+  _logTransition('info', 'reset', { from, trigger });
+}
+
+/**
+ * Get the current interaction state value from anywhere.
+ */
+export function getInteractionState(): InteractionState {
+  return _ensureState().value;
+}
 
 export function useInteractionState() {
   if (!_state) {
@@ -77,27 +157,7 @@ export function useInteractionState() {
     trigger: string,
     metadata?: Partial<InteractionStateMetadata>,
   ): boolean {
-    const from = _state!.value;
-
-    if (from === to) return true;
-
-    const allowed = ALLOWED_TRANSITIONS[from];
-    if (!allowed.includes(to)) {
-      log('warn', 'state', 'invalid_transition', { from, to, trigger });
-      return false;
-    }
-
-    _metadata = { trigger, ...metadata };
-    _state!.value = to;
-
-    log('info', 'state', 'transition', {
-      from,
-      to,
-      trigger,
-      ...(metadata || {}),
-    });
-
-    return true;
+    return transitionState(to, trigger, metadata);
   }
 
   /** Get the current state metadata. */
@@ -107,11 +167,7 @@ export function useInteractionState() {
 
   /** Force-reset to idle (for abort/cleanup scenarios). */
   function reset(trigger: string) {
-    const from = _state!.value;
-    _metadata = { trigger };
-    _state!.value = 'idle';
-
-    log('info', 'state', 'reset', { from, trigger });
+    resetState(trigger);
   }
 
   // Computed backward-compatibility flags

@@ -65,6 +65,7 @@
 import { unlockAudio } from '~/composables/useTTS'
 import { playStartBlip } from '~/composables/useRecordingFeedback'
 import { useDebugLog } from '~/composables/useDebugLog'
+import { transitionState, resetState } from '~/composables/useInteractionState'
 
 const { log } = useDebugLog()
 
@@ -162,6 +163,7 @@ async function finishRecording() {
       // returned empty, the user doesn't need a spoken "I didn't hear anything"
       // interruption. A brief visual hint is sufficient.
       showStatus('No speech detected', 2000)
+      resetState('no_transcription')
     }
   } finally {
     isProcessing.value = false
@@ -202,6 +204,7 @@ async function toggle() {
       manualRecordingActive = false
       const msg = err instanceof Error ? err.message : 'Mic access failed'
       log('error', 'ui', 'voice_button_error', { error: msg })
+      // transitionState to error is already handled by useVoice.acquireMicStream
       showStatus(msg, 5000)
     }
   }

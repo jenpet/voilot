@@ -111,6 +111,11 @@ const route = useRoute()
 const router = useRouter()
 const sessionId = route.params.id as string
 
+// Initialize interaction state machine — registers the state accessor
+// for debug logs so every entry includes the current interaction state
+// instead of "unknown".
+useInteractionState()
+
 const {
   session,
   messages,

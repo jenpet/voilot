@@ -7,6 +7,11 @@ import { useTTSToolBatcher } from './useTTSToolBatcher'
 import { suppressNextStopBlip } from './useRecordingFeedback'
 import { useDebugLog } from './useDebugLog'
 import {
+  transitionState,
+  resetState,
+  getInteractionState,
+} from './useInteractionState'
+import {
   playHandoff,
   startWorkingHum,
   stopWorkingHum,
@@ -152,6 +157,13 @@ export function useAgent(sessionId: string) {
     loopStartPending = true
     loopRecordingActive.value = true
     log('info', 'loop', 'loop_started')
+    // Transition through mic:acquiring so the state machine tracks
+    // the loop re-recording correctly. Only transition from states
+    // where mic:acquiring is a valid target.
+    const currentState = getInteractionState()
+    if (currentState === 'turn:completing' || currentState === 'idle' || currentState === 'error') {
+      transitionState('mic:acquiring', 'loop_recording_start')
+    }
     // Subtle tick so the user knows the mic is hot (Phase 3)
     playLoopListeningTick()
     startRecording() // reuses existing mic stream via ensureMicAndAnalyser()
@@ -173,6 +185,7 @@ export function useAgent(sessionId: string) {
     } else {
       // No speech detected (empty/too short) — play failure tone, then retry
       log('warn', 'loop', 'stt_empty_retry')
+      transitionState('idle', 'stt_empty')
       playSTTFailureTone()
       startLoopRecording()
     }
@@ -282,6 +295,12 @@ export function useAgent(sessionId: string) {
     // Cancel watchdog on any agent event — confirms the agent is alive
     cancelWatchdog()
     log('debug', 'agent', 'event_received', { type: event.type, partId: event.partId, hasDelta: !!event.delta })
+
+    // Transition to agent:streaming on the first substantive event
+    const currentState = getInteractionState()
+    if (currentState === 'agent:submitting') {
+      transitionState('agent:streaming', `agent_event_${event.type}`)
+    }
 
     // Feed non-text events through the tool batcher — it batches consecutive
     // tool_use events into a single TTS summary and passes other events
@@ -459,6 +478,9 @@ export function useAgent(sessionId: string) {
   function finishStreaming() {
     log('info', 'agent', 'finish_streaming', { abortedTurn })
 
+    // Transition to turn:completing — cleanup phase before next turn
+    transitionState('turn:completing', 'finish_streaming')
+
     // Mark agent completion — only during voice round-trips
     if (isTimerActive()) {
       mark('agent_full', 'end')
@@ -496,6 +518,13 @@ export function useAgent(sessionId: string) {
     // (If TTS is still playing, the isTTSPlaying watcher will start recording
     // when playback finishes.)
     startLoopRecording()
+
+    // If the loop didn't start (text-initiated turn, voice disabled, etc.),
+    // transition back to idle.
+    const stateAfterLoop = getInteractionState()
+    if (stateAfterLoop === 'turn:completing') {
+      transitionState('idle', 'turn_complete')
+    }
   }
 
   // Send a message via WebSocket
@@ -551,6 +580,10 @@ export function useAgent(sessionId: string) {
       timestamp: Date.now(),
     })
 
+    // Transition to agent:submitting — the state machine tracks that
+    // we've handed the message to the agent and are waiting for a response.
+    transitionState('agent:submitting', 'send_message')
+
     const sent = send({
       type: 'message',
       sessionId,
@@ -559,6 +592,7 @@ export function useAgent(sessionId: string) {
 
     if (!sent) {
       log('error', 'agent', 'send_message_failed')
+      transitionState('error', 'send_message_failed', { errorSource: 'agent', errorMessage: 'not connected' })
       appendSystemMessage('Failed to send message: not connected to backend')
     }
   }
@@ -567,6 +601,7 @@ export function useAgent(sessionId: string) {
   function abortSession() {
     log('info', 'agent', 'abort_session')
     abortedTurn = true
+    resetState('abort_session')
     stopTTS() // Stop any ongoing TTS playback
     stopMonitoring() // Stop mic monitoring if active
     ttsChunker.reset()
@@ -644,6 +679,8 @@ export function useAgent(sessionId: string) {
     const title = event.meta?.title as string || event.content || 'Permission needed'
     log('info', 'permission', 'request_received', { permissionId, title })
 
+    transitionState('agent:awaiting-permission', 'permission_request')
+
     // Add permission request as a special message in the chat
     messages.value.push({
       id: nextMessageId(),
@@ -675,6 +712,8 @@ export function useAgent(sessionId: string) {
     const response = event.meta?.response as string || event.content
 
     if (!permissionId) return
+
+    transitionState('agent:streaming', 'permission_replied')
 
     // Find the matching permission_request message and mark it resolved
     const msg = messages.value.find(
@@ -746,6 +785,8 @@ export function useAgent(sessionId: string) {
     const multiple = event.meta?.multiple as boolean || false
     log('info', 'question', 'request_received', { questionId, questionIndex, totalQuestions, optionCount: options.length, multiple })
 
+    transitionState('agent:awaiting-question', 'question_request')
+
     // Break the current assistant message so that any text the agent sends
     // after the question is answered appears as a new chat bubble.
     currentAssistantId = null
@@ -800,6 +841,8 @@ export function useAgent(sessionId: string) {
     const rejected = event.meta?.rejected as boolean || false
 
     if (!questionId) return
+
+    transitionState('agent:streaming', 'question_replied')
 
     // Mark all question messages for this batch as resolved
     messages.value

@@ -54,7 +54,7 @@ idle ──► mic:acquiring ──► mic:monitoring ──► mic:recording
 
 | From | Allowed Targets |
 |---|---|
-| `idle` | `mic:acquiring` |
+| `idle` | `mic:acquiring`, `agent:submitting` |
 | `mic:acquiring` | `mic:monitoring`, `mic:recording`, `error`, `idle` |
 | `mic:monitoring` | `mic:recording`, `idle`, `error` |
 | `mic:recording` | `stt:transcribing`, `idle`, `error` |
@@ -64,7 +64,7 @@ idle ──► mic:acquiring ──► mic:monitoring ──► mic:recording
 | `agent:awaiting-question` | `agent:streaming`, `idle`, `error` |
 | `agent:awaiting-permission` | `agent:streaming`, `idle`, `error` |
 | `tts:speaking` | `turn:completing`, `mic:recording`, `idle`, `error` |
-| `turn:completing` | `mic:acquiring`, `idle` |
+| `turn:completing` | `mic:acquiring`, `idle`, `tts:speaking` |
 | `error` | `idle`, `mic:acquiring` |
 
 ## Component Registry

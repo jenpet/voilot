@@ -7,6 +7,10 @@ interface TTSQueueItem {
 // ─── Debug logging ──────────────────────────────────────────────────
 import { useDebugLog } from './useDebugLog';
 import type { DebugLogLevel } from './useDebugLog';
+import {
+  transitionState,
+  getInteractionState,
+} from './useInteractionState';
 
 function _log(level: DebugLogLevel, event: string, data?: Record<string, unknown>) {
   try {
@@ -189,6 +193,14 @@ export function useTTS() {
       // Mark TTS playback start on first item
       if (shouldMark && isFirstItem) mark('tts_play', 'start')
 
+      // Transition to tts:speaking when first audio starts playing.
+      // Only transition from agent:streaming or turn:completing — other
+      // callers (e.g. audio feedback spoken check-ins) don't drive state.
+      const stateBeforePlay = getInteractionState()
+      if (stateBeforePlay === 'agent:streaming' || stateBeforePlay === 'turn:completing') {
+        transitionState('tts:speaking', 'tts_playback_started')
+      }
+
       // Play using AudioBufferSourceNode
       await new Promise<void>((resolve, reject) => {
         const source = ctx.createBufferSource()
@@ -245,6 +257,12 @@ export function useTTS() {
         if (shouldMark) mark('tts_play', 'end')
         // Reset first-item flag for next round-trip
         firstSynthMarked = false
+
+        // Transition from tts:speaking → turn:completing when all audio is done
+        const stateAfterDrain = getInteractionState()
+        if (stateAfterDrain === 'tts:speaking') {
+          transitionState('turn:completing', 'tts_queue_drained')
+        }
       }
 
       // Process next item if available
