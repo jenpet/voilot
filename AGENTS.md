@@ -237,4 +237,22 @@ Custom Flask sidecar wrapping the faster-whisper library.
 
 ---
 
+## Debug Log Analysis
+
+When the user uploads a debug log file (JSON or extracted from a `.zip`) and describes an observed issue (e.g. "mic stopped working", "TTS never played", "voice loop didn't restart"), follow this procedure:
+
+1. **Read the interaction state reference** at `docs/frontend-interaction-state-machine.md` first. This document contains the full state machine (12 states, allowed transitions), the component registry (which components are allowed to log in which states), and common failure patterns with diagnostic guidance.
+
+2. **Parse the debug log entries** and trace the sequence of `state` transitions and component events leading up to the reported issue. Pay attention to:
+   - Whether state transitions follow the allowed transition table
+   - Whether the `component` field matches what's expected for the current `state`
+   - Gaps in expected events (e.g. missing `rms_sample` entries, missing `synth_complete` after `synth_start`)
+   - `warn` and `error` level entries around the time of the issue
+
+3. **Cross-reference** the observed event sequence against the state-component permission matrix and transition rules in the reference doc to identify the root cause.
+
+4. **Report findings** with specific log entry timestamps, the state at the time of failure, and which transition or component event was missing or unexpected.
+
+---
+
 *This file should be updated as the project evolves.*
