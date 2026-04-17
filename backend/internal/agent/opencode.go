@@ -50,6 +50,12 @@ type OpenCodeAdapter struct {
 	// the redundant final full-text snapshot from message.part.updated.
 	deltaPartMu  sync.RWMutex
 	deltaPartIDs map[string]struct{} // partID -> exists
+
+	// Track reasoning/thinking part IDs so their deltas can be suppressed.
+	// Reasoning content is internal model chain-of-thought that should never
+	// reach the frontend (not spoken via TTS, not rendered in the UI).
+	reasoningPartMu  sync.RWMutex
+	reasoningPartIDs map[string]struct{} // partID -> exists
 }
 
 // userMsgIDTTL is how long user message IDs are retained for filtering.
@@ -72,6 +78,7 @@ func NewOpenCodeAdapter(baseURL string) *OpenCodeAdapter {
 		sessionLastModels: make(map[string]string),
 		userMsgIDs:        make(map[string]time.Time),
 		deltaPartIDs:      make(map[string]struct{}),
+		reasoningPartIDs:  make(map[string]struct{}),
 	}
 
 	// Start background cleanup of expired user message IDs.
@@ -1080,14 +1087,11 @@ func (a *OpenCodeAdapter) parsePartUpdate(props json.RawMessage) []Event {
 		return []Event{evt}
 
 	case "reasoning":
-		return []Event{{
-			Type:      EventThinking,
-			SessionID: part.SessionID,
-			MessageID: part.MessageID,
-			PartID:    part.ID,
-			Content:   part.Text,
-			Delta:     update.Delta,
-		}}
+		// Track reasoning part IDs so their streaming deltas are also suppressed.
+		a.reasoningPartMu.Lock()
+		a.reasoningPartIDs[part.ID] = struct{}{}
+		a.reasoningPartMu.Unlock()
+		return nil
 
 	case "tool":
 		return a.parseToolPart(part, update.Delta)
@@ -1202,6 +1206,14 @@ func (a *OpenCodeAdapter) parsePartDelta(props json.RawMessage) []Event {
 	_, isUserMsg := a.userMsgIDs[delta.MessageID]
 	a.userMsgMu.RUnlock()
 	if isUserMsg {
+		return nil
+	}
+
+	// Skip deltas for reasoning/thinking parts
+	a.reasoningPartMu.RLock()
+	_, isReasoning := a.reasoningPartIDs[delta.PartID]
+	a.reasoningPartMu.RUnlock()
+	if isReasoning {
 		return nil
 	}
 

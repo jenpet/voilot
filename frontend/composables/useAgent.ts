@@ -344,8 +344,9 @@ export function useAgent(sessionId: string) {
         break
       }
       case 'thinking':
-        // Show thinking indicator but don't add to message content
-        isStreaming.value = true
+        // Reasoning content is filtered out by the backend and never
+        // forwarded to the frontend.  This case is kept as a no-op
+        // safety net in case future backend changes re-introduce it.
         break
       case 'error': {
         // Abort errors (e.g. MessageAbortedError) are expected after the
