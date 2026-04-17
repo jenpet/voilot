@@ -100,29 +100,32 @@ function playStopSound() {
  *      doesn't suffer a ~600 ms cold-start delay that swallows the
  *      80 ms blip entirely.
  */
+/**
+ * Pre-warm the browser / Bluetooth audio path so the first real blip
+ * plays without codec cold-start delay.
+ *
+ * Instead of touching the actual blip elements (which causes volume
+ * race conditions with playStartBlip), we play a separate short
+ * silent WAV through a throwaway HTMLAudioElement. This is enough to:
+ *   1. Activate the browser's audio session from a user gesture.
+ *   2. Spin up the Bluetooth A2DP/AAC codec (~600ms negotiation).
+ *
+ * Must be called synchronously inside a user-gesture handler —
+ * typically from `unlockAudio()`.
+ */
 export function warmUpBlips(): void {
+  // Ensure the real blip elements exist (lazy init).
   ensureAudioElements();
 
-  // Play each element to completion at an inaudible-but-nonzero volume.
-  // iOS ignores volume=0 plays for audio-session promotion, so we use
-  // a tiny value (0.01) that is effectively silent on any output device.
-  // We must NOT pause mid-play — iOS marks paused elements as inactive,
-  // which causes subsequent play() calls to fail silently.
-  // The blips are only ~80ms long so they finish almost instantly.
-  for (const el of [_startAudio, _stopAudio]) {
-    if (!el) continue;
-    const origVolume = el.volume;
-    el.volume = 0.01;
-    el.currentTime = 0;
-    const restore = () => {
-      el.volume = origVolume;
-      el.currentTime = 0;
-      el.removeEventListener('ended', restore);
-    };
-    el.addEventListener('ended', restore);
-    el.play().catch(() => {
-      el.volume = origVolume;
-    });
+  // Play a tiny near-silent WAV through a throwaway element.
+  // Duration matches the blip length so the codec is fully active
+  // by the time playStartBlip() fires on the next gesture.
+  try {
+    const silence = generateSineBlip(440, BLIP_DURATION_MS, 0.01, SAMPLE_RATE);
+    const el = createAudioFromSamples(silence);
+    el.play().catch(() => {});
+  } catch {
+    // best effort
   }
 }
 
