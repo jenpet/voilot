@@ -4,6 +4,19 @@ interface TTSQueueItem {
   sourceNode?: AudioBufferSourceNode
 }
 
+// ─── Debug logging ──────────────────────────────────────────────────
+import { useDebugLog } from './useDebugLog';
+import type { DebugLogLevel } from './useDebugLog';
+
+function _log(level: DebugLogLevel, event: string, data?: Record<string, unknown>) {
+  try {
+    const { log } = useDebugLog();
+    log(level, 'tts', event, data);
+  } catch {
+    // Composable not available outside setup — ignore
+  }
+}
+
 // ─── Persistent AudioContext for iOS Safari ──────────────────────
 //
 // iOS Safari requires that an AudioContext is created/resumed inside
@@ -120,6 +133,7 @@ export function useTTS() {
       }
 
       console.log('[TTS] Fetching audio for:', item.text.substring(0, 60) + '...')
+      _log('debug', 'synth_start', { text: item.text.substring(0, 60) })
 
       // Fetch audio from TTS service
       const response = await fetch(`${backendUrl}/api/tts/synthesize`, {
@@ -131,6 +145,7 @@ export function useTTS() {
 
       if (!response.ok) {
         const errBody = await response.text().catch(() => '')
+        _log('error', 'synth_failed', { status: response.status, body: errBody.substring(0, 200) })
         throw new Error(`TTS synthesis failed: ${response.status} ${errBody}`)
       }
 
@@ -145,6 +160,7 @@ export function useTTS() {
       console.log('[TTS] Blob size:', audioBlob.size, 'type:', audioBlob.type)
 
       if (shouldMark && isFirstItem) mark('tts_synth', 'end')
+      _log('debug', 'synth_complete', { blobSize: audioBlob.size })
 
       if (signal.aborted) throw new DOMException('Aborted', 'AbortError')
 
@@ -197,6 +213,7 @@ export function useTTS() {
 
         try {
           source.start(0)
+          _log('debug', 'playback_started', { duration: audioBuffer.duration })
           console.log('[TTS] Playback started')
         } catch (err) {
           signal.removeEventListener('abort', onAbort)
@@ -207,8 +224,10 @@ export function useTTS() {
     } catch (err) {
       // Silently ignore abort errors — they're expected from stop()
       if (err instanceof DOMException && err.name === 'AbortError') {
+        _log('debug', 'playback_aborted')
         console.log('[TTS] Playback aborted')
       } else {
+        _log('error', 'playback_error', { error: err instanceof Error ? err.message : String(err) })
         console.error('[TTS] Playback error:', err)
         // Mark synth end on error if it was the first item and synth start was marked
         if (shouldMark && isFirstItem && firstSynthMarked) {
@@ -222,6 +241,7 @@ export function useTTS() {
 
       // Mark TTS playback end when queue is fully drained
       if (queue.value.length === 0) {
+        _log('info', 'queue_drained')
         if (shouldMark) mark('tts_play', 'end')
         // Reset first-item flag for next round-trip
         firstSynthMarked = false
@@ -236,6 +256,7 @@ export function useTTS() {
 
   // Add text to the TTS queue
   function enqueue(text: string) {
+    _log('debug', 'enqueue', { text: text.substring(0, 80), queueLength: queue.value.length })
     console.log('[TTS] Enqueue:', text.substring(0, 80) + (text.length > 80 ? '...' : ''))
     queue.value.push({ text })
     processQueue()
@@ -243,6 +264,7 @@ export function useTTS() {
 
   // Stop current playback and clear queue
   function stop() {
+    _log('info', 'stop', { queueLength: queue.value.length })
     console.log('[TTS] Stop requested, queue length:', queue.value.length)
 
     // Abort any in-flight fetch, decode, or playback

@@ -11,6 +11,8 @@
  * caller can stop TTS and seamlessly transition into full recording.
  */
 
+import { useDebugLog } from './useDebugLog';
+
 // Silence detection tuning constants
 const SILENCE_THRESHOLD = 15       // RMS level below which we consider "silence" (0-255 scale)
 const SILENCE_DURATION_MS = 1500   // How long silence must last before auto-stop
@@ -20,6 +22,9 @@ const POLL_INTERVAL_MS = 100       // How often we check the audio level
 // Speech interrupt detection constants (for monitoring mode)
 const SPEECH_THRESHOLD = 20        // RMS level above which we consider "speech" (slightly higher than silence)
 const SPEECH_SUSTAIN_MS = 400      // How long speech must be sustained to trigger interrupt (~1-2 words)
+
+// RMS logging throttle (~2 samples/sec = every 500ms)
+const RMS_LOG_INTERVAL_MS = 500
 
 // Module-level state (singleton across all useVoice() calls)
 let _audioContext: AudioContext | null = null
@@ -39,6 +44,9 @@ let _speechSince: number | null = null
 // Auto-stop only fires after speech-then-silence (not pure silence).
 let _speechDetectedInRecording = false
 
+// RMS logging throttle
+let _lastRmsLogAt = 0
+
 // Callbacks
 let _onAutoStopHandlers: (() => void)[] = []
 let _onSpeechDetected: (() => void) | null = null
@@ -52,6 +60,7 @@ export function useVoice() {
 
   const backendUrl = resolveBackendUrl()
   const { mark, reset: resetTimer } = useRoundTripTimer()
+  const { log } = useDebugLog()
 
   /** Check if the current context supports microphone access. */
   function checkMicSupport(): string | null {
@@ -96,12 +105,12 @@ export function useVoice() {
 
     const micError = checkMicSupport()
     if (micError) {
+      log('error', 'mic', 'support_check_failed', { error: micError })
       throw new Error(micError)
     }
 
-    // Safari rejects non-native sampleRate constraints — omit it and let
-    // the browser use its default (typically 48000). The STT backend
-    // handles any sample rate via ffmpeg.
+    log('info', 'mic', 'getUserMedia_requested')
+
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: {
@@ -110,10 +119,16 @@ export function useVoice() {
         },
       })
       _micStream = stream
+      const track = stream.getAudioTracks()[0]
+      log('info', 'mic', 'stream_acquired', {
+        trackLabel: track?.label,
+        settings: track?.getSettings(),
+      })
       return stream
     } catch (err) {
       const name = err instanceof Error ? err.name : 'Unknown'
       const msg = err instanceof Error ? err.message : String(err)
+      log('error', 'mic', 'getUserMedia_failed', { name, message: msg })
       throw new Error(`Mic access denied: ${name} - ${msg}`)
     }
   }
@@ -126,9 +141,11 @@ export function useVoice() {
     if (_audioContext && _analyser) return
 
     _audioContext = new AudioContext()
+    log('debug', 'mic', 'audio_context_created', { sampleRate: _audioContext.sampleRate, state: _audioContext.state })
     // Safari sometimes creates AudioContext in "suspended" state — resume it
     if (_audioContext.state === 'suspended') {
       await _audioContext.resume()
+      log('debug', 'mic', 'audio_context_resumed')
     }
     const source = _audioContext.createMediaStreamSource(stream)
     _analyser = _audioContext.createAnalyser()
@@ -150,6 +167,7 @@ export function useVoice() {
 
   /** Release mic stream and audio context. */
   function releaseMic() {
+    log('info', 'mic', 'release')
     if (_micStream) {
       _micStream.getTracks().forEach(track => track.stop())
       _micStream = null
@@ -167,16 +185,28 @@ export function useVoice() {
   function startSilenceDetection() {
     _silenceSince = null
     _speechDetectedInRecording = false
+    _lastRmsLogAt = 0
+    log('debug', 'silence', 'detection_started', { threshold: SILENCE_THRESHOLD, durationMs: SILENCE_DURATION_MS })
     _silencePollTimer = setInterval(() => {
       const rms = computeRMS()
       audioLevel.value = Math.round(rms)
+
+      // Throttled RMS logging (~2/sec)
+      const now = performance.now()
+      if (now - _lastRmsLogAt >= RMS_LOG_INTERVAL_MS) {
+        _lastRmsLogAt = now
+        log('debug', 'audio', 'rms_sample', { rms: Math.round(rms) })
+      }
 
       const elapsed = performance.now() - _recordingStartedAt
       if (elapsed < MIN_RECORDING_MS) return
 
       if (rms >= SILENCE_THRESHOLD) {
         // Speech is happening — mark it and reset silence timer
-        _speechDetectedInRecording = true
+        if (!_speechDetectedInRecording) {
+          _speechDetectedInRecording = true
+          log('info', 'silence', 'speech_detected', { rms: Math.round(rms), threshold: SILENCE_THRESHOLD })
+        }
         _silenceSince = null
       } else {
         // Silence — only start counting toward auto-stop if speech was detected first.
@@ -184,7 +214,12 @@ export function useVoice() {
         if (_speechDetectedInRecording) {
           if (_silenceSince === null) {
             _silenceSince = performance.now()
+            log('debug', 'silence', 'silence_started', { rms: Math.round(rms) })
           } else if (performance.now() - _silenceSince >= SILENCE_DURATION_MS) {
+            log('info', 'silence', 'auto_stop_triggered', {
+              silenceDuration: Math.round(performance.now() - _silenceSince),
+              minRequired: SILENCE_DURATION_MS,
+            })
             _onAutoStopHandlers.forEach(cb => cb())
           }
         }
@@ -205,20 +240,34 @@ export function useVoice() {
   async function startMonitoring() {
     if (isMonitoring.value || isRecording.value) return
 
+    log('info', 'mic', 'monitoring_start_requested')
+
     try {
       await ensureMicAndAnalyser()
       isMonitoring.value = true
       _speechSince = null
+      _lastRmsLogAt = 0
 
       _monitorPollTimer = setInterval(() => {
         const rms = computeRMS()
         audioLevel.value = Math.round(rms)
+
+        // Throttled RMS logging (~2/sec)
+        const now = performance.now()
+        if (now - _lastRmsLogAt >= RMS_LOG_INTERVAL_MS) {
+          _lastRmsLogAt = now
+          log('debug', 'audio', 'rms_sample', { rms: Math.round(rms), mode: 'monitoring' })
+        }
 
         if (rms >= SPEECH_THRESHOLD) {
           if (_speechSince === null) {
             _speechSince = performance.now()
           } else if (performance.now() - _speechSince >= SPEECH_SUSTAIN_MS) {
             // Sustained speech detected — fire callback
+            log('info', 'mic', 'speech_interrupt_detected', {
+              sustainedMs: Math.round(performance.now() - _speechSince),
+              threshold: SPEECH_THRESHOLD,
+            })
             stopMonitoringPoll()
             _onSpeechDetected?.()
           }
@@ -226,7 +275,11 @@ export function useVoice() {
           _speechSince = null
         }
       }, POLL_INTERVAL_MS)
+
+      log('info', 'mic', 'monitoring_started')
     } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      log('error', 'mic', 'monitoring_failed', { error: msg })
       console.error('Failed to start mic monitoring:', err)
       isMonitoring.value = false
     }
@@ -239,6 +292,7 @@ export function useVoice() {
     }
     _speechSince = null
     isMonitoring.value = false
+    log('info', 'mic', 'monitoring_stopped')
   }
 
   function stopMonitoring() {
@@ -269,6 +323,8 @@ export function useVoice() {
    * getUserMedia must be the FIRST await in the user gesture chain.
    */
   async function startRecording(preAcquiredStream?: MediaStream) {
+    log('info', 'mic', 'recording_start_requested', { preAcquired: !!preAcquiredStream })
+
     try {
       if (preAcquiredStream) {
         _micStream = preAcquiredStream
@@ -298,8 +354,11 @@ export function useVoice() {
 
       startSilenceDetection()
       lastError.value = null
+
+      log('info', 'mic', 'recording_started', { mimeType: mimeType || 'default' })
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Failed to start recording'
+      log('error', 'mic', 'recording_failed', { error: msg })
       console.error('Failed to start recording:', msg)
       lastError.value = msg
     }
@@ -310,7 +369,10 @@ export function useVoice() {
    * Reuses the already-open mic stream — no gap in audio capture.
    */
   async function startRecordingFromMonitor() {
+    log('info', 'mic', 'recording_from_monitor_requested')
+
     if (!_micStream || !_audioContext || !_analyser) {
+      log('warn', 'mic', 'no_existing_stream_falling_back')
       return startRecording()
     }
 
@@ -339,8 +401,11 @@ export function useVoice() {
 
       startSilenceDetection()
       lastError.value = null
+
+      log('info', 'mic', 'recording_from_monitor_started', { mimeType: mimeType || 'default' })
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Failed to start recording'
+      log('error', 'mic', 'recording_from_monitor_failed', { error: msg })
       console.error('Failed to start recording from monitor:', msg)
       lastError.value = msg
     }
@@ -354,6 +419,9 @@ export function useVoice() {
    */
   async function stopRecording(keepMicOpen = false): Promise<string | null> {
     if (!_mediaRecorder || !isRecording.value) return null
+
+    const recordingDuration = Math.round(performance.now() - _recordingStartedAt)
+    log('info', 'mic', 'recording_stopping', { keepMicOpen, durationMs: recordingDuration })
 
     stopSilenceDetection()
 
@@ -376,12 +444,14 @@ export function useVoice() {
 
         // Skip if no audio data was captured at all
         if (audioBlob.size === 0) {
+          log('warn', 'stt', 'skipped_empty_blob')
           mark('stt', 'end')
           resolve(null)
           return
         }
 
         // Send to STT service
+        log('info', 'stt', 'request_sent', { blobSize: audioBlob.size, mimeType: recorder.mimeType })
         try {
           const result = await $fetch<{ text: string }>(
             `${backendUrl}/api/stt/transcribe`,
@@ -394,8 +464,14 @@ export function useVoice() {
             },
           )
           mark('stt', 'end')
+          log('info', 'stt', 'response_received', {
+            textLength: result.text?.length || 0,
+            hasText: !!result.text,
+          })
           resolve(result.text || null)
-        } catch {
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err)
+          log('error', 'stt', 'transcription_failed', { error: msg })
           console.error('STT transcription failed')
           mark('stt', 'end')
           resolve(null)
@@ -405,6 +481,7 @@ export function useVoice() {
       recorder.stop()
       isRecording.value = false
       _mediaRecorder = null
+      log('info', 'mic', 'recording_stopped')
     })
   }
 

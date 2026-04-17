@@ -5,6 +5,18 @@
  * module hot-reloads without orphaning connections.
  */
 
+import { useDebugLog } from './useDebugLog';
+
+// Lazy debug log accessor for module-level functions
+function _log(level: 'debug' | 'info' | 'warn' | 'error', event: string, data?: Record<string, unknown>) {
+  try {
+    const { log } = useDebugLog();
+    log(level, 'ws', event, data);
+  } catch {
+    // useDebugLog may not be available during SSR or early init
+  }
+}
+
 export interface AgentEvent {
   type: 'text' | 'code' | 'tool_use' | 'tool_result' | 'thinking' | 'error' | 'done' | 'status' | 'session_created' | 'session_updated' | 'permission_request' | 'permission_replied' | 'question_request' | 'question_replied'
   sessionId?: string
@@ -94,6 +106,7 @@ function scheduleReconnect(state: WsGlobalState) {
     RECONNECT_MAX_MS,
   )
   state.reconnectAttempt++
+  _log('info', 'reconnect_scheduled', { delayMs: Math.round(delay), attempt: state.reconnectAttempt })
   console.log(`[ws] Reconnecting in ${Math.round(delay)}ms (attempt ${state.reconnectAttempt})...`)
   state.reconnectTimer = setTimeout(() => connectInternal(state), delay)
 }
@@ -108,11 +121,13 @@ function connectInternal(state: WsGlobalState) {
   if (!url) return
 
   state.connectionState.value = 'connecting'
+  _log('info', 'connecting', { url })
 
   try {
     state.ws = new WebSocket(url)
   } catch {
     console.warn('[ws] Failed to create WebSocket, scheduling reconnect')
+    _log('error', 'creation_failed')
     scheduleReconnect(state)
     return
   }
@@ -120,6 +135,7 @@ function connectInternal(state: WsGlobalState) {
   state.ws.onopen = () => {
     state.connectionState.value = 'connected'
     state.reconnectAttempt = 0 // Reset backoff on successful connection
+    _log('info', 'connected')
     console.log('[ws] Connected to voilot backend')
     if (state.reconnectTimer) {
       clearTimeout(state.reconnectTimer)
@@ -138,6 +154,7 @@ function connectInternal(state: WsGlobalState) {
 
   state.ws.onclose = (event) => {
     state.connectionState.value = 'disconnected'
+    _log('warn', 'disconnected', { code: event.code, reason: event.reason, wasClean: event.wasClean })
     state.ws = null
     if (!event.wasClean) {
       scheduleReconnect(state)
@@ -164,6 +181,7 @@ function disconnectInternal(state: WsGlobalState) {
 
 export function useWebSocket() {
   const state = getGlobalState()
+  const { log } = useDebugLog()
 
   // Auto-connect on first use (only once, survives HMR)
   if (!state.initialized && typeof window !== 'undefined') {
@@ -182,9 +200,11 @@ export function useWebSocket() {
 
   function send(msg: { type: string; sessionId?: string; [key: string]: unknown }): boolean {
     if (!state.ws || state.ws.readyState !== WebSocket.OPEN) {
+      log('warn', 'ws', 'send_failed_not_connected', { msgType: msg.type })
       console.warn('[ws] Cannot send, not connected')
       return false
     }
+    log('debug', 'ws', 'message_sent', { msgType: msg.type, sessionId: msg.sessionId })
     state.ws.send(JSON.stringify(msg))
     return true
   }

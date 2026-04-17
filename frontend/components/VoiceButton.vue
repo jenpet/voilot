@@ -64,6 +64,9 @@
 <script setup lang="ts">
 import { unlockAudio } from '~/composables/useTTS'
 import { playStartBlip } from '~/composables/useRecordingFeedback'
+import { useDebugLog } from '~/composables/useDebugLog'
+
+const { log } = useDebugLog()
 
 const props = defineProps<{
   keepMicOpen?: boolean
@@ -167,6 +170,7 @@ async function finishRecording() {
 
 async function toggle() {
   if (isProcessing.value) return
+  log('info', 'ui', 'voice_button_tap', { isRecording: isRecording.value })
 
   // Unlock iOS Safari audio playback on first user gesture.
   // Must happen synchronously inside the tap handler so the browser
@@ -197,6 +201,7 @@ async function toggle() {
     } catch (err) {
       manualRecordingActive = false
       const msg = err instanceof Error ? err.message : 'Mic access failed'
+      log('error', 'ui', 'voice_button_error', { error: msg })
       showStatus(msg, 5000)
     }
   }

@@ -25,6 +25,17 @@ import {
   createAudioFromSamples,
   SAMPLE_RATE,
 } from './audioSynth';
+import { useDebugLog } from './useDebugLog';
+import type { DebugLogLevel } from './useDebugLog';
+
+function _log(level: DebugLogLevel, event: string, data?: Record<string, unknown>) {
+  try {
+    const { log } = useDebugLog();
+    log(level, 'audio-feedback', event, data);
+  } catch {
+    // Composable not available outside setup — ignore
+  }
+}
 
 // ── Timing constants ────────────────────────────────────────────────
 export const HUM_FADE_START_MS = 17_000;   // Start fading hum after ~17s
@@ -285,6 +296,7 @@ export function initAudioFeedback(): void {
 /** Play the handoff tone (message submitted to agent). */
 export function playHandoff(): void {
   if (shouldDebounce('handoff')) return;
+  _log('debug', 'play_handoff');
   playOneShot('handoff');
 }
 
@@ -297,6 +309,7 @@ export function startWorkingHum(): void {
   if (_humPlaying) return;
   _humPlaying = true;
   _toolsActiveThisTurn = false;
+  _log('debug', 'hum_start');
 
   const cache = ensureCache();
   const audio = cache.hum;
@@ -374,6 +387,7 @@ export function stopWorkingHum(): Promise<void> {
       return;
     }
 
+    _log('debug', 'hum_stop');
     _humPlaying = false;
     _toolsActiveThisTurn = false;
 
@@ -426,12 +440,14 @@ export function playSuccessChime(): void {
 /** Play generic error tone. Caller must await stopWorkingHum() first. */
 export function playErrorTone(): void {
   if (shouldDebounce('errorTone')) return;
+  _log('debug', 'play_error_tone');
   playOneShot('errorTone');
 }
 
 /** Play system warning tone (disconnect, mic denied). */
 export function playWarningTone(): void {
   if (shouldDebounce('warningTone')) return;
+  _log('debug', 'play_warning_tone');
   playOneShot('warningTone');
 }
 
@@ -474,8 +490,10 @@ export function playReconnectChime(): void {
  */
 export function startWatchdog(timeoutMs: number = WATCHDOG_TIMEOUT_MS): void {
   cancelWatchdog();
+  _log('debug', 'watchdog_start', { timeoutMs });
   _watchdogTimer = setTimeout(async () => {
     _watchdogTimer = null;
+    _log('warn', 'watchdog_fired');
     await stopWorkingHum();
     playErrorTone();
     if (_enqueueTTS) {

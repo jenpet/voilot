@@ -16,6 +16,18 @@
  *   chunker.reset()
  */
 
+import { useDebugLog } from './useDebugLog';
+import type { DebugLogLevel } from './useDebugLog';
+
+function _log(level: DebugLogLevel, event: string, data?: Record<string, unknown>) {
+  try {
+    const { log } = useDebugLog();
+    log(level, 'tts-pipeline', event, data);
+  } catch {
+    // Composable not available outside setup — ignore
+  }
+}
+
 // Sentence-ending punctuation followed by whitespace or end-of-string.
 // Also splits on newline boundaries (paragraph breaks).
 const SENTENCE_BOUNDARY = /(?<=[.!?:;])\s+|(?<=\n)\s*/
@@ -55,6 +67,7 @@ export function useTTSChunker(
     const cleaned = condense ? condense(text) : text
     const trimmed = cleaned.trim()
     if (trimmed) {
+      _log('debug', 'chunker_emit', { length: trimmed.length, text: trimmed.substring(0, 60) })
       enqueue(trimmed)
     }
   }
@@ -102,6 +115,7 @@ export function useTTSChunker(
 
   function flush() {
     if (buffer.trim()) {
+      _log('debug', 'chunker_flush', { length: buffer.trim().length })
       emitChunk(buffer)
     }
     buffer = ''

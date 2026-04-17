@@ -25,6 +25,17 @@
 
 import type { AgentEvent } from './useWebSocket';
 import { filterForTTS } from './useTTSFilter';
+import { useDebugLog } from './useDebugLog';
+import type { DebugLogLevel } from './useDebugLog';
+
+function _log(level: DebugLogLevel, event: string, data?: Record<string, unknown>) {
+  try {
+    const { log } = useDebugLog();
+    log(level, 'tts-pipeline', event, data);
+  } catch {
+    // Composable not available outside setup — ignore
+  }
+}
 
 /** Debounce window in ms — enough to catch a burst of parallel tool calls */
 const BATCH_WINDOW_MS = 1500;
@@ -70,6 +81,7 @@ export function useTTSToolBatcher(
     if (!hasAnnouncedThisTurn && tools.length >= MIN_TOOLS_TO_ANNOUNCE) {
       const summary = buildSummary(tools);
       if (summary) {
+        _log('debug', 'tool_batch_announce', { toolCount: tools.length, summary })
         enqueueTTS(summary);
         hasAnnouncedThisTurn = true;
       }

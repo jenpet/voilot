@@ -43,6 +43,7 @@
       >
         {{ voiceEnabled ? 'Voice ON' : 'Voice OFF' }}
       </button>
+      <SettingsPanel />
     </header>
 
     <!-- Chat Messages -->

@@ -5,6 +5,7 @@ import { useTTSChunker } from './useTTSChunker'
 import { useTTSCondenser } from './useTTSCondenser'
 import { useTTSToolBatcher } from './useTTSToolBatcher'
 import { suppressNextStopBlip } from './useRecordingFeedback'
+import { useDebugLog } from './useDebugLog'
 import {
   playHandoff,
   startWorkingHum,
@@ -62,6 +63,7 @@ export function useAgent(sessionId: string) {
   const apiBase = `${resolveBackendUrl()}/api`
   const { send, subscribe, connectionState } = useWebSocket()
   const { enqueue: enqueueTTS, stop: stopTTS, isPlaying: isTTSPlaying } = useTTS()
+  const { log } = useDebugLog()
 
   // Wire TTS into the audio feedback manager so it can speak
   // check-in messages and error announcements.
@@ -149,6 +151,7 @@ export function useAgent(sessionId: string) {
     if (!hasPendingQuestion.value && isStreaming.value) return
     loopStartPending = true
     loopRecordingActive.value = true
+    log('info', 'loop', 'loop_started')
     // Subtle tick so the user knows the mic is hot (Phase 3)
     playLoopListeningTick()
     startRecording() // reuses existing mic stream via ensureMicAndAnalyser()
@@ -169,6 +172,7 @@ export function useAgent(sessionId: string) {
       sendMessage(text, { origin: 'voice' })
     } else {
       // No speech detected (empty/too short) — play failure tone, then retry
+      log('warn', 'loop', 'stt_empty_retry')
       playSTTFailureTone()
       startLoopRecording()
     }
@@ -202,11 +206,13 @@ export function useAgent(sessionId: string) {
     }
     if (!voiceEnabled.value) return
     if (newState === 'disconnected' && oldState === 'connected') {
+      log('warn', 'ws', 'connection_lost_agent')
       stopWorkingHum().then(() => {
         playWarningTone()
         enqueueTTS('Connection lost.')
       })
     } else if (newState === 'connected' && oldState !== 'connected' && hadConnection) {
+      log('info', 'ws', 'reconnected_agent')
       playReconnectChime()
       enqueueTTS('Reconnected.')
     }
@@ -275,6 +281,7 @@ export function useAgent(sessionId: string) {
   function handleAgentEvent(event: AgentEvent) {
     // Cancel watchdog on any agent event — confirms the agent is alive
     cancelWatchdog()
+    log('debug', 'agent', 'event_received', { type: event.type, partId: event.partId, hasDelta: !!event.delta })
 
     // Feed non-text events through the tool batcher — it batches consecutive
     // tool_use events into a single TTS summary and passes other events
@@ -326,6 +333,7 @@ export function useAgent(sessionId: string) {
         // user hits stop — don't play error tones or speak the raw error.
         const isAbortError = abortedTurn
           || (event.content && event.content.includes('Aborted'));
+        log(isAbortError ? 'debug' : 'error', 'agent', 'error_event', { content: event.content, isAbortError })
         if (!isAbortError) {
           stopWorkingHum().then(() => playErrorTone())
           appendSystemMessage(`Error: ${event.content}`)
@@ -389,6 +397,7 @@ export function useAgent(sessionId: string) {
     // Mark first text token arrival (agent TTFT) — only during voice round-trips
     if (!currentAssistantId && isTimerActive()) {
       mark('agent_ttft', 'end')
+      log('info', 'agent', 'first_text_token', { partId })
     }
 
     if (event.delta) {
@@ -448,6 +457,8 @@ export function useAgent(sessionId: string) {
   }
 
   function finishStreaming() {
+    log('info', 'agent', 'finish_streaming', { abortedTurn })
+
     // Mark agent completion — only during voice round-trips
     if (isTimerActive()) {
       mark('agent_full', 'end')
@@ -489,6 +500,7 @@ export function useAgent(sessionId: string) {
 
   // Send a message via WebSocket
   function sendMessage(text: string, options?: { origin?: 'voice' | 'text' }) {
+    log('info', 'agent', 'send_message', { origin: options?.origin, length: text.length, hasPendingQuestion: hasPendingQuestion.value })
     abortedTurn = false
     // If there's a pending question, intercept the input as a custom answer
     if (hasPendingQuestion.value && tryAnswerPendingQuestion(text)) {
@@ -546,12 +558,14 @@ export function useAgent(sessionId: string) {
     })
 
     if (!sent) {
+      log('error', 'agent', 'send_message_failed')
       appendSystemMessage('Failed to send message: not connected to backend')
     }
   }
 
   // Abort the current session
   function abortSession() {
+    log('info', 'agent', 'abort_session')
     abortedTurn = true
     stopTTS() // Stop any ongoing TTS playback
     stopMonitoring() // Stop mic monitoring if active
@@ -628,6 +642,7 @@ export function useAgent(sessionId: string) {
   function handlePermissionRequest(event: AgentEvent) {
     const permissionId = event.meta?.permissionId as string | undefined
     const title = event.meta?.title as string || event.content || 'Permission needed'
+    log('info', 'permission', 'request_received', { permissionId, title })
 
     // Add permission request as a special message in the chat
     messages.value.push({
@@ -679,6 +694,7 @@ export function useAgent(sessionId: string) {
 
   // Respond to a pending permission prompt via WebSocket
   function respondToPermission(permissionId: string, response: 'once' | 'always' | 'reject') {
+    log('info', 'permission', 'respond', { permissionId, response })
     const sent = send({
       type: 'permission_response',
       sessionId,
@@ -728,6 +744,7 @@ export function useAgent(sessionId: string) {
     const header = event.meta?.header as string || ''
     const options = event.meta?.options as Array<{ label: string; description: string }> || []
     const multiple = event.meta?.multiple as boolean || false
+    log('info', 'question', 'request_received', { questionId, questionIndex, totalQuestions, optionCount: options.length, multiple })
 
     // Break the current assistant message so that any text the agent sends
     // after the question is answered appears as a new chat bubble.
@@ -811,6 +828,7 @@ export function useAgent(sessionId: string) {
    * only when all questions in the batch have been answered.
    */
   function respondToQuestion(questionId: string, questionIndex: number, selectedLabels: string[]) {
+    log('info', 'question', 'respond', { questionId, questionIndex, selectedLabels })
     const batch = pendingQuestionAnswers.get(questionId)
     if (!batch) return
 
@@ -863,6 +881,7 @@ export function useAgent(sessionId: string) {
   }
 
   function rejectQuestion(questionId: string) {
+    log('info', 'question', 'reject', { questionId })
     const sent = send({
       type: 'question_reject',
       sessionId,

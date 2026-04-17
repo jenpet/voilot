@@ -27,6 +27,17 @@ import {
   createAudioFromSamples,
   SAMPLE_RATE,
 } from './audioSynth';
+import { useDebugLog } from './useDebugLog';
+import type { DebugLogLevel } from './useDebugLog';
+
+function _log(level: DebugLogLevel, event: string, data?: Record<string, unknown>) {
+  try {
+    const { log } = useDebugLog();
+    log(level, 'audio-feedback', event, data);
+  } catch {
+    // Composable not available outside setup — ignore
+  }
+}
 
 const START_FREQ = 660;   // Original pitch for start
 const STOP_FREQ = 440;    // Lower pitch for stop (A4)
@@ -86,6 +97,7 @@ function playStopSound() {
  */
 export function playStartBlip(): void {
   ensureAudioElements();
+  _log('debug', 'play_start_blip');
   if (_startAudio) {
     _startAudio.currentTime = 0;
     _startAudio.play().catch(() => {});
@@ -115,8 +127,10 @@ export function useRecordingFeedback() {
     if (!recording && !loopRecordingActive.value) {
       if (_suppressStopBlip) {
         _suppressStopBlip = false;
+        _log('debug', 'stop_blip_suppressed');
         return;
       }
+      _log('debug', 'play_stop_blip');
       playStopSound();
     }
     // Start blip is NOT played here — it's called directly from
