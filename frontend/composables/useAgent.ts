@@ -7,10 +7,10 @@ import { useTTSToolBatcher } from './useTTSToolBatcher'
 import { suppressNextStopBlip } from './useRecordingFeedback'
 import { useDebugLog } from './useDebugLog'
 import {
-  transitionState,
-  resetState,
-  getInteractionState,
-} from './useInteractionState'
+  dispatch,
+  abort,
+  getState,
+} from './useStateMachine'
 import {
   playHandoff,
   startWorkingHum,
@@ -92,6 +92,10 @@ export function useAgent(sessionId: string) {
   // Prevents finishStreaming() from playing a success chime after abort.
   let abortedTurn = false
 
+  // NOTE: The old `streamingFinished` dedup guard is no longer needed.
+  // The action-gated state machine rejects the second `finish_streaming`
+  // dispatch because the state has already moved to `turn:completing`.
+
   // Track whether the current conversation turn was started by voice input.
   // When false (text-typed input), the mic auto-loop does NOT re-activate.
   const voiceInitiatedTurn = ref(false)
@@ -157,13 +161,9 @@ export function useAgent(sessionId: string) {
     loopStartPending = true
     loopRecordingActive.value = true
     log('info', 'loop', 'loop_started')
-    // Transition through mic:acquiring so the state machine tracks
-    // the loop re-recording correctly. Only transition from states
-    // where mic:acquiring is a valid target.
-    const currentState = getInteractionState()
-    if (currentState === 'turn:completing' || currentState === 'idle' || currentState === 'error') {
-      transitionState('mic:acquiring', 'loop_recording_start')
-    }
+    // Dispatch acquire_mic so the state machine tracks the loop re-recording.
+    // If the current state doesn't allow it, the dispatch is simply rejected.
+    dispatch('acquire_mic', 'loop_recording_start')
     // Subtle tick so the user knows the mic is hot (Phase 3)
     playLoopListeningTick()
     startRecording() // reuses existing mic stream via ensureMicAndAnalyser()
@@ -185,7 +185,7 @@ export function useAgent(sessionId: string) {
     } else {
       // No speech detected (empty/too short) — play failure tone, then retry
       log('warn', 'loop', 'stt_empty_retry')
-      transitionState('idle', 'stt_empty')
+      abort('stt_empty')
       playSTTFailureTone()
       startLoopRecording()
     }
@@ -197,6 +197,9 @@ export function useAgent(sessionId: string) {
   watch(isTTSPlaying, (playing) => {
     if (!playing && (!isStreaming.value || hasPendingQuestion.value)) {
       startLoopRecording()
+      // If the loop didn't start (text-initiated turn, voice disabled, etc.),
+      // complete the turn now that TTS has drained.
+      dispatch('complete_turn', 'tts_drained_watcher')
     }
   })
 
@@ -297,9 +300,8 @@ export function useAgent(sessionId: string) {
     log('debug', 'agent', 'event_received', { type: event.type, partId: event.partId, hasDelta: !!event.delta })
 
     // Transition to agent:streaming on the first substantive event
-    const currentState = getInteractionState()
-    if (currentState === 'agent:submitting') {
-      transitionState('agent:streaming', `agent_event_${event.type}`)
+    if (getState() === 'agent:submitting') {
+      dispatch('start_streaming', `agent_event_${event.type}`)
     }
 
     // Feed non-text events through the tool batcher — it batches consecutive
@@ -361,13 +363,11 @@ export function useAgent(sessionId: string) {
         break
       }
       case 'done':
-        finishStreaming()
-        break
       case 'status':
-        if (event.content === 'busy') {
-          isStreaming.value = true
-        } else if (event.content === 'idle') {
+        if (event.type === 'done' || event.content === 'idle') {
           finishStreaming()
+        } else if (event.content === 'busy') {
+          isStreaming.value = true
         }
         break
       case 'session_updated':
@@ -477,10 +477,13 @@ export function useAgent(sessionId: string) {
   }
 
   function finishStreaming() {
+    // The state machine gates this — second call is rejected because
+    // state has already moved to turn:completing.
+    if (!dispatch('finish_streaming', 'finish_streaming')) {
+      log('debug', 'agent', 'finish_streaming_rejected')
+      return
+    }
     log('info', 'agent', 'finish_streaming', { abortedTurn })
-
-    // Transition to turn:completing — cleanup phase before next turn
-    transitionState('turn:completing', 'finish_streaming')
 
     // Mark agent completion — only during voice round-trips
     if (isTimerActive()) {
@@ -521,10 +524,10 @@ export function useAgent(sessionId: string) {
     startLoopRecording()
 
     // If the loop didn't start (text-initiated turn, voice disabled, etc.),
-    // transition back to idle.
-    const stateAfterLoop = getInteractionState()
-    if (stateAfterLoop === 'turn:completing') {
-      transitionState('idle', 'turn_complete')
+    // transition back to idle — but only when TTS has fully drained.
+    // dispatch('complete_turn') is gated: only succeeds from turn:completing.
+    if (!isTTSPlaying.value) {
+      dispatch('complete_turn', 'finish_streaming_no_tts')
     }
   }
 
@@ -583,7 +586,7 @@ export function useAgent(sessionId: string) {
 
     // Transition to agent:submitting — the state machine tracks that
     // we've handed the message to the agent and are waiting for a response.
-    transitionState('agent:submitting', 'send_message')
+    dispatch('submit_message', 'send_message')
 
     const sent = send({
       type: 'message',
@@ -593,7 +596,7 @@ export function useAgent(sessionId: string) {
 
     if (!sent) {
       log('error', 'agent', 'send_message_failed')
-      transitionState('error', 'send_message_failed', { errorSource: 'agent', errorMessage: 'not connected' })
+      dispatch('error', 'send_message_failed')
       appendSystemMessage('Failed to send message: not connected to backend')
     }
   }
@@ -602,7 +605,7 @@ export function useAgent(sessionId: string) {
   function abortSession() {
     log('info', 'agent', 'abort_session')
     abortedTurn = true
-    resetState('abort_session')
+    abort('abort_session')
     stopTTS() // Stop any ongoing TTS playback
     stopMonitoring() // Stop mic monitoring if active
     ttsChunker.reset()
@@ -680,7 +683,7 @@ export function useAgent(sessionId: string) {
     const title = event.meta?.title as string || event.content || 'Permission needed'
     log('info', 'permission', 'request_received', { permissionId, title })
 
-    transitionState('agent:awaiting-permission', 'permission_request')
+    dispatch('enter_permission', 'permission_request')
 
     // Add permission request as a special message in the chat
     messages.value.push({
@@ -714,7 +717,7 @@ export function useAgent(sessionId: string) {
 
     if (!permissionId) return
 
-    transitionState('agent:streaming', 'permission_replied')
+    dispatch('resolve_permission', 'permission_replied')
 
     // Find the matching permission_request message and mark it resolved
     const msg = messages.value.find(
@@ -786,7 +789,7 @@ export function useAgent(sessionId: string) {
     const multiple = event.meta?.multiple as boolean || false
     log('info', 'question', 'request_received', { questionId, questionIndex, totalQuestions, optionCount: options.length, multiple })
 
-    transitionState('agent:awaiting-question', 'question_request')
+    dispatch('enter_question', 'question_request')
 
     // Break the current assistant message so that any text the agent sends
     // after the question is answered appears as a new chat bubble.
@@ -843,7 +846,7 @@ export function useAgent(sessionId: string) {
 
     if (!questionId) return
 
-    transitionState('agent:streaming', 'question_replied')
+    dispatch('resolve_question', 'question_replied')
 
     // Mark all question messages for this batch as resolved
     messages.value

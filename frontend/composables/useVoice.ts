@@ -12,7 +12,7 @@
  */
 
 import { useDebugLog } from './useDebugLog';
-import { transitionState, resetState, getInteractionState } from './useInteractionState';
+import { dispatch, getState } from './useStateMachine';
 
 // Silence detection tuning constants
 const SILENCE_THRESHOLD = 15       // RMS level below which we consider "silence" (0-255 scale)
@@ -105,18 +105,18 @@ export function useVoice() {
     if (_micStream) {
       // Stream already acquired — still transition to mic:acquiring
       // so the state machine tracks re-use correctly.
-      transitionState('mic:acquiring', 'mic_stream_reused')
+      dispatch('acquire_mic', 'mic_stream_reused')
       return _micStream
     }
 
     const micError = checkMicSupport()
     if (micError) {
       log('error', 'mic', 'support_check_failed', { error: micError })
-      transitionState('error', 'mic_support_check_failed', { errorSource: 'mic', errorMessage: micError })
+      dispatch('error', 'mic_support_check_failed')
       throw new Error(micError)
     }
 
-    transitionState('mic:acquiring', 'getUserMedia_requested')
+    dispatch('acquire_mic', 'getUserMedia_requested')
     log('info', 'mic', 'getUserMedia_requested')
 
     try {
@@ -137,7 +137,7 @@ export function useVoice() {
       const name = err instanceof Error ? err.name : 'Unknown'
       const msg = err instanceof Error ? err.message : String(err)
       log('error', 'mic', 'getUserMedia_failed', { name, message: msg })
-      transitionState('error', 'getUserMedia_failed', { errorSource: 'mic', errorMessage: msg })
+      dispatch('error', 'getUserMedia_failed')
       throw new Error(`Mic access denied: ${name} - ${msg}`)
     }
   }
@@ -286,13 +286,13 @@ export function useVoice() {
       }, POLL_INTERVAL_MS)
 
       log('info', 'mic', 'monitoring_started')
-      transitionState('mic:monitoring', 'monitoring_started')
+      dispatch('start_monitoring', 'monitoring_started')
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
       log('error', 'mic', 'monitoring_failed', { error: msg })
       console.error('Failed to start mic monitoring:', err)
       isMonitoring.value = false
-      transitionState('error', 'monitoring_failed', { errorSource: 'mic', errorMessage: msg })
+      dispatch('error', 'monitoring_failed')
     }
   }
 
@@ -306,9 +306,8 @@ export function useVoice() {
     log('info', 'mic', 'monitoring_stopped')
     // Only transition to idle if we're still in a mic state —
     // other callers (abortSession) manage their own transitions.
-    const currentState = getInteractionState()
-    if (currentState === 'mic:monitoring') {
-      transitionState('idle', 'monitoring_stopped')
+    if (getState() === 'mic:monitoring') {
+      abort('monitoring_stopped')
     }
   }
 
@@ -372,14 +371,14 @@ export function useVoice() {
       startSilenceDetection()
       lastError.value = null
 
-      transitionState('mic:recording', 'recording_started')
+      dispatch('start_recording', 'recording_started')
       log('info', 'mic', 'recording_started', { mimeType: mimeType || 'default' })
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Failed to start recording'
       log('error', 'mic', 'recording_failed', { error: msg })
       console.error('Failed to start recording:', msg)
       lastError.value = msg
-      transitionState('error', 'recording_failed', { errorSource: 'mic', errorMessage: msg })
+      dispatch('error', 'recording_failed')
     }
   }
 
@@ -421,14 +420,14 @@ export function useVoice() {
       startSilenceDetection()
       lastError.value = null
 
-      transitionState('mic:recording', 'recording_from_monitor_started')
+      dispatch('start_recording', 'recording_from_monitor_started')
       log('info', 'mic', 'recording_from_monitor_started', { mimeType: mimeType || 'default' })
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Failed to start recording'
       log('error', 'mic', 'recording_from_monitor_failed', { error: msg })
       console.error('Failed to start recording from monitor:', msg)
       lastError.value = msg
-      transitionState('error', 'recording_from_monitor_failed', { errorSource: 'mic', errorMessage: msg })
+      dispatch('error', 'recording_from_monitor_failed')
     }
   }
 
@@ -502,7 +501,7 @@ export function useVoice() {
       recorder.stop()
       isRecording.value = false
       _mediaRecorder = null
-      transitionState('stt:transcribing', 'recording_stopped')
+      dispatch('stop_recording', 'recording_stopped')
       log('info', 'mic', 'recording_stopped')
     })
   }

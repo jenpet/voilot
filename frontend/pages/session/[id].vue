@@ -111,10 +111,9 @@ const route = useRoute()
 const router = useRouter()
 const sessionId = route.params.id as string
 
-// Initialize interaction state machine — registers the state accessor
-// for debug logs so every entry includes the current interaction state
-// instead of "unknown".
-useInteractionState()
+// Initialize the action-gated state machine — registers the state accessor
+// for debug logs so every entry includes the current interaction state.
+useStateMachine()
 
 const {
   session,

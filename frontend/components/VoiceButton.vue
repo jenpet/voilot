@@ -65,7 +65,7 @@
 import { unlockAudio } from '~/composables/useTTS'
 import { playStartBlip } from '~/composables/useRecordingFeedback'
 import { useDebugLog } from '~/composables/useDebugLog'
-import { transitionState, resetState } from '~/composables/useInteractionState'
+import { abort } from '~/composables/useStateMachine'
 
 const { log } = useDebugLog()
 
@@ -163,7 +163,7 @@ async function finishRecording() {
       // returned empty, the user doesn't need a spoken "I didn't hear anything"
       // interruption. A brief visual hint is sufficient.
       showStatus('No speech detected', 2000)
-      resetState('no_transcription')
+      abort('no_transcription')
     }
   } finally {
     isProcessing.value = false

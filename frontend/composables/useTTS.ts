@@ -8,9 +8,8 @@ interface TTSQueueItem {
 import { useDebugLog } from './useDebugLog';
 import type { DebugLogLevel } from './useDebugLog';
 import {
-  transitionState,
-  getInteractionState,
-} from './useInteractionState';
+  dispatch,
+} from './useStateMachine';
 import { warmUpBlips } from './useRecordingFeedback';
 
 function _log(level: DebugLogLevel, event: string, data?: Record<string, unknown>) {
@@ -199,12 +198,8 @@ export function useTTS() {
       if (shouldMark && isFirstItem) mark('tts_play', 'start')
 
       // Transition to tts:speaking when first audio starts playing.
-      // Only transition from agent:streaming or turn:completing — other
-      // callers (e.g. audio feedback spoken check-ins) don't drive state.
-      const stateBeforePlay = getInteractionState()
-      if (stateBeforePlay === 'agent:streaming' || stateBeforePlay === 'turn:completing') {
-        transitionState('tts:speaking', 'tts_playback_started')
-      }
+      // dispatch is gated — only succeeds from agent:streaming or turn:completing.
+      dispatch('start_tts', 'tts_playback_started')
 
       // Play using AudioBufferSourceNode
       await new Promise<void>((resolve, reject) => {
@@ -264,10 +259,7 @@ export function useTTS() {
         firstSynthMarked = false
 
         // Transition from tts:speaking → turn:completing when all audio is done
-        const stateAfterDrain = getInteractionState()
-        if (stateAfterDrain === 'tts:speaking') {
-          transitionState('turn:completing', 'tts_queue_drained')
-        }
+        dispatch('drain_tts', 'tts_queue_drained')
       }
 
       // Process next item if available
