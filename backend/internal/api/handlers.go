@@ -185,7 +185,17 @@ func (s *Server) handleGetSession(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, http.StatusNotFound, "session not found: "+err.Error())
 		return
 	}
-	jsonResponse(w, http.StatusOK, session)
+
+	// Wrap the session with a busy flag so the frontend can detect
+	// stale agent:streaming state after page reload / reconnect.
+	type sessionWithStatus struct {
+		*agent.Session
+		Busy bool `json:"busy"`
+	}
+	jsonResponse(w, http.StatusOK, sessionWithStatus{
+		Session: session,
+		Busy:    s.agentAdapter.GetSessionBusy(id),
+	})
 }
 
 func (s *Server) handleGetSessionMessages(w http.ResponseWriter, r *http.Request) {

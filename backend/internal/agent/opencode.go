@@ -56,6 +56,11 @@ type OpenCodeAdapter struct {
 	// reach the frontend (not spoken via TTS, not rendered in the UI).
 	reasoningPartMu  sync.RWMutex
 	reasoningPartIDs map[string]struct{} // partID -> exists
+
+	// Track per-session busy/idle status from session.status SSE events.
+	// Used to answer "is this session busy?" on page reload / reconnect.
+	sessionStatusMu sync.RWMutex
+	sessionStatuses map[string]string // sessionID -> "idle" | "busy" | "retry"
 }
 
 // userMsgIDTTL is how long user message IDs are retained for filtering.
@@ -79,6 +84,7 @@ func NewOpenCodeAdapter(baseURL string) *OpenCodeAdapter {
 		userMsgIDs:        make(map[string]time.Time),
 		deltaPartIDs:      make(map[string]struct{}),
 		reasoningPartIDs:  make(map[string]struct{}),
+		sessionStatuses:   make(map[string]string),
 	}
 
 	// Start background cleanup of expired user message IDs.
@@ -550,6 +556,17 @@ func (a *OpenCodeAdapter) GetSessionMode(sessionID string) SessionMode {
 		return mode
 	}
 	return ModePlan
+}
+
+// GetSessionBusy returns true if the session is currently busy (agent processing).
+func (a *OpenCodeAdapter) GetSessionBusy(sessionID string) bool {
+	a.sessionStatusMu.RLock()
+	defer a.sessionStatusMu.RUnlock()
+	status, ok := a.sessionStatuses[sessionID]
+	if !ok {
+		return false // unknown session defaults to idle
+	}
+	return status == "busy" || status == "retry"
 }
 
 // SetSessionAgent stores the active agent for a session.
@@ -1242,6 +1259,12 @@ func (a *OpenCodeAdapter) parseSessionStatus(props json.RawMessage) []Event {
 	if err := json.Unmarshal(props, &status); err != nil {
 		return nil
 	}
+
+	// Store the latest status for this session so the frontend can
+	// query it on reconnect / page reload.
+	a.sessionStatusMu.Lock()
+	a.sessionStatuses[status.SessionID] = status.Status.Type
+	a.sessionStatusMu.Unlock()
 
 	evt := Event{
 		Type:      EventStatus,

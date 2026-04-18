@@ -148,6 +148,10 @@ type Adapter interface {
 	// Returns ModePlan if the session has no mode set.
 	GetSessionMode(sessionID string) SessionMode
 
+	// GetSessionBusy returns true if the session is currently busy (agent is processing).
+	// Used by the frontend on page reload / WebSocket reconnect to detect stale state.
+	GetSessionBusy(sessionID string) bool
+
 	// GetStatus returns the current connection status of the agent backend.
 	GetStatus(ctx context.Context) (*Status, error)
 
