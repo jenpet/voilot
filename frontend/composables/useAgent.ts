@@ -29,6 +29,7 @@ import {
   startWatchdog,
   cancelWatchdog,
   setTTSEnqueue,
+  setTTSCheckInEnqueue,
 } from './useAudioFeedback'
 
 export interface Message {
@@ -67,12 +68,13 @@ function nextMessageId(): string {
 export function useAgent(sessionId: string) {
   const apiBase = `${resolveBackendUrl()}/api`
   const { send, subscribe, connectionState } = useWebSocket()
-  const { enqueue: enqueueTTS, stop: stopTTS, isPlaying: isTTSPlaying } = useTTS()
+  const { enqueue: enqueueTTS, enqueueCheckIn: enqueueCheckInTTS, stop: stopTTS, isPlaying: isTTSPlaying } = useTTS()
   const { log } = useDebugLog()
 
   // Wire TTS into the audio feedback manager so it can speak
   // check-in messages and error announcements.
   setTTSEnqueue(enqueueTTS)
+  setTTSCheckInEnqueue(enqueueCheckInTTS)
   const { mark, isActive: isTimerActive } = useRoundTripTimer()
   const {
     isRecording,
@@ -247,8 +249,25 @@ export function useAgent(sessionId: string) {
   // Fetch session details via REST
   async function fetchSession() {
     try {
-      const data = await $fetch<Session>(`${apiBase}/sessions/${sessionId}`)
+      const data = await $fetch<Session & { busy?: boolean }>(`${apiBase}/sessions/${sessionId}`)
+      const isBusy = data.busy === true
+      // Remove the busy field before storing — it's transient, not part of Session
+      delete (data as Record<string, unknown>).busy
       session.value = data
+
+      // If the backend reports the session as busy, sync the frontend state.
+      // This handles page reload / WebSocket reconnect where the idle event
+      // was missed — the frontend enters agent:streaming and waits for the
+      // real done/idle event from SSE.
+      if (isBusy) {
+        log('info', 'agent', 'session_busy_on_load', { sessionId })
+        isStreaming.value = true
+        dispatch('submit_message', 'session_busy_on_load')
+        dispatch('start_streaming', 'session_busy_on_load')
+        if (voiceEnabled.value) {
+          startWorkingHum()
+        }
+      }
     } catch {
       console.error('Failed to fetch session')
     }

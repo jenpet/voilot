@@ -263,12 +263,25 @@ let _toolsActiveThisTurn = false;
 // spoken check-ins without a circular dependency on useTTS.
 let _enqueueTTS: ((text: string) => void) | null = null;
 
+// Check-in TTS enqueue — bypasses state machine transitions.
+// Used for "Still working." check-ins and watchdog announcements
+// that must not trigger start_tts / drain_tts.
+let _enqueueCheckInTTS: ((text: string) => void) | null = null;
+
 /**
  * Register the TTS enqueue function. Called once by the consumer
  * so the audio feedback system can produce spoken check-ins.
  */
 export function setTTSEnqueue(fn: (text: string) => void): void {
   _enqueueTTS = fn;
+}
+
+/**
+ * Register the check-in TTS enqueue function. Check-in items bypass
+ * the state machine (no start_tts / drain_tts transitions).
+ */
+export function setTTSCheckInEnqueue(fn: (text: string) => void): void {
+  _enqueueCheckInTTS = fn;
 }
 
 /** Mark that tools are active this turn (for check-in context). */
@@ -341,8 +354,9 @@ export function startWorkingHum(): void {
   // Hard cap
   _humHardCapTimer = setTimeout(() => {
     stopWorkingHum();
-    if (_enqueueTTS) {
-      _enqueueTTS('Agent is still working, please wait.');
+    const enqueue = _enqueueCheckInTTS || _enqueueTTS;
+    if (enqueue) {
+      enqueue('Agent is still working, please wait.');
     }
   }, HUM_HARD_CAP_MS);
 }
@@ -367,11 +381,13 @@ function fadeOutHum(audio: HTMLAudioElement, durationMs: number): void {
 function startCheckIns(): void {
   if (_checkInTimer) return;
   _checkInTimer = setInterval(() => {
-    if (!_humPlaying || !_enqueueTTS) return;
+    if (!_humPlaying) return;
+    const enqueue = _enqueueCheckInTTS || _enqueueTTS;
+    if (!enqueue) return;
     const msg = _toolsActiveThisTurn
       ? 'Still working, running tools.'
       : 'Still working.';
-    _enqueueTTS(msg);
+    enqueue(msg);
   }, CHECK_IN_INTERVAL_MS);
 }
 
@@ -496,8 +512,9 @@ export function startWatchdog(timeoutMs: number = WATCHDOG_TIMEOUT_MS): void {
     _log('warn', 'watchdog_fired');
     await stopWorkingHum();
     playErrorTone();
-    if (_enqueueTTS) {
-      _enqueueTTS("I didn't catch that. Please try again.");
+    const enqueue = _enqueueCheckInTTS || _enqueueTTS;
+    if (enqueue) {
+      enqueue("I didn't catch that. Please try again.");
     }
   }, timeoutMs);
 }
@@ -531,6 +548,7 @@ export function _resetForTesting(): void {
   _humStopResolve = null;
   _toolsActiveThisTurn = false;
   _enqueueTTS = null;
+  _enqueueCheckInTTS = null;
   _cache = null;
   for (const key of Object.keys(_lastPlayTime)) {
     delete _lastPlayTime[key];
