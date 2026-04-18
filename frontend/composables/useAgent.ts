@@ -149,15 +149,22 @@ export function useAgent(sessionId: string) {
   // Start recording for the next conversational turn.
   // Called when the agent's turn is fully over (streaming done + TTS finished),
   // OR when a question is pending and the user needs to answer by voice.
-  function startLoopRecording() {
+  function startLoopRecording(): boolean {
     if (!voiceEnabled.value || !voiceInitiatedTurn.value || isRecording.value || isTTSPlaying.value || loopStartPending) {
-      return
+      log('debug', 'loop', 'loop_guard_blocked', {
+        voiceEnabled: voiceEnabled.value,
+        voiceInitiatedTurn: voiceInitiatedTurn.value,
+        isRecording: isRecording.value,
+        isTTSPlaying: isTTSPlaying.value,
+        loopStartPending,
+      })
+      return false
     }
     // Don't auto-record while waiting for user to respond to a permission prompt
-    if (hasPendingPermission.value) return
+    if (hasPendingPermission.value) return false
     // When a question is pending, allow recording (user answers by voice).
     // Otherwise, block if the agent is still streaming.
-    if (!hasPendingQuestion.value && isStreaming.value) return
+    if (!hasPendingQuestion.value && isStreaming.value) return false
     loopStartPending = true
     loopRecordingActive.value = true
     log('info', 'loop', 'loop_started')
@@ -167,6 +174,7 @@ export function useAgent(sessionId: string) {
     // Subtle tick so the user knows the mic is hot (Phase 3)
     playLoopListeningTick()
     startRecording() // reuses existing mic stream via ensureMicAndAnalyser()
+    return true
   }
 
   // Handle auto-stop from silence detection — only for loop-triggered recordings.
@@ -196,10 +204,12 @@ export function useAgent(sessionId: string) {
   // a question (isStreaming is still true but hasPendingQuestion allows it).
   watch(isTTSPlaying, (playing) => {
     if (!playing && (!isStreaming.value || hasPendingQuestion.value)) {
-      startLoopRecording()
+      const loopStarted = startLoopRecording()
       // If the loop didn't start (text-initiated turn, voice disabled, etc.),
       // complete the turn now that TTS has drained.
-      dispatch('complete_turn', 'tts_drained_watcher')
+      if (!loopStarted) {
+        dispatch('complete_turn', 'tts_drained_watcher')
+      }
     }
   })
 
@@ -521,12 +531,12 @@ export function useAgent(sessionId: string) {
     // for the user's next turn immediately.
     // (If TTS is still playing, the isTTSPlaying watcher will start recording
     // when playback finishes.)
-    startLoopRecording()
+    const loopStarted = startLoopRecording()
 
     // If the loop didn't start (text-initiated turn, voice disabled, etc.),
     // transition back to idle — but only when TTS has fully drained.
     // dispatch('complete_turn') is gated: only succeeds from turn:completing.
-    if (!isTTSPlaying.value) {
+    if (!loopStarted && !isTTSPlaying.value) {
       dispatch('complete_turn', 'finish_streaming_no_tts')
     }
   }
