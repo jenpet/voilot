@@ -1,4 +1,9 @@
 // https://nuxt.com/docs/api/configuration/nuxt-config
+
+const isDev = process.env.NODE_ENV !== 'production';
+const appName = isDev ? 'Voilot Dev' : 'Voilot';
+const iconPrefix = isDev ? '/icons/dev' : '/icons';
+
 export default defineNuxtConfig({
   compatibilityDate: '2025-01-01',
 
@@ -10,7 +15,7 @@ export default defineNuxtConfig({
 
   modules: [
     '@nuxtjs/tailwindcss',
-    // '@vite-pwa/nuxt', // Disabled during development — SW caching serves stale JS on mobile
+    '@vite-pwa/nuxt',
   ],
 
   // No dev proxy — in development the frontend talks directly to the Go backend
@@ -28,8 +33,55 @@ export default defineNuxtConfig({
   // Static site generation for production (served by nginx)
   ssr: false,
 
-  // PWA disabled during development — re-enable @vite-pwa/nuxt in modules[] when ready
-  // pwa: { ... },
+  // PWA configuration — environment-aware caching and manifest
+  pwa: {
+    registerType: isDev ? 'autoUpdate' : 'prompt',
+    manifest: {
+      name: appName,
+      short_name: appName,
+      start_url: '/',
+      display: 'standalone',
+      background_color: '#0f172a',
+      theme_color: '#0f172a',
+      icons: [
+        { src: `${iconPrefix}/icon-192x192.png`, sizes: '192x192', type: 'image/png' },
+        { src: `${iconPrefix}/icon-512x512.png`, sizes: '512x512', type: 'image/png' },
+        { src: `${iconPrefix}/icon-maskable-512x512.png`, sizes: '512x512', type: 'image/png', purpose: 'maskable' },
+      ],
+    },
+    workbox: {
+      // Never cache API or WebSocket traffic
+      navigateFallback: '/',
+      navigateFallbackDenylist: [/^\/api/, /^\/ws/],
+      runtimeCaching: [
+        {
+          urlPattern: /^https?.*/,
+          handler: 'NetworkFirst',
+          options: {
+            cacheName: 'app-shell',
+            expiration: { maxEntries: 50, maxAgeSeconds: 30 * 24 * 60 * 60 },
+            networkTimeoutSeconds: 3,
+          },
+        },
+        {
+          urlPattern: /\.(?:js|css|woff2?|png|jpg|jpeg|svg|gif|webp|wav|mp3|ogg)$/,
+          handler: 'CacheFirst',
+          options: {
+            cacheName: 'static-assets',
+            expiration: { maxEntries: 100, maxAgeSeconds: 30 * 24 * 60 * 60 },
+          },
+        },
+      ],
+      // Include audio feedback files in precache
+      maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
+      skipWaiting: isDev,
+      clientsClaim: true,
+    },
+    devOptions: {
+      enabled: true,
+      type: 'module',
+    },
+  },
 
   // Global CSS
   css: ['~/assets/css/markdown.css'],
@@ -44,14 +96,15 @@ export default defineNuxtConfig({
         { name: 'apple-mobile-web-app-capable', content: 'yes' },
         { name: 'apple-mobile-web-app-status-bar-style', content: 'black-translucent' },
       ],
+      link: [
+        { rel: 'apple-touch-icon', href: `${iconPrefix}/apple-touch-icon.png` },
+      ],
     },
   },
 
   // Runtime config (environment variables)
-  // In dev: API goes through Nitro devProxy (/api -> localhost:8080),
-  // but WebSocket connects directly to the Go backend (no proxy) to
-  // avoid ECONNRESET crashes when the backend is unavailable.
-  // In production: Nginx proxies both /api and /ws to the backend.
+  // In dev: the frontend talks directly to the Go backend.
+  // In production behind Nginx, set to '' (empty) so relative paths work.
   runtimeConfig: {
     public: {
       // Base URL of the Go backend. In dev: direct connection.

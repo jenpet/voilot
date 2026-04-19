@@ -6,12 +6,21 @@
         <h1 class="text-lg font-semibold">voilot</h1>
         <StatusIndicator />
       </div>
-      <button
-        class="px-3 py-1.5 text-sm rounded-lg bg-surface-700 hover:bg-surface-600 transition-colors"
-        @click="createSession"
-      >
-        + New Session
-      </button>
+      <div class="flex items-center gap-2">
+        <button
+          v-if="canShowInstall && !promptType"
+          class="px-3 py-1.5 text-sm rounded-lg bg-blue-600/30 text-blue-300 hover:bg-blue-600/50 transition-colors"
+          @click="reopen"
+        >
+          Install
+        </button>
+        <button
+          class="px-3 py-1.5 text-sm rounded-lg bg-surface-700 hover:bg-surface-600 transition-colors"
+          @click="createSession"
+        >
+          + New Session
+        </button>
+      </div>
     </header>
 
     <!-- Session List -->
@@ -31,12 +40,15 @@
         />
       </div>
     </main>
+    <!-- PWA install / update prompt overlay -->
+    <PwaPrompt />
   </div>
 </template>
 
 <script setup lang="ts">
 const router = useRouter()
 const { sessions, createSession: doCreateSession, deleteSession: doDeleteSession } = useSession()
+const { promptType, canShowInstall, reopen } = usePwaPrompt()
 
 async function createSession() {
   const session = await doCreateSession({ mode: 'plan', agent: 'planitect' })
