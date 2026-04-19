@@ -4,7 +4,9 @@ This document describes the voilot interaction state machine, its action-gated d
 
 ## Architecture: Action-Gated Dispatch
 
-State transitions are driven by **named actions** via `dispatch(action, trigger) → boolean`. The state machine checks whether the action is valid in the current state and transitions if so. Side effects (TTS playback, mic acquisition, audio feedback, etc.) remain in the calling composables — the state machine is a pure gate with no dependencies.
+The state machine tracks **turn lifecycle** only — 4 states. Audio/media concerns (mic, TTS, STT) are tracked by reactive booleans in their respective composables (`useVoice`, `useTTS`), not as state machine states.
+
+State transitions are driven by **named actions** via `dispatch(action, trigger) → boolean`. The state machine checks whether the action is valid in the current state and transitions if so. Side effects remain in the calling composables — the state machine is a pure gate with no dependencies.
 
 - **`dispatch(action, trigger)`** — returns `true` if the action was accepted (state transitions), `false` if rejected (state unchanged, warning logged).
 - **`abort(trigger)`** — force-resets to `idle` from any state. Bypasses the action table. Used for user abort/cleanup.
@@ -12,42 +14,23 @@ State transitions are driven by **named actions** via `dispatch(action, trigger)
 
 Implementation: `frontend/composables/useStateMachine.ts`
 
-## Interaction States (12)
+## Interaction States (4)
 
 | State | Description |
 |---|---|
-| `idle` | Nothing active. Waiting for user input (mic tap, typed message, or voice loop restart). Resting state between turns. |
-| `mic:acquiring` | Browser requesting mic access via `getUserMedia()`. May show permission prompt. Also entered when reusing a kept-open stream. |
-| `mic:monitoring` | Mic open, AnalyserNode sampling RMS at ~2Hz, waiting for speech to cross threshold. For future hands-free activation. |
-| `mic:recording` | MediaRecorder actively capturing audio. Stops on manual tap or silence auto-detection (~1.5s). |
-| `stt:transcribing` | Audio blob sent to STT service. Waiting for transcription response. |
-| `agent:submitting` | Message sent to agent via WebSocket. Waiting for first substantive event back. Typically very brief (~tens of ms). |
-| `agent:streaming` | Agent generating response. Text deltas accumulated, run through TTS condenser/chunker, enqueued to TTS. UI renders in real time. |
-| `agent:awaiting-question` | Agent asked a clarifying question. UI shows input. Voice loop restarts so user can answer by voice. |
-| `agent:awaiting-permission` | Agent requested permission for destructive action. UI shows approve/deny. Voice loop does NOT restart (prevents accidental approval). |
-| `tts:speaking` | TTS audio playing through AudioContext. Queue processes sequentially. Persists until all queued items finish. |
-| `turn:completing` | Agent done streaming AND TTS finished/finishing. Cleanup state: flush chunker, reset batcher, stop hum, play chime. Then loop restart or idle. |
-| `error` | Something failed (mic denied, STT error, WS disconnect, etc.). Recoverable via retry or user action. |
+| `idle` | Nothing active. Waiting for user input (mic tap, typed message, or voice loop restart). |
+| `user_turn` | User is providing input — mic recording, STT transcribing, or typing. |
+| `agent_turn` | Agent is processing — streaming response, TTS playing. Ends when both agent streaming and TTS playback are complete. |
+| `error` | Something failed (mic denied, STT error, WS disconnect, etc.). Recoverable via `recover` action. |
 
-## Action Table (16 actions)
+## Action Table (5 actions)
 
 | Action | From states | To state | What triggers it |
 |---|---|---|---|
-| `acquire_mic` | `idle`, `turn:completing`, `error` | `mic:acquiring` | User taps mic; voice loop restart; retry after error |
-| `start_monitoring` | `mic:acquiring` | `mic:monitoring` | After mic acquisition when wake-on-speech desired |
-| `start_recording` | `mic:acquiring`, `mic:monitoring` | `mic:recording` | After mic acquisition (button/loop); speech detected in monitoring |
-| `stop_recording` | `mic:recording` | `stt:transcribing` | Silence auto-stop; user taps mic while recording |
-| `submit_message` | `idle`, `stt:transcribing` | `agent:submitting` | STT returns text; user sends typed message |
-| `start_streaming` | `agent:submitting` | `agent:streaming` | First substantive WebSocket event for the turn |
-| `finish_streaming` | `agent:streaming`, `tts:speaking` | `turn:completing` | OpenCode sends `status: idle` or `done` event |
-| `start_tts` | `agent:streaming`, `turn:completing` | `tts:speaking` | First TTS AudioBufferSourceNode.start() call |
-| `drain_tts` | `tts:speaking` | `turn:completing` | Last TTS queue item finishes, queue empty |
-| `complete_turn` | `turn:completing` | `idle` | Voice loop didn't start; TTS fully drained and no loop |
-| `enter_question` | `agent:streaming` | `agent:awaiting-question` | Agent sends `question_request` event |
-| `resolve_question` | `agent:awaiting-question` | `agent:streaming` | Agent sends `question_replied` event |
-| `enter_permission` | `agent:streaming` | `agent:awaiting-permission` | Agent sends `permission_request` event |
-| `resolve_permission` | `agent:awaiting-permission` | `agent:streaming` | Agent sends `permission_replied` event |
-| `error` | any except `idle` | `error` | Mic denied; getUserMedia failed; STT failed; WS send failed |
+| `start_user_turn` | `idle` | `user_turn` | User taps mic button; voice loop auto-restart |
+| `start_agent_turn` | `user_turn`, `idle` | `agent_turn` | STT result sent to agent; typed message sent; session busy on page load |
+| `complete_turn` | `agent_turn` | `idle` | Agent done streaming AND TTS queue drained (or no TTS) |
+| `error` | any except `idle` | `error` | Mic denied; STT failed; WS send failed |
 | `recover` | `error` | `idle` | User dismisses error; automatic retry path |
 
 **`abort`** (special case): any state → `idle`. Bypasses the action table entirely.
@@ -55,39 +38,37 @@ Implementation: `frontend/composables/useStateMachine.ts`
 ## State Transition Diagram
 
 ```
-idle ──► mic:acquiring ──► mic:monitoring ──► mic:recording
-                │                                    │
-                └──► mic:recording                   ▼
-                                            stt:transcribing
-                                                     │
-                                                     ▼
-                                            agent:submitting
-                                                     │
-                                                     ▼
-                                            agent:streaming ──► agent:awaiting-question
-                                                     │                    │
-                                                     │          ◄────────┘
-                                                     │
-                                                     ├──► agent:awaiting-permission
-                                                     │                    │
-                                                     │          ◄────────┘
-                                                     │
-                                              ┌──────┤
-                                              ▼      ▼
-                                        tts:speaking  turn:completing
-                                              │            │
-                                              └──► turn:completing
-                                                     │
-                                                     ▼
-                                                   idle (or mic:acquiring for voice loop)
+              start_user_turn              start_agent_turn
+    idle ──────────────────► user_turn ──────────────────► agent_turn
+      ▲                                                       │
+      │                    start_agent_turn                    │
+      ├◄──────────────────────────────────────────────────────┘
+      │                   (idle → agent_turn for busy-on-load) complete_turn
+      │
+      │  recover
+    error ◄──── any state (except idle) via error action
 
-  Any state ──► error ──► idle (via recover)
-  Any state ──► idle (via abort)
+    Any state ──► idle via abort()
 ```
 
-### Key: Duplicate finish_streaming Protection
+### Key Design Decisions
 
-OpenCode sends both `status: idle` AND `done` events at end-of-turn. Both trigger `dispatch('finish_streaming')`. The first succeeds (moving state to `turn:completing`), the second is automatically rejected because `turn:completing` is not in `finish_streaming`'s `from` list. This is the structural fix for the voice loop breakage bug.
+1. **`start_agent_turn` from `idle`**: Allows text-only messages (no mic/user_turn phase) and busy-on-load recovery (page reload while agent is processing).
+2. **Turn completion is dual-gated**: `tryCompleteTurn()` in `useAgent.ts` only dispatches `complete_turn` when both `agentDone` flag is true AND `onQueueDrained` callback fires. This prevents premature turn completion.
+3. **Voice loop restart**: After `complete_turn` returns to `idle`, `useAgent.ts` calls `startLoopRecording()` which dispatches `start_user_turn` — re-entering the cycle.
+
+## Audio/Media State (Orthogonal)
+
+These are **not** state machine states. They are reactive booleans in their respective composables:
+
+| Signal | Composable | Description |
+|---|---|---|
+| `isRecording` | `useVoice` | MediaRecorder actively capturing audio |
+| `isTTSPlaying` | `useTTS` | TTS audio currently playing |
+| `voiceEnabled` | `useVoice` | Mic stream is open and available |
+| `isStreaming` | `useAgent` | Agent is sending response events |
+
+This separation enables future **voice barge-in** (mic can be open during agent_turn) and eliminates the class of bugs caused by conflating turn lifecycle with audio state.
 
 ## Component Registry
 
@@ -114,11 +95,11 @@ Debug log entries include a `component` field identifying the source subsystem:
 {
   "timestamp": 1713340800000,
   "elapsed": 5432,
-  "state": "agent:streaming",
+  "state": "agent_turn",
   "level": "info",
   "component": "state",
   "event": "action_dispatched",
-  "data": { "action": "finish_streaming", "from": "agent:streaming", "to": "turn:completing", "trigger": "finish_streaming" }
+  "data": { "action": "complete_turn", "from": "agent_turn", "to": "idle", "trigger": "turn_complete" }
 }
 ```
 
@@ -151,6 +132,15 @@ Debug log entries include a `component` field identifying the source subsystem:
 
 ## Common Failure Patterns
 
+### Voice loop not restarting
+
+Look for:
+- `loop` / `loop_started` — should fire after TTS finishes and agent is done
+- `state` / `action_dispatched` with `action: complete_turn` — confirms turn ended
+- `tts` / `queue_drained` — confirms TTS finished all items
+- `agent` / `finish_streaming` — confirms agent done streaming
+- Check that `agentDone` flag and `onQueueDrained` callback both fired — turn completion requires both
+
 ### Mic not picking up sound
 
 Look for:
@@ -167,15 +157,6 @@ Look for:
 - `tts` / `playback_started` — AudioBufferSourceNode.start() was called
 - `tts` / `playback_error` — decode or playback failure
 - Missing `enqueue` entries → text may be filtered out by condenser/chunker
-
-### Voice loop not restarting
-
-Look for:
-- `loop` / `loop_started` — should fire after TTS finishes and agent is done
-- `state` / `action_dispatched` with `action: finish_streaming` — confirms agent turn ended
-- `state` / `action_rejected` with `action: finish_streaming` — duplicate end-of-turn event correctly rejected
-- `tts` / `queue_drained` — confirms TTS finished all items
-- Check `state` field — should be `idle` or `turn:completing` when loop tries to restart
 
 ### WebSocket disconnects
 

@@ -65,7 +65,7 @@
 import { unlockAudio } from '~/composables/useTTS'
 import { playStartBlip } from '~/composables/useRecordingFeedback'
 import { useDebugLog } from '~/composables/useDebugLog'
-import { abort } from '~/composables/useStateMachine'
+import { abort, dispatch } from '~/composables/useStateMachine'
 
 const { log } = useDebugLog()
 
@@ -192,6 +192,7 @@ async function toggle() {
     // or async gap can expire the activation and cause NotAllowedError.
     try {
       const stream = await acquireMicStream()
+      dispatch('start_user_turn', 'voice_button_start')
       statusText.value = ''
       manualRecordingActive = true
       await doStart(stream)

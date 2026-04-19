@@ -12,11 +12,10 @@
  */
 
 import { useDebugLog } from './useDebugLog';
-import { dispatch, getState } from './useStateMachine';
+import { useSettings } from './useSettings';
 
 // Silence detection tuning constants
 const SILENCE_THRESHOLD = 15       // RMS level below which we consider "silence" (0-255 scale)
-const SILENCE_DURATION_MS = 1500   // How long silence must last before auto-stop
 const MIN_RECORDING_MS = 500       // Minimum recording time before silence detection kicks in
 const POLL_INTERVAL_MS = 100       // How often we check the audio level
 
@@ -103,20 +102,15 @@ export function useVoice() {
    */
   async function acquireMicStream(): Promise<MediaStream> {
     if (_micStream) {
-      // Stream already acquired — still transition to mic:acquiring
-      // so the state machine tracks re-use correctly.
-      dispatch('acquire_mic', 'mic_stream_reused')
       return _micStream
     }
 
     const micError = checkMicSupport()
     if (micError) {
       log('error', 'mic', 'support_check_failed', { error: micError })
-      dispatch('error', 'mic_support_check_failed')
       throw new Error(micError)
     }
 
-    dispatch('acquire_mic', 'getUserMedia_requested')
     log('info', 'mic', 'getUserMedia_requested')
 
     try {
@@ -137,7 +131,6 @@ export function useVoice() {
       const name = err instanceof Error ? err.name : 'Unknown'
       const msg = err instanceof Error ? err.message : String(err)
       log('error', 'mic', 'getUserMedia_failed', { name, message: msg })
-      dispatch('error', 'getUserMedia_failed')
       throw new Error(`Mic access denied: ${name} - ${msg}`)
     }
   }
@@ -192,10 +185,12 @@ export function useVoice() {
   // ─── Silence Detection (during recording) ───────────────────────
 
   function startSilenceDetection() {
+    const { silenceDurationMs } = useSettings();
+    const silenceDuration = silenceDurationMs.value;
     _silenceSince = null
     _speechDetectedInRecording = false
     _lastRmsLogAt = 0
-    log('debug', 'silence', 'detection_started', { threshold: SILENCE_THRESHOLD, durationMs: SILENCE_DURATION_MS })
+    log('debug', 'silence', 'detection_started', { threshold: SILENCE_THRESHOLD, durationMs: silenceDuration })
     _silencePollTimer = setInterval(() => {
       const rms = computeRMS()
       audioLevel.value = Math.round(rms)
@@ -224,10 +219,10 @@ export function useVoice() {
           if (_silenceSince === null) {
             _silenceSince = performance.now()
             log('debug', 'silence', 'silence_started', { rms: Math.round(rms) })
-          } else if (performance.now() - _silenceSince >= SILENCE_DURATION_MS) {
+          } else if (performance.now() - _silenceSince >= silenceDuration) {
             log('info', 'silence', 'auto_stop_triggered', {
               silenceDuration: Math.round(performance.now() - _silenceSince),
-              minRequired: SILENCE_DURATION_MS,
+              minRequired: silenceDuration,
             })
             _onAutoStopHandlers.forEach(cb => cb())
           }
@@ -286,13 +281,11 @@ export function useVoice() {
       }, POLL_INTERVAL_MS)
 
       log('info', 'mic', 'monitoring_started')
-      dispatch('start_monitoring', 'monitoring_started')
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
       log('error', 'mic', 'monitoring_failed', { error: msg })
       console.error('Failed to start mic monitoring:', err)
       isMonitoring.value = false
-      dispatch('error', 'monitoring_failed')
     }
   }
 
@@ -304,11 +297,6 @@ export function useVoice() {
     _speechSince = null
     isMonitoring.value = false
     log('info', 'mic', 'monitoring_stopped')
-    // Only transition to idle if we're still in a mic state —
-    // other callers (abortSession) manage their own transitions.
-    if (getState() === 'mic:monitoring') {
-      abort('monitoring_stopped')
-    }
   }
 
   function stopMonitoring() {
@@ -371,14 +359,12 @@ export function useVoice() {
       startSilenceDetection()
       lastError.value = null
 
-      dispatch('start_recording', 'recording_started')
       log('info', 'mic', 'recording_started', { mimeType: mimeType || 'default' })
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Failed to start recording'
       log('error', 'mic', 'recording_failed', { error: msg })
       console.error('Failed to start recording:', msg)
       lastError.value = msg
-      dispatch('error', 'recording_failed')
     }
   }
 
@@ -420,14 +406,12 @@ export function useVoice() {
       startSilenceDetection()
       lastError.value = null
 
-      dispatch('start_recording', 'recording_from_monitor_started')
       log('info', 'mic', 'recording_from_monitor_started', { mimeType: mimeType || 'default' })
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Failed to start recording'
       log('error', 'mic', 'recording_from_monitor_failed', { error: msg })
       console.error('Failed to start recording from monitor:', msg)
       lastError.value = msg
-      dispatch('error', 'recording_from_monitor_failed')
     }
   }
 
@@ -501,7 +485,6 @@ export function useVoice() {
       recorder.stop()
       isRecording.value = false
       _mediaRecorder = null
-      dispatch('stop_recording', 'recording_stopped')
       log('info', 'mic', 'recording_stopped')
     })
   }

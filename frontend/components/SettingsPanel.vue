@@ -27,6 +27,30 @@
       v-if="isOpen"
       class="absolute right-0 top-full mt-2 w-72 bg-surface-800 border border-surface-700 rounded-xl shadow-lg z-50 p-4"
     >
+      <!-- Voice section -->
+      <h3 class="text-xs font-semibold text-surface-300 uppercase tracking-wide mb-3">Voice</h3>
+
+      <div class="mb-4">
+        <div class="flex items-center justify-between mb-1.5">
+          <label class="text-sm text-surface-300">Silence timeout</label>
+          <span class="text-xs text-surface-400 tabular-nums">{{ (silenceDuration / 1000).toFixed(1) }}s</span>
+        </div>
+        <input
+          type="range"
+          min="500"
+          max="5000"
+          step="250"
+          :value="silenceDuration"
+          class="w-full h-1 bg-surface-600 rounded-lg appearance-none cursor-pointer accent-blue-500"
+          @input="onSilenceChange"
+        />
+        <div class="flex justify-between text-[10px] text-surface-500 mt-0.5">
+          <span>0.5s</span>
+          <span>5s</span>
+        </div>
+      </div>
+
+      <!-- Debug section -->
       <h3 class="text-xs font-semibold text-surface-300 uppercase tracking-wide mb-3">Debug Log</h3>
 
       <!-- Toggle -->
@@ -69,14 +93,23 @@
 
 <script setup lang="ts">
 import { useDebugLog } from '~/composables/useDebugLog';
+import { useSettings } from '~/composables/useSettings';
 import type { DebugLogExport } from '~/composables/useDebugLog';
 
 const { enable, disable, isEnabled, getRecordingSince, getEntryCount, exportLog } = useDebugLog();
+const { silenceDurationMs, setSilenceDuration } = useSettings();
 
 const isOpen = ref(false);
 const debugEnabled = ref(isEnabled());
 const entryCount = ref(getEntryCount());
 const isDownloading = ref(false);
+const silenceDuration = ref(silenceDurationMs.value);
+
+function onSilenceChange(e: Event) {
+  const val = Number((e.target as HTMLInputElement).value);
+  silenceDuration.value = val;
+  setSilenceDuration(val);
+}
 
 // Update entry count periodically while open and enabled
 let countInterval: ReturnType<typeof setInterval> | null = null;

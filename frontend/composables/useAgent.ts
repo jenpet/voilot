@@ -9,7 +9,6 @@ import { useDebugLog } from './useDebugLog'
 import {
   dispatch,
   abort,
-  getState,
 } from './useStateMachine'
 import {
   playHandoff,
@@ -29,7 +28,6 @@ import {
   startWatchdog,
   cancelWatchdog,
   setTTSEnqueue,
-  setTTSCheckInEnqueue,
 } from './useAudioFeedback'
 
 export interface Message {
@@ -68,13 +66,12 @@ function nextMessageId(): string {
 export function useAgent(sessionId: string) {
   const apiBase = `${resolveBackendUrl()}/api`
   const { send, subscribe, connectionState } = useWebSocket()
-  const { enqueue: enqueueTTS, enqueueCheckIn: enqueueCheckInTTS, stop: stopTTS, isPlaying: isTTSPlaying } = useTTS()
+  const { enqueue: enqueueTTS, onQueueDrained, stop: stopTTS, isPlaying: isTTSPlaying } = useTTS()
   const { log } = useDebugLog()
 
   // Wire TTS into the audio feedback manager so it can speak
   // check-in messages and error announcements.
   setTTSEnqueue(enqueueTTS)
-  setTTSCheckInEnqueue(enqueueCheckInTTS)
   const { mark, isActive: isTimerActive } = useRoundTripTimer()
   const {
     isRecording,
@@ -94,9 +91,9 @@ export function useAgent(sessionId: string) {
   // Prevents finishStreaming() from playing a success chime after abort.
   let abortedTurn = false
 
-  // NOTE: The old `streamingFinished` dedup guard is no longer needed.
-  // The action-gated state machine rejects the second `finish_streaming`
-  // dispatch because the state has already moved to `turn:completing`.
+  // Track whether the agent has finished streaming for this turn.
+  // Used by the TTS queue drain callback to know when to complete the turn.
+  let agentDone = false
 
   // Track whether the current conversation turn was started by voice input.
   // When false (text-typed input), the mic auto-loop does NOT re-activate.
@@ -169,11 +166,9 @@ export function useAgent(sessionId: string) {
     if (!hasPendingQuestion.value && isStreaming.value) return false
     loopStartPending = true
     loopRecordingActive.value = true
+    dispatch('start_user_turn', 'loop_recording_start')
     log('info', 'loop', 'loop_started')
-    // Dispatch acquire_mic so the state machine tracks the loop re-recording.
-    // If the current state doesn't allow it, the dispatch is simply rejected.
-    dispatch('acquire_mic', 'loop_recording_start')
-    // Subtle tick so the user knows the mic is hot (Phase 3)
+    // Subtle tick so the user knows the mic is hot
     playLoopListeningTick()
     startRecording() // reuses existing mic stream via ensureMicAndAnalyser()
     return true
@@ -201,18 +196,11 @@ export function useAgent(sessionId: string) {
     }
   })
 
-  // When TTS finishes and the agent is done streaming, start recording
-  // for the user's next turn. Also triggers when TTS finishes announcing
-  // a question (isStreaming is still true but hasPendingQuestion allows it).
-  watch(isTTSPlaying, (playing) => {
-    if (!playing && (!isStreaming.value || hasPendingQuestion.value)) {
-      const loopStarted = startLoopRecording()
-      // If the loop didn't start (text-initiated turn, voice disabled, etc.),
-      // complete the turn now that TTS has drained.
-      if (!loopStarted) {
-        dispatch('complete_turn', 'tts_drained_watcher')
-      }
-    }
+  // When TTS finishes and the agent is done, complete the turn and
+  // optionally restart the voice loop.
+  onQueueDrained(() => {
+    if (!agentDone) return // Agent still streaming — wait for finishStreaming
+    tryCompleteTurn()
   })
 
   // Watch voice toggle — clean up when voice is turned off
@@ -262,8 +250,7 @@ export function useAgent(sessionId: string) {
       if (isBusy) {
         log('info', 'agent', 'session_busy_on_load', { sessionId })
         isStreaming.value = true
-        dispatch('submit_message', 'session_busy_on_load')
-        dispatch('start_streaming', 'session_busy_on_load')
+        dispatch('start_agent_turn', 'session_busy_on_load')
         if (voiceEnabled.value) {
           startWorkingHum()
         }
@@ -327,11 +314,6 @@ export function useAgent(sessionId: string) {
     // Cancel watchdog on any agent event — confirms the agent is alive
     cancelWatchdog()
     log('debug', 'agent', 'event_received', { type: event.type, partId: event.partId, hasDelta: !!event.delta })
-
-    // Transition to agent:streaming on the first substantive event
-    if (getState() === 'agent:submitting') {
-      dispatch('start_streaming', `agent_event_${event.type}`)
-    }
 
     // Feed non-text events through the tool batcher — it batches consecutive
     // tool_use events into a single TTS summary and passes other events
@@ -506,12 +488,12 @@ export function useAgent(sessionId: string) {
   }
 
   function finishStreaming() {
-    // The state machine gates this — second call is rejected because
-    // state has already moved to turn:completing.
-    if (!dispatch('finish_streaming', 'finish_streaming')) {
-      log('debug', 'agent', 'finish_streaming_rejected')
+    // Guard against duplicate done/idle events
+    if (agentDone) {
+      log('debug', 'agent', 'finish_streaming_duplicate')
       return
     }
+    agentDone = true
     log('info', 'agent', 'finish_streaming', { abortedTurn })
 
     // Mark agent completion — only during voice round-trips
@@ -546,18 +528,20 @@ export function useAgent(sessionId: string) {
     partContents.clear()
     toolStartTimes.clear()
 
-    // If voice is enabled and TTS has nothing left to play, start recording
-    // for the user's next turn immediately.
-    // (If TTS is still playing, the isTTSPlaying watcher will start recording
-    // when playback finishes.)
-    const loopStarted = startLoopRecording()
-
-    // If the loop didn't start (text-initiated turn, voice disabled, etc.),
-    // transition back to idle — but only when TTS has fully drained.
-    // dispatch('complete_turn') is gated: only succeeds from turn:completing.
-    if (!loopStarted && !isTTSPlaying.value) {
-      dispatch('complete_turn', 'finish_streaming_no_tts')
+    // If TTS has nothing left to play, complete the turn immediately.
+    // Otherwise the onQueueDrained callback will handle it.
+    if (!isTTSPlaying.value) {
+      tryCompleteTurn()
     }
+  }
+
+  // Complete the turn: dispatch state transition, optionally restart voice loop.
+  function tryCompleteTurn() {
+    const loopStarted = startLoopRecording()
+    if (!loopStarted) {
+      dispatch('complete_turn', 'turn_complete')
+    }
+    agentDone = false
   }
 
   // Send a message via WebSocket
@@ -602,7 +586,7 @@ export function useAgent(sessionId: string) {
       }
       playHandoff()
       startWorkingHum()
-      startWatchdog()
+      startWatchdog(undefined, () => abort('watchdog_timeout'))
     }
 
     // Add user message immediately
@@ -613,9 +597,10 @@ export function useAgent(sessionId: string) {
       timestamp: Date.now(),
     })
 
-    // Transition to agent:submitting — the state machine tracks that
+    // Transition to agent_turn — the state machine tracks that
     // we've handed the message to the agent and are waiting for a response.
-    dispatch('submit_message', 'send_message')
+    dispatch('start_agent_turn', 'send_message')
+    agentDone = false
 
     const sent = send({
       type: 'message',
@@ -634,6 +619,7 @@ export function useAgent(sessionId: string) {
   function abortSession() {
     log('info', 'agent', 'abort_session')
     abortedTurn = true
+    agentDone = false
     abort('abort_session')
     stopTTS() // Stop any ongoing TTS playback
     stopMonitoring() // Stop mic monitoring if active
@@ -712,8 +698,6 @@ export function useAgent(sessionId: string) {
     const title = event.meta?.title as string || event.content || 'Permission needed'
     log('info', 'permission', 'request_received', { permissionId, title })
 
-    dispatch('enter_permission', 'permission_request')
-
     // Add permission request as a special message in the chat
     messages.value.push({
       id: nextMessageId(),
@@ -745,8 +729,6 @@ export function useAgent(sessionId: string) {
     const response = event.meta?.response as string || event.content
 
     if (!permissionId) return
-
-    dispatch('resolve_permission', 'permission_replied')
 
     // Find the matching permission_request message and mark it resolved
     const msg = messages.value.find(
@@ -818,8 +800,6 @@ export function useAgent(sessionId: string) {
     const multiple = event.meta?.multiple as boolean || false
     log('info', 'question', 'request_received', { questionId, questionIndex, totalQuestions, optionCount: options.length, multiple })
 
-    dispatch('enter_question', 'question_request')
-
     // Break the current assistant message so that any text the agent sends
     // after the question is answered appears as a new chat bubble.
     currentAssistantId = null
@@ -874,8 +854,6 @@ export function useAgent(sessionId: string) {
     const rejected = event.meta?.rejected as boolean || false
 
     if (!questionId) return
-
-    dispatch('resolve_question', 'question_replied')
 
     // Mark all question messages for this batch as resolved
     messages.value

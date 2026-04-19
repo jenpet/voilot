@@ -2,17 +2,11 @@ interface TTSQueueItem {
   text: string
   // Web Audio API source node for the currently playing item
   sourceNode?: AudioBufferSourceNode
-  // Check-in items (e.g. "Still working.") bypass the state machine —
-  // they must NOT trigger start_tts / drain_tts transitions.
-  isCheckIn?: boolean
 }
 
 // ─── Debug logging ──────────────────────────────────────────────────
 import { useDebugLog } from './useDebugLog';
 import type { DebugLogLevel } from './useDebugLog';
-import {
-  dispatch,
-} from './useStateMachine';
 import { warmUpBlips } from './useRecordingFeedback';
 
 function _log(level: DebugLogLevel, event: string, data?: Record<string, unknown>) {
@@ -119,9 +113,9 @@ export function useTTS() {
   // Track whether the first TTS item in a round-trip has been marked
   let firstSynthMarked = false
 
-  // Track whether a real (non-check-in) start_tts was dispatched.
-  // Only dispatch drain_tts on queue drain when this is true.
-  let _realTTSDispatched = false
+  // Callback fired when the TTS queue drains completely after processing.
+  // Used by useAgent to trigger complete_turn when agent is also done.
+  let _onQueueDrained: (() => void) | null = null
 
   // Abort controller — cancelled by stop() to interrupt in-flight fetches
   // and pending decodes/playback.
@@ -204,15 +198,6 @@ export function useTTS() {
       // Mark TTS playback start on first item
       if (shouldMark && isFirstItem) mark('tts_play', 'start')
 
-      // Transition to tts:speaking when first audio starts playing.
-      // dispatch is gated — only succeeds from agent:streaming or turn:completing.
-      // Check-in items (e.g. "Still working.") bypass the state machine entirely.
-      if (!item.isCheckIn) {
-        if (dispatch('start_tts', 'tts_playback_started')) {
-          _realTTSDispatched = true
-        }
-      }
-
       // Play using AudioBufferSourceNode
       await new Promise<void>((resolve, reject) => {
         const source = ctx.createBufferSource()
@@ -270,12 +255,8 @@ export function useTTS() {
         // Reset first-item flag for next round-trip
         firstSynthMarked = false
 
-        // Transition from tts:speaking → turn:completing when all audio is done.
-        // Only dispatch if a real (non-check-in) start_tts was dispatched earlier.
-        if (_realTTSDispatched) {
-          dispatch('drain_tts', 'tts_queue_drained')
-          _realTTSDispatched = false
-        }
+        // Notify listener that the queue has fully drained
+        _onQueueDrained?.()
       }
 
       // Process next item if available
@@ -293,14 +274,9 @@ export function useTTS() {
     processQueue()
   }
 
-  // Add a check-in message to the TTS queue. Check-in items bypass the
-  // state machine (no start_tts / drain_tts) so they don't corrupt the
-  // interaction state during agent:streaming.
-  function enqueueCheckIn(text: string) {
-    _log('debug', 'enqueue_checkin', { text: text.substring(0, 80), queueLength: queue.value.length })
-    console.log('[TTS] Enqueue check-in:', text.substring(0, 80))
-    queue.value.push({ text, isCheckIn: true })
-    processQueue()
+  // Register a callback fired when the queue drains after processing.
+  function onQueueDrained(cb: () => void) {
+    _onQueueDrained = cb
   }
 
   // Stop current playback and clear queue
@@ -325,14 +301,13 @@ export function useTTS() {
     queue.value = []
     isPlaying.value = false
     firstSynthMarked = false
-    _realTTSDispatched = false
   }
 
   return {
     queue: readonly(queue),
     isPlaying: readonly(isPlaying),
     enqueue,
-    enqueueCheckIn,
+    onQueueDrained,
     stop,
   }
 }
