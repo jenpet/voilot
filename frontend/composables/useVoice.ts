@@ -71,8 +71,12 @@ export function useVoice() {
     return null
   }
 
-  function setOnAutoStop(cb: () => void) {
+  function setOnAutoStop(cb: () => void): () => void {
     _onAutoStopHandlers.push(cb)
+    return () => {
+      const idx = _onAutoStopHandlers.indexOf(cb)
+      if (idx >= 0) _onAutoStopHandlers.splice(idx, 1)
+    }
   }
 
   function setOnSpeechDetected(cb: () => void) {
@@ -489,6 +493,21 @@ export function useVoice() {
     })
   }
 
+  /**
+   * Force-stop recording without transcription. Used for cleanup
+   * when leaving a session page — discards audio data.
+   */
+  function forceStopRecording() {
+    if (_mediaRecorder && isRecording.value) {
+      stopSilenceDetection()
+      try { _mediaRecorder.stop() } catch { /* may already be stopped */ }
+      _mediaRecorder = null
+      _audioChunks = []
+      isRecording.value = false
+      log('info', 'mic', 'force_stopped')
+    }
+  }
+
   return {
     isRecording: readonly(isRecording),
     isMonitoring: readonly(isMonitoring),
@@ -498,6 +517,7 @@ export function useVoice() {
     startRecording,
     startRecordingFromMonitor,
     stopRecording,
+    forceStopRecording,
     startMonitoring,
     stopMonitoring,
     setOnAutoStop,

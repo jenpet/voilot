@@ -516,6 +516,36 @@ export function isWatchdogActive(): boolean {
   return _watchdogTimer !== null;
 }
 
+// ── Full cleanup (for session leave) ────────────────────────────────
+
+/**
+ * Stop all audio feedback activity: hum, watchdog, check-ins, timers.
+ * Call when leaving a session page to prevent leaked timers/playback.
+ * Does NOT destroy the audio element cache (it's reusable).
+ */
+export function stopAll(): void {
+  _log('debug', 'stop_all');
+  _humPlaying = false;
+  _toolsActiveThisTurn = false;
+
+  if (_humFadeTimer) { clearTimeout(_humFadeTimer); _humFadeTimer = null; }
+  if (_humStopTimer) { clearTimeout(_humStopTimer); _humStopTimer = null; }
+  if (_humHardCapTimer) { clearTimeout(_humHardCapTimer); _humHardCapTimer = null; }
+  if (_checkInTimer) { clearInterval(_checkInTimer); _checkInTimer = null; }
+  cancelWatchdog();
+
+  const audio = _cache?.hum;
+  if (audio) {
+    if (_humLoopHandler) {
+      audio.removeEventListener('ended', _humLoopHandler);
+      _humLoopHandler = null;
+    }
+    audio.pause();
+    audio.volume = 1.0;
+    audio.currentTime = 0;
+  }
+}
+
 // ── Reset (for testing) ─────────────────────────────────────────────
 
 /**

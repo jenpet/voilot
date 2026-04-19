@@ -301,6 +301,7 @@ export function useTTS() {
     queue.value = []
     isPlaying.value = false
     firstSynthMarked = false
+    _onQueueDrained = null
   }
 
   return {

@@ -28,6 +28,7 @@ import {
   startWatchdog,
   cancelWatchdog,
   setTTSEnqueue,
+  stopAll as stopAllAudioFeedback,
 } from './useAudioFeedback'
 
 export interface Message {
@@ -79,6 +80,7 @@ export function useAgent(sessionId: string) {
     stopMonitoring,
     startRecording,
     stopRecording,
+    forceStopRecording,
     setOnAutoStop,
   } = useVoice()
 
@@ -176,7 +178,7 @@ export function useAgent(sessionId: string) {
 
   // Handle auto-stop from silence detection — only for loop-triggered recordings.
   // Manual VoiceButton recordings are handled by VoiceButton's own auto-stop handler.
-  setOnAutoStop(async () => {
+  const unsubAutoStop = setOnAutoStop(async () => {
     if (!isRecording.value || !loopRecordingActive.value) return
 
     // Stop recording, transcribe, and send.
@@ -993,14 +995,70 @@ export function useAgent(sessionId: string) {
   })
   provide(ActiveQuestionKey, activeQuestion)
 
+  // ─── Session Leave Cleanup ────────────────────────────────────────
+  //
+  // Full teardown of all resources when leaving a session page.
+  // Stops TTS, mic, hum, timers, and resets the state machine.
+  // Optionally sends an abort to the backend.
+
+  function cleanup(options?: { abortBackend?: boolean }) {
+    log('info', 'agent', 'cleanup', { abortBackend: options?.abortBackend })
+
+    // Stop TTS playback and clear queue
+    stopTTS()
+
+    // Stop any active recording (discard audio)
+    forceStopRecording()
+
+    // Stop mic monitoring and release mic stream
+    stopMonitoring()
+
+    // Stop all audio feedback (hum, watchdog, check-in timers)
+    stopAllAudioFeedback()
+
+    // Reset TTS pipeline state
+    ttsChunker.reset()
+    ttsCondenser.reset()
+    ttsToolBatcher.reset()
+
+    // Reset voice loop state
+    loopRecordingActive.value = false
+    loopStartPending = false
+    voiceInitiatedTurn.value = false
+
+    // Reset streaming state
+    isStreaming.value = false
+    agentDone = false
+    abortedTurn = false
+    currentAssistantId = null
+    partContents.clear()
+    toolStartTimes.clear()
+
+    // Force state machine back to idle
+    abort('session_leave')
+
+    // Optionally abort the agent on the backend
+    if (options?.abortBackend) {
+      send({
+        type: 'abort',
+        sessionId,
+      })
+    }
+
+    // Remove auto-stop handler
+    unsubAutoStop()
+
+    // Unsubscribe from WebSocket messages
+    unsubscribe()
+  }
+
   // Initialize
   fetchSession()
   fetchMessages()
 
-  // Cleanup on scope dispose
+  // Cleanup on scope dispose (component unmount without explicit cleanup)
   onScopeDispose(() => {
-    unsubscribe()
-    stopMonitoring()
+    cleanup()
   })
 
   return {
@@ -1024,5 +1082,6 @@ export function useAgent(sessionId: string) {
     respondToPermission,
     respondToQuestion,
     rejectQuestion,
+    cleanup,
   }
 }

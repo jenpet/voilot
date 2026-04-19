@@ -106,6 +106,7 @@
 
 <script setup lang="ts">
 import { unlockAudio } from '~/composables/useTTS'
+import { getState } from '~/composables/useStateMachine'
 
 const route = useRoute()
 const router = useRouter()
@@ -131,10 +132,45 @@ const {
   setAgent,
   setModel,
   toggleVoice,
+  cleanup,
 } = useAgent(sessionId)
 
 // Acoustic feedback: blip on recording start, double-blip on stop
 useRecordingFeedback()
+
+// Track whether cleanup has already been performed (prevent double cleanup
+// from both onBeforeRouteLeave and onScopeDispose).
+let cleanedUp = false
+
+// Confirm before leaving when the agent is actively working.
+// Three outcomes: stay, leave (stop agent), leave (let agent finish).
+onBeforeRouteLeave((_to, _from, next) => {
+  if (cleanedUp) {
+    next()
+    return
+  }
+
+  const state = getState()
+
+  if (state === 'agent_turn' && isStreaming.value) {
+    // Agent is actively working — ask the user
+    const stop = window.confirm(
+      'The agent is still working. Press OK to stop it, or Cancel to stay.',
+    )
+    if (stop) {
+      cleanedUp = true
+      cleanup({ abortBackend: true })
+      next()
+    } else {
+      next(false)
+    }
+  } else {
+    // Not actively streaming — clean up silently
+    cleanedUp = true
+    cleanup()
+    next()
+  }
+})
 
 // When a question is pending, the agent is technically "busy" (waiting for our
 // answer), but we need the input field visible so the user can type a custom
