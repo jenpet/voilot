@@ -5,8 +5,10 @@ import (
 
 	"github.com/gorilla/mux"
 	"github.com/jenpet/voilot/internal/agent"
+	"github.com/jenpet/voilot/internal/sessionmap"
 	"github.com/jenpet/voilot/internal/stt"
 	"github.com/jenpet/voilot/internal/tts"
+	"github.com/jenpet/voilot/internal/workspace"
 )
 
 // Server is the main HTTP/WebSocket server for voilot.
@@ -15,15 +17,20 @@ type Server struct {
 	agentAdapter agent.Adapter
 	ttsProvider  tts.Provider
 	sttProvider  stt.Provider
+	scanner      *workspace.Scanner
+	sessionMap   *sessionmap.Map
 }
 
 // NewServer creates a new API server with the given dependencies.
-func NewServer(agentAdapter agent.Adapter, ttsProvider tts.Provider, sttProvider stt.Provider) *Server {
+// scanner and sessionMap may be nil when workspace mode is disabled.
+func NewServer(agentAdapter agent.Adapter, ttsProvider tts.Provider, sttProvider stt.Provider, scanner *workspace.Scanner, sessionMap *sessionmap.Map) *Server {
 	s := &Server{
 		router:       mux.NewRouter(),
 		agentAdapter: agentAdapter,
 		ttsProvider:  ttsProvider,
 		sttProvider:  sttProvider,
+		scanner:      scanner,
+		sessionMap:   sessionMap,
 	}
 	s.registerRoutes()
 	return s
@@ -68,6 +75,16 @@ func (s *Server) registerRoutes() {
 
 	// STT
 	api.HandleFunc("/stt/transcribe", s.handleSTTTranscribe).Methods("POST")
+
+	// Workspace (projects & worktrees)
+	api.HandleFunc("/projects", s.handleListProjects).Methods("GET")
+	api.HandleFunc("/projects", s.handleAddProject).Methods("POST")
+	api.HandleFunc("/projects/clone", s.handleCloneProject).Methods("POST")
+	api.HandleFunc("/projects/init", s.handleInitProject).Methods("POST")
+	api.HandleFunc("/projects/{name}/worktrees", s.handleListWorktrees).Methods("GET")
+	api.HandleFunc("/projects/{name}/worktrees", s.handleCreateWorktree).Methods("POST")
+	api.HandleFunc("/projects/{name}/worktrees/{worktree}", s.handleRemoveWorktree).Methods("DELETE")
+	api.HandleFunc("/worktrees/{path}/sessions", s.handleWorktreeSessions).Methods("GET")
 
 	// WebSocket endpoints
 	ws := s.router.PathPrefix("/ws").Subrouter()

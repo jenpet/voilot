@@ -8,8 +8,10 @@ import (
 
 	"github.com/jenpet/voilot/internal/agent"
 	"github.com/jenpet/voilot/internal/api"
+	"github.com/jenpet/voilot/internal/sessionmap"
 	"github.com/jenpet/voilot/internal/stt"
 	"github.com/jenpet/voilot/internal/tts"
+	"github.com/jenpet/voilot/internal/workspace"
 	"github.com/rs/cors"
 )
 
@@ -20,6 +22,8 @@ func main() {
 		opencodeURL  = flag.String("opencode-url", "http://localhost:4096", "OpenCode server URL")
 		ttsURL       = flag.String("tts-url", "", "TTS server URL (optional)")
 		sttURL       = flag.String("stt-url", "", "faster-whisper server URL (optional)")
+		workspaceDir = flag.String("workspace-dir", "", "Workspace directory for project/worktree discovery (optional)")
+		dataDir      = flag.String("data-dir", "voilot-data", "Directory for persistent data (session map, etc.)")
 		allowOrigins = flag.String("cors-origins", "*", "Allowed CORS origins (comma-separated)")
 	)
 	flag.Parse()
@@ -45,8 +49,28 @@ func main() {
 		log.Println("STT disabled (no --stt-url provided)")
 	}
 
+	// Initialize workspace scanner and session map (optional)
+	var scanner *workspace.Scanner
+	var sesMap *sessionmap.Map
+	if *workspaceDir != "" {
+		scanner = workspace.NewScanner(*workspaceDir)
+		if _, err := scanner.Scan(); err != nil {
+			log.Fatalf("Failed to scan workspace: %v", err)
+		}
+		log.Printf("Workspace enabled: %s", *workspaceDir)
+
+		var err error
+		sesMap, err = sessionmap.New(fmt.Sprintf("%s/session-map.json", *dataDir))
+		if err != nil {
+			log.Fatalf("Failed to load session map: %v", err)
+		}
+		log.Printf("Session map: %s/session-map.json", *dataDir)
+	} else {
+		log.Println("Workspace disabled (no --workspace-dir provided)")
+	}
+
 	// Create API server
-	server := api.NewServer(agentAdapter, ttsProvider, sttProvider)
+	server := api.NewServer(agentAdapter, ttsProvider, sttProvider, scanner, sesMap)
 
 	// CORS middleware (for development; in production nginx handles this)
 	handler := cors.New(cors.Options{

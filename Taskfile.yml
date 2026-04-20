@@ -1,11 +1,12 @@
 # voilot Taskfile — run 'task --list' to see available tasks
 #
 # Local dev (hybrid): TTS/STT in Docker, frontend + backend native.
-#   task dev          # starts all (frontend, backend, voice, HTTPS tunnel)
+#   task dev          # starts all (frontend, backend, voice containers, HTTPS tunnel if available)
 #   task dev:frontend # just the Nuxt dev server
 #   task dev:backend  # just the Go backend
-#   task dev:voice    # just the TTS + STT Docker containers
-#   task dev:tunnel   # Tailscale HTTPS proxy (pass '-- down' to tear down)
+#   task dev:voice    # just the TTS + STT Docker containers (detached)
+#   task dev:stop     # stop detached voice containers
+#   task dev:tunnel   # Tailscale HTTPS proxy (auto-skips if Tailscale unavailable)
 #
 # Build & check:
 #   task build        # compile backend + generate frontend
@@ -26,18 +27,29 @@ vars:
   TTS_URL: '{{.TTS_URL | default "http://localhost:8880"}}'
   TTS_PROVIDER: '{{.TTS_PROVIDER | default "kokoro"}}'
   STT_URL: '{{.STT_URL | default "http://localhost:5003"}}'
+  WORKSPACE_DIR: '{{.WORKSPACE_DIR | default "~/tmp/voilot-wd"}}'
+  DATA_DIR: '{{.DATA_DIR | default "~/tmp/voilot-wd/voilot-data"}}'
 
 tasks:
   # ── Local development ───────────────────────────────────────────
 
   dev:
-    desc: Start full local dev stack (frontend + backend + voice containers + HTTPS tunnel)
+    desc: Start full local dev stack (frontend + backend + voice + tunnel)
     deps: [dev:tunnel, dev:voice, dev:backend, dev:frontend]
 
   dev:tunnel:
     desc: Tailscale HTTPS proxies for mobile access (pass 'down' to tear down)
     cmds:
-      - ./scripts/tailscale-dev.sh {{.CLI_ARGS}}
+      - |
+        if ! command -v tailscale >/dev/null 2>&1; then
+          echo "Warning: Tailscale not installed — skipping HTTPS tunnel. Mobile access won't work."
+          exit 0
+        fi
+        if ! tailscale status >/dev/null 2>&1; then
+          echo "Warning: Tailscale not running — skipping HTTPS tunnel. Mobile access won't work."
+          exit 0
+        fi
+        ./scripts/tailscale-dev.sh {{.CLI_ARGS}}
 
   dev:frontend:
     desc: Nuxt dev server with HMR (port 3000)
@@ -52,14 +64,21 @@ tasks:
       - go run ./cmd/server
           --opencode-url {{.OPENCODE_URL}}
           --tts-url {{.TTS_URL}}
-          --tts-provider {{.TTS_PROVIDER}}
           --stt-url {{.STT_URL}}
+          --workspace-dir {{.WORKSPACE_DIR}}
+          --data-dir {{.DATA_DIR}}
 
   dev:voice:
-    desc: TTS + STT Docker containers only
+    desc: TTS + STT Docker containers only (detached)
     dir: docker
     cmds:
-      - docker compose --profile voice up tts stt
+      - docker compose --profile voice up -d tts stt
+
+  dev:stop:
+    desc: Stop detached voice containers
+    dir: docker
+    cmds:
+      - docker compose --profile voice down
 
   # ── Build ───────────────────────────────────────────────────────
 
@@ -192,6 +211,26 @@ tasks:
         npx skills@latest add mattpocock/skills --skill grill-me -g --agent '*' -y
         echo ""
         echo "Skills installed globally."
+        echo ""
+        echo "Checking for Worktrunk (git worktree manager)..."
+        if command -v wt >/dev/null 2>&1; then
+          echo "  ok   worktrunk already installed ($(wt --version 2>/dev/null || echo 'unknown version'))"
+        else
+          echo "  Installing worktrunk via Homebrew..."
+          if command -v brew >/dev/null 2>&1; then
+            brew install worktrunk && wt config shell install
+            echo "  ok   worktrunk installed"
+          else
+            echo "  skip worktrunk — Homebrew not available. Install manually: https://worktrunk.dev/"
+          fi
+        fi
+        echo ""
+        echo "Ensuring workspace directory exists..."
+        WORKSPACE="$HOME/tmp/voilot-wd"
+        mkdir -p "$WORKSPACE"
+        echo "  ok   $WORKSPACE"
+        echo ""
+        echo "Setup complete."
     silent: true
 
   agents:uninstall:

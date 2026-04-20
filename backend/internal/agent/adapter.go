@@ -33,11 +33,12 @@ type TimeInfo struct {
 
 // SessionOptions configures a new session.
 type SessionOptions struct {
-	Title    string      `json:"title,omitempty"`
-	Mode     SessionMode `json:"mode,omitempty"`
-	Agent    string      `json:"agent,omitempty"` // agent to use (e.g. "build", "planitect")
-	Model    string      `json:"model,omitempty"` // model override (provider/model)
-	ParentID string      `json:"parentID,omitempty"`
+	Title        string      `json:"title,omitempty"`
+	Mode         SessionMode `json:"mode,omitempty"`
+	Agent        string      `json:"agent,omitempty"` // agent to use (e.g. "build", "planitect")
+	Model        string      `json:"model,omitempty"` // model override (provider/model)
+	ParentID     string      `json:"parentID,omitempty"`
+	WorktreePath string      `json:"worktreePath,omitempty"` // workspace worktree to scope this session to
 }
 
 // MessagePart represents one part of a message to send.

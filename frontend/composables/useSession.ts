@@ -16,6 +16,7 @@ interface CreateSessionOptions {
   title?: string
   mode: 'plan' | 'implement'
   agent?: string
+  worktreePath?: string
 }
 
 export function useSession() {

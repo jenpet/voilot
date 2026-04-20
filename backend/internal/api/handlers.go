@@ -166,6 +166,23 @@ func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+
+	// Map session to worktree if workspace mode is active
+	if opts.WorktreePath != "" && s.sessionMap != nil {
+		if err := s.sessionMap.Set(session.ID, opts.WorktreePath); err != nil {
+			// Log but don't fail — session was already created
+			jsonError(w, http.StatusInternalServerError, "session created but mapping failed: "+err.Error())
+			return
+		}
+
+		// Send a scoping message as the first interaction so the agent
+		// knows to work exclusively in this worktree directory.
+		scopeMsg := "Work exclusively in " + opts.WorktreePath + ". All file reads, edits, and commands should target this directory."
+		agentName := s.agentAdapter.GetSessionAgent(session.ID)
+		modelID := s.agentAdapter.GetSessionModel(session.ID)
+		_ = s.agentAdapter.SendMessageAsync(r.Context(), session.ID, scopeMsg, agentName, modelID)
+	}
+
 	jsonResponse(w, http.StatusCreated, session)
 }
 
