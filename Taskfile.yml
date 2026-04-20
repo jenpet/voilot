@@ -187,6 +187,11 @@ tasks:
         echo ""
         echo "Agents installed for $BACKEND. Symlinked to $TARGET_DIR/"
         echo "Agent definitions live in this repo — edits here take effect immediately."
+        echo ""
+        echo "Installing global agent skills..."
+        npx skills@latest add mattpocock/skills --skill grill-me -g --agent '*' -y
+        echo ""
+        echo "Skills installed globally."
     silent: true
 
   agents:uninstall:
