@@ -18,7 +18,7 @@
           class="px-3 py-1.5 text-sm rounded-lg bg-surface-700 hover:bg-surface-600 transition-colors"
           @click="showAddProject = true"
         >
-          + Project
+          + New
         </button>
       </div>
     </header>
@@ -26,6 +26,13 @@
     <!-- Add project form -->
     <div v-if="showAddProject" class="px-4 py-3 bg-surface-800 border-b border-surface-700">
       <div class="flex gap-2 mb-3">
+        <button
+          class="px-3 py-1 text-sm rounded-lg transition-colors"
+          :class="addMode === 'plain' ? 'bg-surface-600 text-surface-100' : 'bg-surface-800 text-surface-400 hover:text-surface-200'"
+          @click="addMode = 'plain'"
+        >
+          Plain
+        </button>
         <button
           class="px-3 py-1 text-sm rounded-lg transition-colors"
           :class="addMode === 'import' ? 'bg-surface-600 text-surface-100' : 'bg-surface-800 text-surface-400 hover:text-surface-200'"
@@ -40,19 +47,12 @@
         >
           Clone
         </button>
-        <button
-          class="px-3 py-1 text-sm rounded-lg transition-colors"
-          :class="addMode === 'new' ? 'bg-surface-600 text-surface-100' : 'bg-surface-800 text-surface-400 hover:text-surface-200'"
-          @click="addMode = 'new'"
-        >
-          New
-        </button>
       </div>
       <form class="flex gap-2" @submit.prevent="doAddProject">
         <input
           v-model="projectInput"
           type="text"
-          :placeholder="addMode === 'import' ? 'Path to existing repo (e.g. ~/dev/myproject)' : addMode === 'clone' ? 'Git URL (e.g. https://github.com/user/repo)' : 'Project name (e.g. my-new-app)'"
+          :placeholder="addMode === 'plain' ? 'Name for your scratch space (e.g. my-idea)' : addMode === 'import' ? 'Path to existing repo (e.g. ~/dev/myproject)' : 'Git URL (e.g. https://github.com/user/repo)'"
           class="flex-1 px-3 py-1.5 text-sm rounded-lg bg-surface-900 border border-surface-600 text-surface-100 placeholder:text-surface-500 focus:outline-none focus:border-blue-500"
           autofocus
         />
@@ -117,7 +117,7 @@ const { promptType, canShowInstall, reopen } = usePwaPrompt();
 const showAddProject = ref(false);
 const projectInput = ref('');
 const addError = ref('');
-const addMode = ref<'import' | 'clone' | 'new'>('import');
+const addMode = ref<'plain' | 'import' | 'clone'>('plain');
 const addLoading = ref(false);
 
 function navigateToProject(name: string) {
