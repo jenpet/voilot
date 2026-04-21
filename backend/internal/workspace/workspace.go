@@ -15,9 +15,10 @@ import (
 
 // Project represents a git repository discovered in the workspace.
 type Project struct {
-	Name      string     `json:"name"`
-	Path      string     `json:"path"`      // absolute path to the main repo
-	Worktrees []Worktree `json:"worktrees"` // includes main + linked worktrees
+	Name         string     `json:"name"`
+	Path         string     `json:"path"`                   // absolute path to the main repo
+	Worktrees    []Worktree `json:"worktrees"`              // includes main + linked worktrees
+	LastActivity int64      `json:"lastActivity,omitempty"` // unix ms of most recent session activity (0 = none)
 }
 
 // Worktree represents a single git worktree (main or linked).

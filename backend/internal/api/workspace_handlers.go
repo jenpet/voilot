@@ -2,11 +2,13 @@ package api
 
 import (
 	"encoding/json"
+	"log"
 	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 
 	"github.com/gorilla/mux"
@@ -23,6 +25,50 @@ func (s *Server) handleListProjects(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, http.StatusInternalServerError, "scan failed: "+err.Error())
 		return
 	}
+
+	// Compute last activity per project by joining session map + session timestamps.
+	if s.sessionMap != nil {
+		// Build sessionID → updatedAt lookup from all sessions.
+		sessionUpdated := make(map[string]int64)
+		sessions, err := s.agentAdapter.ListSessions(r.Context())
+		if err != nil {
+			log.Printf("warning: could not fetch sessions for sorting: %v", err)
+		} else {
+			for _, sess := range sessions {
+				if sess.Time != nil && sess.Time.Updated > 0 {
+					sessionUpdated[sess.ID] = sess.Time.Updated
+				} else if sess.Time != nil {
+					sessionUpdated[sess.ID] = sess.Time.Created
+				}
+			}
+		}
+
+		// For each project, find the max session timestamp across all worktrees.
+		for i := range projects {
+			var maxTs int64
+			for _, wt := range projects[i].Worktrees {
+				for _, sid := range s.sessionMap.SessionsForWorktree(wt.Path) {
+					if ts, ok := sessionUpdated[sid]; ok && ts > maxTs {
+						maxTs = ts
+					}
+				}
+			}
+			projects[i].LastActivity = maxTs
+		}
+	}
+
+	// Sort: active projects first (most recent first), then inactive alphabetically.
+	sort.Slice(projects, func(i, j int) bool {
+		a, b := projects[i].LastActivity, projects[j].LastActivity
+		if (a > 0) != (b > 0) {
+			return a > 0
+		}
+		if a > 0 {
+			return a > b
+		}
+		return projects[i].Name < projects[j].Name
+	})
+
 	jsonResponse(w, http.StatusOK, projects)
 }
 
@@ -363,8 +409,11 @@ func (s *Server) handleWorktreeSessions(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	// The path is URL-encoded; gorilla/mux decodes it.
-	worktreePath := mux.Vars(r)["path"]
+	worktreePath := r.URL.Query().Get("path")
+	if worktreePath == "" {
+		jsonError(w, http.StatusBadRequest, "path query parameter is required")
+		return
+	}
 	sessionIDs := s.sessionMap.SessionsForWorktree(worktreePath)
 	jsonResponse(w, http.StatusOK, sessionIDs)
 }
