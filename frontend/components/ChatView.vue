@@ -78,6 +78,8 @@ const groupedMessages = computed<GroupedItem[]>(() => {
   }
 
   for (const msg of props.messages) {
+    // Skip messages marked as hidden (e.g. auto-sent scoping messages)
+    if (msg.display === 'hidden') continue
     const isTool = msg.type === 'tool_use' || msg.type === 'tool_result'
     if (isTool) {
       toolBatch.push(msg)

@@ -26,6 +26,7 @@ export interface AgentEvent {
   language?: string
   delta?: string
   meta?: Record<string, unknown>
+  display?: 'default' | 'visual' | 'hidden'
 }
 
 export interface ChatOutbound {

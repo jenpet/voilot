@@ -177,7 +177,11 @@ func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 
 		// Send a scoping message as the first interaction so the agent
 		// knows to work exclusively in this worktree directory.
-		scopeMsg := "Work exclusively in " + opts.WorktreePath + ". All file reads, edits, and commands should target this directory."
+		scopeMsg := "You are working in " + opts.WorktreePath + ". " +
+			"Briefly welcome the user, mention the branch name and summarize " +
+			"the current repo state (dirty files, recent commits). " +
+			"Keep it to 2-3 sentences max. " +
+			"Do not scan or list files exhaustively."
 		agentName := s.agentAdapter.GetSessionAgent(session.ID)
 		modelID := s.agentAdapter.GetSessionModel(session.ID)
 		_ = s.agentAdapter.SendMessageAsync(r.Context(), session.ID, scopeMsg, agentName, modelID)

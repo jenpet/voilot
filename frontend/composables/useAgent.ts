@@ -38,6 +38,7 @@ export interface Message {
   timestamp: number
   type?: AgentEvent['type']
   meta?: Record<string, unknown>
+  display?: 'default' | 'visual' | 'hidden'
 }
 
 // Injection key for respondToPermission — allows ChatMessage to call it without prop drilling.
@@ -317,12 +318,16 @@ export function useAgent(sessionId: string) {
     cancelWatchdog()
     log('debug', 'agent', 'event_received', { type: event.type, partId: event.partId, hasDelta: !!event.delta })
 
+    // Skip events for messages marked as hidden or visual-only
+    const eventDisplay = event.display || 'default'
+
     // Feed non-text events through the tool batcher — it batches consecutive
     // tool_use events into a single TTS summary and passes other events
     // (error, code, etc.) through filterForTTS as before.
     // Exclude permission events, question events, control events, and
     // error events during aborted turns from the batcher.
     if (voiceEnabled.value
+      && eventDisplay === 'default'
       && event.type !== 'text'
       && event.type !== 'done'
       && event.type !== 'status'
@@ -439,7 +444,7 @@ export function useAgent(sessionId: string) {
       const updated = existing + event.delta
       partContents.set(partId, updated)
       // Feed delta to TTS chunker — it will enqueue sentence-sized chunks as they complete
-      if (voiceEnabled.value) {
+      if (voiceEnabled.value && (event.display || 'default') === 'default') {
         ttsChunker.push(event.delta)
       }
     } else if (event.content) {
@@ -459,6 +464,7 @@ export function useAgent(sessionId: string) {
         role: 'assistant',
         content: fullContent,
         timestamp: Date.now(),
+        display: event.display || 'default',
       })
     } else {
       // Update existing assistant message

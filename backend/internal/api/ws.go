@@ -113,11 +113,20 @@ func (s *Server) handleWSChat(w http.ResponseWriter, r *http.Request) {
 				continue
 			}
 
+			// Prepend worktree context if this session is mapped to one,
+			// so the agent stays anchored to the correct directory.
+			msgText := result.Text
+			if s.sessionMap != nil {
+				if wtPath := s.sessionMap.Get(msg.SessionID); wtPath != "" {
+					msgText = "[Working in: " + wtPath + "]\n\n" + msgText
+				}
+			}
+
 			// Send message asynchronously — response events come via SSE
 			// Use the session's current agent and model override for routing
 			agentName := s.agentAdapter.GetSessionAgent(msg.SessionID)
 			modelID := s.agentAdapter.GetSessionModel(msg.SessionID)
-			if err := s.agentAdapter.SendMessageAsync(ctx, msg.SessionID, result.Text, agentName, modelID); err != nil {
+			if err := s.agentAdapter.SendMessageAsync(ctx, msg.SessionID, msgText, agentName, modelID); err != nil {
 				writeJSON(chatOutbound{
 					Type:      "error",
 					SessionID: msg.SessionID,

@@ -46,6 +46,7 @@ type Event struct {
 	Language  string                 `json:"language,omitempty"` // for code blocks
 	Delta     string                 `json:"delta,omitempty"`    // incremental text update
 	Meta      map[string]interface{} `json:"meta,omitempty"`
+	Display   string                 `json:"display,omitempty"` // "", "visual", "hidden"
 }
 
 // OpenCodeSSEEvent represents a raw SSE event from the OpenCode /event stream.
