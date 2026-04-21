@@ -18,7 +18,7 @@ import (
 func main() {
 	var (
 		port         = flag.Int("port", 8080, "HTTP server port")
-		hostname     = flag.String("hostname", "0.0.0.0", "Hostname to bind to")
+		hostname     = flag.String("hostname", "127.0.0.1", "Hostname to bind to")
 		opencodeURL  = flag.String("opencode-url", "http://localhost:4096", "OpenCode server URL")
 		ttsURL       = flag.String("tts-url", "", "TTS server URL (optional)")
 		sttURL       = flag.String("stt-url", "", "faster-whisper server URL (optional)")

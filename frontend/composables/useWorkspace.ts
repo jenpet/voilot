@@ -101,7 +101,7 @@ export function useWorkspace() {
 
   async function fetchWorktreeSessions(worktreePath: string): Promise<string[]> {
     try {
-      const data = await $fetch<string[]>(`${apiBase}/worktrees/${encodeURIComponent(worktreePath)}/sessions`);
+      const data = await $fetch<string[]>(`${apiBase}/worktree-sessions?path=${encodeURIComponent(worktreePath)}`);
       return data || [];
     } catch {
       return [];

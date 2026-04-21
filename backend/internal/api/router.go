@@ -84,7 +84,7 @@ func (s *Server) registerRoutes() {
 	api.HandleFunc("/projects/{name}/worktrees", s.handleListWorktrees).Methods("GET")
 	api.HandleFunc("/projects/{name}/worktrees", s.handleCreateWorktree).Methods("POST")
 	api.HandleFunc("/projects/{name}/worktrees/{worktree}", s.handleRemoveWorktree).Methods("DELETE")
-	api.HandleFunc("/worktrees/{path}/sessions", s.handleWorktreeSessions).Methods("GET")
+	api.HandleFunc("/worktree-sessions", s.handleWorktreeSessions).Methods("GET")
 
 	// WebSocket endpoints
 	ws := s.router.PathPrefix("/ws").Subrouter()

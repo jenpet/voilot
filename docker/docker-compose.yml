@@ -42,6 +42,7 @@ services:
       context: ..
       dockerfile: docker/Dockerfile.backend
     command:
+      - --hostname=0.0.0.0
       - --opencode-url=${OPENCODE_URL:-http://host.docker.internal:4096}
       - --tts-url=${TTS_URL:-}
       - --stt-url=${STT_URL:-}
