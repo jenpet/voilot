@@ -44,6 +44,7 @@
           Cancel
         </button>
       </form>
+      <p v-if="createError" class="mt-2 text-sm text-red-400">{{ createError }}</p>
     </div>
 
     <!-- Worktree List -->
@@ -115,11 +116,17 @@ const project = computed(() => projects.value.find(p => p.name === projectName.v
 const showNewWorktree = ref(false);
 const newDescription = ref('');
 const confirmingDelete = ref('');
+const createError = ref('');
 
 async function doCreateWorktree() {
   const desc = newDescription.value.trim();
   if (!desc) return;
-  await createWorktree(projectName.value, desc);
+  createError.value = '';
+  const { error } = await createWorktree(projectName.value, desc);
+  if (error) {
+    createError.value = error;
+    return;
+  }
   newDescription.value = '';
   showNewWorktree.value = false;
 }

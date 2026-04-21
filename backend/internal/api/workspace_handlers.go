@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -128,9 +129,15 @@ func (s *Server) handleCreateWorktree(w http.ResponseWriter, r *http.Request) {
 		branch = "plan/" + slugify(body.Description)
 	}
 
-	// Run wt switch -c <branch> --no-cd --no-hooks from the main repo directory
+	// Run wt switch -c <branch> --no-cd --no-hooks from the main repo directory.
+	// Override WORKTRUNK_WORKTREE_PATH so the worktree is created directly in
+	// the workspace directory rather than as a sibling of the (possibly
+	// symlinked) repo's real path.
 	cmd := exec.CommandContext(r.Context(), "wt", "switch", "-c", branch, "--no-cd", "--no-hooks")
 	cmd.Dir = proj.Path
+	cmd.Env = append(os.Environ(),
+		fmt.Sprintf("WORKTRUNK_WORKTREE_PATH=%s/{{ repo }}.{{ branch | sanitize }}", s.scanner.WorkspaceDir()),
+	)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		jsonError(w, http.StatusInternalServerError, "wt switch failed: "+string(out))
 		return

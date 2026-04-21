@@ -29,7 +29,7 @@ export function useWorkspace() {
     }
   }
 
-  async function createWorktree(projectName: string, description: string): Promise<Project | null> {
+  async function createWorktree(projectName: string, description: string): Promise<{ project: Project | null; error?: string }> {
     try {
       const project = await $fetch<Project>(`${apiBase}/projects/${projectName}/worktrees`, {
         method: 'POST',
@@ -37,10 +37,11 @@ export function useWorkspace() {
       });
       // Refresh projects list
       await fetchProjects();
-      return project;
-    } catch {
-      console.error('Failed to create worktree');
-      return null;
+      return { project };
+    } catch (err: unknown) {
+      const msg = (err as { data?: { error?: string } })?.data?.error || 'Failed to create worktree';
+      console.error('Failed to create worktree:', msg);
+      return { project: null, error: msg };
     }
   }
 
