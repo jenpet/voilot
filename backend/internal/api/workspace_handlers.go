@@ -98,6 +98,106 @@ func slugify(description string) string {
 	return s
 }
 
+// BranchInfo describes a git branch with its divergence from the remote tracking branch.
+type BranchInfo struct {
+	Name      string `json:"name"`
+	IsDefault bool   `json:"isDefault"`
+	Ahead     int    `json:"ahead"`
+	Behind    int    `json:"behind"`
+	HasRemote bool   `json:"hasRemote"`
+}
+
+func (s *Server) handleListBranches(w http.ResponseWriter, r *http.Request) {
+	if s.scanner == nil {
+		jsonError(w, http.StatusServiceUnavailable, "workspace not configured")
+		return
+	}
+
+	name := mux.Vars(r)["name"]
+	proj := s.scanner.FindProject(name)
+	if proj == nil {
+		jsonError(w, http.StatusNotFound, "project not found")
+		return
+	}
+
+	// Fetch from remote first for accurate divergence info.
+	fetchCmd := exec.CommandContext(r.Context(), "git", "fetch", "--quiet")
+	fetchCmd.Dir = proj.Path
+	_ = fetchCmd.Run() // best-effort; ignore errors (e.g. no remote)
+
+	// Determine the default branch via the remote HEAD symref.
+	defaultBranch := ""
+	defCmd := exec.CommandContext(r.Context(), "git", "symbolic-ref", "refs/remotes/origin/HEAD")
+	defCmd.Dir = proj.Path
+	if out, err := defCmd.Output(); err == nil {
+		// Output is like "refs/remotes/origin/main\n"
+		ref := strings.TrimSpace(string(out))
+		defaultBranch = strings.TrimPrefix(ref, "refs/remotes/origin/")
+	}
+
+	// List local branches with upstream tracking info.
+	// Format: refname:short | upstream:short | upstream:track
+	listCmd := exec.CommandContext(r.Context(), "git", "for-each-ref",
+		"--sort=-committerdate",
+		"--format=%(refname:short)|%(upstream:short)|%(upstream:track)",
+		"refs/heads/",
+	)
+	listCmd.Dir = proj.Path
+	out, err := listCmd.Output()
+	if err != nil {
+		jsonError(w, http.StatusInternalServerError, "git for-each-ref failed")
+		return
+	}
+
+	var branches []BranchInfo
+	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		if line == "" {
+			continue
+		}
+		parts := strings.SplitN(line, "|", 3)
+		name := parts[0]
+		upstream := ""
+		track := ""
+		if len(parts) > 1 {
+			upstream = parts[1]
+		}
+		if len(parts) > 2 {
+			track = parts[2]
+		}
+
+		bi := BranchInfo{
+			Name:      name,
+			IsDefault: name == defaultBranch,
+			HasRemote: upstream != "",
+		}
+
+		// Parse track info like "[ahead 3, behind 2]" or "[ahead 1]" or "[behind 5]"
+		if track != "" {
+			track = strings.Trim(track, "[]")
+			for _, part := range strings.Split(track, ",") {
+				part = strings.TrimSpace(part)
+				if strings.HasPrefix(part, "ahead ") {
+					fmt.Sscanf(part, "ahead %d", &bi.Ahead)
+				} else if strings.HasPrefix(part, "behind ") {
+					fmt.Sscanf(part, "behind %d", &bi.Behind)
+				}
+			}
+		}
+
+		branches = append(branches, bi)
+	}
+
+	// Stable sort: pin default branch first, preserve git's recency order for the rest.
+	sort.SliceStable(branches, func(i, j int) bool {
+		if branches[i].IsDefault != branches[j].IsDefault {
+			return branches[i].IsDefault
+		}
+		return false
+	})
+
+	jsonResponse(w, http.StatusOK, branches)
+}
+
 func (s *Server) handleCreateWorktree(w http.ResponseWriter, r *http.Request) {
 	if s.scanner == nil {
 		jsonError(w, http.StatusServiceUnavailable, "workspace not configured")
@@ -114,6 +214,7 @@ func (s *Server) handleCreateWorktree(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Description string `json:"description"` // e.g. "PWA offline support"
 		Branch      string `json:"branch"`      // optional override; otherwise slugified from description
+		Base        string `json:"base"`        // optional base branch to fork from; defaults to repo default
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		jsonError(w, http.StatusBadRequest, "invalid request body")
@@ -129,11 +230,16 @@ func (s *Server) handleCreateWorktree(w http.ResponseWriter, r *http.Request) {
 		branch = "plan/" + slugify(body.Description)
 	}
 
-	// Run wt switch -c <branch> --no-cd --no-hooks from the main repo directory.
+	// Run wt switch -c <branch> [--base <base>] --no-cd --no-hooks from the main repo directory.
 	// Override WORKTRUNK_WORKTREE_PATH so the worktree is created directly in
 	// the workspace directory rather than as a sibling of the (possibly
 	// symlinked) repo's real path.
-	cmd := exec.CommandContext(r.Context(), "wt", "switch", "-c", branch, "--no-cd", "--no-hooks")
+	args := []string{"switch", "-c", branch}
+	if body.Base != "" {
+		args = append(args, "--base", body.Base)
+	}
+	args = append(args, "--no-cd", "--no-hooks")
+	cmd := exec.CommandContext(r.Context(), "wt", args...)
 	cmd.Dir = proj.Path
 	cmd.Env = append(os.Environ(),
 		fmt.Sprintf("WORKTRUNK_WORKTREE_PATH=%s/{{ repo }}.{{ branch | sanitize }}", s.scanner.WorkspaceDir()),

@@ -15,18 +15,19 @@ import (
 
 // Project represents a git repository discovered in the workspace.
 type Project struct {
-	Name         string     `json:"name"`
-	Path         string     `json:"path"`                   // absolute path to the main repo
-	Worktrees    []Worktree `json:"worktrees"`              // includes main + linked worktrees
-	LastActivity int64      `json:"lastActivity,omitempty"` // unix ms of most recent session activity (0 = none)
+	Name          string     `json:"name"`
+	Path          string     `json:"path"`                    // absolute path to the main repo
+	DefaultBranch string     `json:"defaultBranch,omitempty"` // remote default branch (e.g. "main")
+	Worktrees     []Worktree `json:"worktrees"`               // includes root + linked worktrees
+	LastActivity  int64      `json:"lastActivity,omitempty"`  // unix ms of most recent session activity (0 = none)
 }
 
-// Worktree represents a single git worktree (main or linked).
+// Worktree represents a single git worktree (root or linked).
 type Worktree struct {
-	Name   string `json:"name"`   // display name (branch slug or "main")
+	Name   string `json:"name"`   // display name (branch slug or directory name)
 	Path   string `json:"path"`   // absolute path to this worktree directory
 	Branch string `json:"branch"` // current branch name
-	IsMain bool   `json:"isMain"` // true for the primary worktree
+	IsRoot bool   `json:"isRoot"` // true for the primary/root worktree directory
 }
 
 // Scanner discovers projects and worktrees from the workspace directory.
@@ -120,10 +121,10 @@ func (s *Scanner) Scan() ([]Project, error) {
 			Name: projectName,
 			Path: d.path,
 			Worktrees: []Worktree{{
-				Name:   "main",
+				Name:   d.name,
 				Path:   d.path,
 				Branch: d.branch,
-				IsMain: true,
+				IsRoot: true,
 			}},
 		}
 		mainPaths[d.gitCommon] = d.name
@@ -157,13 +158,17 @@ func (s *Scanner) Scan() ([]Project, error) {
 			Name:   displayName,
 			Path:   d.path,
 			Branch: d.branch,
-			IsMain: false,
+			IsRoot: false,
 		})
 	}
 
-	// Collect results sorted by name
+	// Collect results and resolve default branches.
 	var projects []Project
 	for _, p := range projectMap {
+		// Determine default branch from remote HEAD.
+		if ref, err := gitOutput(p.Path, "symbolic-ref", "refs/remotes/origin/HEAD"); err == nil {
+			p.DefaultBranch = strings.TrimPrefix(ref, "refs/remotes/origin/")
+		}
 		projects = append(projects, *p)
 	}
 

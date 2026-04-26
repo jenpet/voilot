@@ -81,6 +81,7 @@ func (s *Server) registerRoutes() {
 	api.HandleFunc("/projects", s.handleAddProject).Methods("POST")
 	api.HandleFunc("/projects/clone", s.handleCloneProject).Methods("POST")
 	api.HandleFunc("/projects/init", s.handleInitProject).Methods("POST")
+	api.HandleFunc("/projects/{name}/branches", s.handleListBranches).Methods("GET")
 	api.HandleFunc("/projects/{name}/worktrees", s.handleListWorktrees).Methods("GET")
 	api.HandleFunc("/projects/{name}/worktrees", s.handleCreateWorktree).Methods("POST")
 	api.HandleFunc("/projects/{name}/worktrees/{worktree}", s.handleRemoveWorktree).Methods("DELETE")

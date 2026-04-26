@@ -1,6 +1,7 @@
 export interface Project {
   name: string;
   path: string;
+  defaultBranch?: string;
   worktrees: Worktree[];
 }
 
@@ -8,7 +9,15 @@ export interface Worktree {
   name: string;
   path: string;
   branch: string;
-  isMain: boolean;
+  isRoot: boolean;
+}
+
+export interface BranchInfo {
+  name: string;
+  isDefault: boolean;
+  ahead: number;
+  behind: number;
+  hasRemote: boolean;
 }
 
 export function useWorkspace() {
@@ -29,11 +38,11 @@ export function useWorkspace() {
     }
   }
 
-  async function createWorktree(projectName: string, description: string): Promise<{ project: Project | null; error?: string }> {
+  async function createWorktree(projectName: string, description: string, base?: string): Promise<{ project: Project | null; error?: string }> {
     try {
       const project = await $fetch<Project>(`${apiBase}/projects/${projectName}/worktrees`, {
         method: 'POST',
-        body: { description },
+        body: { description, base: base || undefined },
       });
       // Refresh projects list
       await fetchProjects();
@@ -109,6 +118,15 @@ export function useWorkspace() {
     }
   }
 
+  async function fetchBranches(projectName: string): Promise<BranchInfo[]> {
+    try {
+      const data = await $fetch<BranchInfo[]>(`${apiBase}/projects/${projectName}/branches`);
+      return data || [];
+    } catch {
+      return [];
+    }
+  }
+
   // Fetch on first use
   if (projects.value.length === 0) {
     fetchProjects();
@@ -124,5 +142,6 @@ export function useWorkspace() {
     createWorktree,
     removeWorktree,
     fetchWorktreeSessions,
+    fetchBranches,
   };
 }
