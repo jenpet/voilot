@@ -1,76 +1,76 @@
 <template>
-  <div class="min-h-screen bg-gray-900 text-gray-100 p-6 font-mono text-sm">
+  <div class="min-h-screen bg-bg-primary text-text-primary p-6 font-mono text-sm">
     <h1 class="text-xl font-bold mb-4">Voilot Browser Diagnostics</h1>
 
     <section class="mb-6">
-      <h2 class="text-lg font-semibold mb-2 text-blue-400">Environment</h2>
+      <h2 class="text-lg font-semibold mb-2 text-accent">Environment</h2>
       <ul class="space-y-1">
-        <li><span class="text-gray-400">User Agent:</span> {{ userAgent }}</li>
-        <li><span class="text-gray-400">Protocol:</span> {{ protocol }}</li>
-        <li><span class="text-gray-400">Host:</span> {{ host }}</li>
+        <li><span class="text-text-muted">User Agent:</span> {{ userAgent }}</li>
+        <li><span class="text-text-muted">Protocol:</span> {{ protocol }}</li>
+        <li><span class="text-text-muted">Host:</span> {{ host }}</li>
         <li>
-          <span class="text-gray-400">Secure Context:</span>
-          <span :class="isSecure ? 'text-green-400' : 'text-red-400'">{{ isSecure }}</span>
+          <span class="text-text-muted">Secure Context:</span>
+          <span :class="isSecure ? 'text-accent' : 'text-accent-warn'">{{ isSecure }}</span>
         </li>
       </ul>
     </section>
 
     <section class="mb-6">
-      <h2 class="text-lg font-semibold mb-2 text-blue-400">Media APIs</h2>
+      <h2 class="text-lg font-semibold mb-2 text-accent">Media APIs</h2>
       <ul class="space-y-1">
         <li>
-          <span class="text-gray-400">navigator.mediaDevices:</span>
-          <span :class="hasMediaDevices ? 'text-green-400' : 'text-red-400'">{{ hasMediaDevices }}</span>
+          <span class="text-text-muted">navigator.mediaDevices:</span>
+          <span :class="hasMediaDevices ? 'text-accent' : 'text-accent-warn'">{{ hasMediaDevices }}</span>
         </li>
         <li>
-          <span class="text-gray-400">getUserMedia:</span>
-          <span :class="hasGetUserMedia ? 'text-green-400' : 'text-red-400'">{{ hasGetUserMedia }}</span>
+          <span class="text-text-muted">getUserMedia:</span>
+          <span :class="hasGetUserMedia ? 'text-accent' : 'text-accent-warn'">{{ hasGetUserMedia }}</span>
         </li>
         <li>
-          <span class="text-gray-400">MediaRecorder:</span>
-          <span :class="hasMediaRecorder ? 'text-green-400' : 'text-red-400'">{{ hasMediaRecorder }}</span>
+          <span class="text-text-muted">MediaRecorder:</span>
+          <span :class="hasMediaRecorder ? 'text-accent' : 'text-accent-warn'">{{ hasMediaRecorder }}</span>
         </li>
         <li>
-          <span class="text-gray-400">AudioContext:</span>
-          <span :class="hasAudioContext ? 'text-green-400' : 'text-red-400'">{{ hasAudioContext }}</span>
+          <span class="text-text-muted">AudioContext:</span>
+          <span :class="hasAudioContext ? 'text-accent' : 'text-accent-warn'">{{ hasAudioContext }}</span>
         </li>
       </ul>
     </section>
 
     <section class="mb-6">
-      <h2 class="text-lg font-semibold mb-2 text-blue-400">MIME Type Support</h2>
+      <h2 class="text-lg font-semibold mb-2 text-accent">MIME Type Support</h2>
       <ul class="space-y-1">
         <li v-for="m in mimeResults" :key="m.type">
-          <span class="text-gray-400">{{ m.type }}:</span>
-          <span :class="m.supported ? 'text-green-400' : 'text-red-400'">{{ m.supported }}</span>
+          <span class="text-text-muted">{{ m.type }}:</span>
+          <span :class="m.supported ? 'text-accent' : 'text-accent-warn'">{{ m.supported }}</span>
         </li>
       </ul>
     </section>
 
     <section class="mb-6">
-      <h2 class="text-lg font-semibold mb-2 text-blue-400">Mic Access Test (Vue @click)</h2>
+      <h2 class="text-lg font-semibold mb-2 text-accent">Mic Access Test (Vue @click)</h2>
       <button
-        class="px-4 py-2 bg-blue-600 rounded hover:bg-blue-500 active:bg-blue-700 text-white mb-3"
+        class="px-4 py-2 bg-accent rounded hover:bg-accent active:bg-accent text-white mb-3"
         @click="testMic"
         :disabled="micTesting"
       >
         {{ micTesting ? 'Testing...' : 'Test getUserMedia' }}
       </button>
       <div v-if="micResult !== null" class="mt-2">
-        <p :class="micResult.ok ? 'text-green-400' : 'text-red-400'">
+        <p :class="micResult.ok ? 'text-accent' : 'text-accent-warn'">
           {{ micResult.ok ? 'SUCCESS' : 'FAILED' }}
         </p>
-        <p class="text-gray-300 mt-1">{{ micResult.detail }}</p>
-        <p v-if="micResult.tracks" class="text-gray-400 mt-1">Tracks: {{ micResult.tracks }}</p>
+        <p class="text-text-primary mt-1">{{ micResult.detail }}</p>
+        <p v-if="micResult.tracks" class="text-text-muted mt-1">Tracks: {{ micResult.tracks }}</p>
       </div>
     </section>
 
     <section class="mb-6">
-      <h2 class="text-lg font-semibold mb-2 text-blue-400">Mic Access Test (Raw onclick)</h2>
-      <p class="text-gray-400 text-xs mb-2">Bypasses Vue event system — raw DOM onclick handler</p>
+      <h2 class="text-lg font-semibold mb-2 text-accent">Mic Access Test (Raw onclick)</h2>
+      <p class="text-text-muted text-xs mb-2">Bypasses Vue event system — raw DOM onclick handler</p>
       <button
         ref="rawMicBtn"
-        class="px-4 py-2 bg-green-600 rounded hover:bg-green-500 active:bg-green-700 text-white mb-3"
+        class="px-4 py-2 bg-accent rounded hover:bg-accent active:bg-accent text-white mb-3"
       >
         Test getUserMedia (raw)
       </button>
@@ -78,11 +78,11 @@
     </section>
 
     <section class="mb-6">
-      <h2 class="text-lg font-semibold mb-2 text-blue-400">User Activation Check</h2>
-      <p class="text-gray-400 text-xs mb-2">Checks navigator.userActivation state on tap</p>
+      <h2 class="text-lg font-semibold mb-2 text-accent">User Activation Check</h2>
+      <p class="text-text-muted text-xs mb-2">Checks navigator.userActivation state on tap</p>
       <button
         ref="activationBtn"
-        class="px-4 py-2 bg-yellow-600 rounded hover:bg-yellow-500 active:bg-yellow-700 text-white mb-3"
+        class="px-4 py-2 bg-accent-secondary rounded hover:bg-accent-secondary active:bg-accent-secondary text-white mb-3"
       >
         Check Activation
       </button>
@@ -90,55 +90,55 @@
     </section>
 
     <section class="mb-6">
-      <h2 class="text-lg font-semibold mb-2 text-blue-400">Recording Test</h2>
+      <h2 class="text-lg font-semibold mb-2 text-accent">Recording Test</h2>
       <button
-        class="px-4 py-2 bg-purple-600 rounded hover:bg-purple-500 active:bg-purple-700 text-white mb-3"
+        class="px-4 py-2 bg-accent rounded hover:bg-accent active:bg-accent text-white mb-3"
         @click="testRecording"
         :disabled="recordingTesting"
       >
         {{ recordingTesting ? 'Recording 2s...' : 'Test Record + STT' }}
       </button>
       <div v-if="recordResult !== null" class="mt-2">
-        <p :class="recordResult.ok ? 'text-green-400' : 'text-red-400'">
+        <p :class="recordResult.ok ? 'text-accent' : 'text-accent-warn'">
           {{ recordResult.ok ? 'SUCCESS' : 'FAILED' }}
         </p>
-        <p class="text-gray-300 mt-1">{{ recordResult.detail }}</p>
+        <p class="text-text-primary mt-1">{{ recordResult.detail }}</p>
       </div>
     </section>
 
     <section class="mb-6">
-      <h2 class="text-lg font-semibold mb-2 text-blue-400">Audio Output Test</h2>
-      <p class="text-gray-400 text-xs mb-2">Plays a 440Hz beep for 0.5s via AudioContext (no TTS needed)</p>
+      <h2 class="text-lg font-semibold mb-2 text-accent">Audio Output Test</h2>
+      <p class="text-text-muted text-xs mb-2">Plays a 440Hz beep for 0.5s via AudioContext (no TTS needed)</p>
       <button
-        class="px-4 py-2 bg-teal-600 rounded hover:bg-teal-500 active:bg-teal-700 text-white mb-3"
+        class="px-4 py-2 bg-accent rounded hover:bg-accent active:bg-accent text-white mb-3"
         @click="testBeep"
       >
         Play Beep (440Hz)
       </button>
       <div v-if="beepResult" class="mt-2">
-        <pre class="text-gray-300 text-xs whitespace-pre-wrap">{{ beepResult }}</pre>
+        <pre class="text-text-primary text-xs whitespace-pre-wrap">{{ beepResult }}</pre>
       </div>
     </section>
 
     <section class="mb-6">
-      <h2 class="text-lg font-semibold mb-2 text-blue-400">TTS Playback Test</h2>
-      <p class="text-gray-400 text-xs mb-2">Tests AudioContext + TTS synthesis + Web Audio API playback</p>
+      <h2 class="text-lg font-semibold mb-2 text-accent">TTS Playback Test</h2>
+      <p class="text-text-muted text-xs mb-2">Tests AudioContext + TTS synthesis + Web Audio API playback</p>
       <button
-        class="px-4 py-2 bg-orange-600 rounded hover:bg-orange-500 active:bg-orange-700 text-white mb-3"
+        class="px-4 py-2 bg-accent-warn rounded hover:bg-accent-warn active:bg-accent-warn text-white mb-3"
         @click="testTTS"
         :disabled="ttsTesting"
       >
         {{ ttsTesting ? 'Playing...' : 'Test TTS Playback' }}
       </button>
       <div v-if="ttsResult !== null" class="mt-2">
-        <p :class="ttsResult.ok ? 'text-green-400' : 'text-red-400'">
+        <p :class="ttsResult.ok ? 'text-accent' : 'text-accent-warn'">
           {{ ttsResult.ok ? 'SUCCESS' : 'FAILED' }}
         </p>
-        <pre class="text-gray-300 mt-1 text-xs whitespace-pre-wrap">{{ ttsResult.detail }}</pre>
+        <pre class="text-text-primary mt-1 text-xs whitespace-pre-wrap">{{ ttsResult.detail }}</pre>
       </div>
     </section>
 
-    <NuxtLink to="/" class="text-blue-400 underline">Back to sessions</NuxtLink>
+    <NuxtLink to="/" class="text-accent underline">Back to sessions</NuxtLink>
   </div>
 </template>
 
@@ -203,20 +203,20 @@ onMounted(() => {
         ? `isActive=${ua.isActive}, hasBeenActive=${ua.hasBeenActive}`
         : 'userActivation API not available'
 
-      resultEl.innerHTML = `<p class="text-gray-400">Activation: ${activationInfo}</p><p class="text-gray-400">Calling getUserMedia...</p>`
+      resultEl.innerHTML = `<p class="text-text-muted">Activation: ${activationInfo}</p><p class="text-text-muted">Calling getUserMedia...</p>`
 
       // Call getUserMedia IMMEDIATELY — no awaits, no state updates before it
       navigator.mediaDevices.getUserMedia({ audio: true })
         .then(function (stream) {
           const tracks = stream.getAudioTracks()
           const info = tracks.map(function (t) { return t.label + ' (' + t.readyState + ')' }).join(', ')
-          resultEl.innerHTML = `<p class="text-green-400">SUCCESS</p><p class="text-gray-300">Tracks: ${info}</p><p class="text-gray-400">Activation: ${activationInfo}</p>`
+          resultEl.innerHTML = `<p class="text-accent">SUCCESS</p><p class="text-text-primary">Tracks: ${info}</p><p class="text-text-muted">Activation: ${activationInfo}</p>`
           tracks.forEach(function (t) { t.stop() })
         })
         .catch(function (err) {
           const name = err instanceof Error ? err.name : 'Unknown'
           const msg = err instanceof Error ? err.message : String(err)
-          resultEl.innerHTML = `<p class="text-red-400">FAILED</p><p class="text-gray-300">${name}: ${msg}</p><p class="text-gray-400">Activation: ${activationInfo}</p>`
+          resultEl.innerHTML = `<p class="text-accent-warn">FAILED</p><p class="text-text-primary">${name}: ${msg}</p><p class="text-text-muted">Activation: ${activationInfo}</p>`
         })
     }
   }
@@ -227,9 +227,9 @@ onMounted(() => {
       const resultEl = document.getElementById('activation-result')!
       const ua = (navigator as any).userActivation
       if (ua) {
-        resultEl.innerHTML = `<p class="text-gray-300">isActive: <span class="${ua.isActive ? 'text-green-400' : 'text-red-400'}">${ua.isActive}</span></p><p class="text-gray-300">hasBeenActive: <span class="${ua.hasBeenActive ? 'text-green-400' : 'text-red-400'}">${ua.hasBeenActive}</span></p>`
+        resultEl.innerHTML = `<p class="text-text-primary">isActive: <span class="${ua.isActive ? 'text-accent' : 'text-accent-warn'}">${ua.isActive}</span></p><p class="text-text-primary">hasBeenActive: <span class="${ua.hasBeenActive ? 'text-accent' : 'text-accent-warn'}">${ua.hasBeenActive}</span></p>`
       } else {
-        resultEl.innerHTML = `<p class="text-yellow-400">navigator.userActivation not available in this browser</p>`
+        resultEl.innerHTML = `<p class="text-accent-secondary">navigator.userActivation not available in this browser</p>`
       }
     }
   }

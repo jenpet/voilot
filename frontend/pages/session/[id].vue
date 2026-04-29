@@ -1,13 +1,13 @@
 <template>
    <div class="flex flex-col h-screen safe-top safe-bottom">
     <!-- Header -->
-    <header class="bg-surface-800 border-b border-surface-700">
+    <header class="bg-bg-secondary border-b border-bg-elevated">
       <div class="flex items-center gap-3 px-4 py-5 max-w-[1200px] mx-auto">
       <button
-        class="p-1.5 rounded-lg hover:bg-surface-700 transition-colors"
+        class="p-1.5 rounded-lg hover:bg-bg-secondary transition-colors"
         @click="router.push('/')"
       >
-        <span class="text-surface-400">&larr;</span>
+        <span class="text-text-muted">&larr;</span>
       </button>
       <div class="flex-1 min-w-0">
         <div class="flex items-center gap-2">
@@ -22,7 +22,7 @@
       <!-- Contextual voice button: Stop when TTS playing, otherwise Voice ON/OFF -->
       <button
         v-if="voiceEnabled && isTTSPlaying"
-        class="px-3 py-1.5 text-xs rounded-lg transition-colors bg-red-600/30 text-red-300 hover:bg-red-600/50"
+        class="px-3 py-1.5 text-xs rounded-lg transition-colors bg-accent-warn/20 text-accent-warn hover:bg-accent-warn/30"
         title="Stop playback"
         @click="stopTTS"
       >
@@ -37,8 +37,8 @@
         v-else
         class="px-3 py-1.5 text-xs rounded-lg transition-colors"
         :class="voiceEnabled
-          ? 'bg-purple-600/30 text-purple-300 hover:bg-purple-600/40'
-          : 'bg-surface-700 text-surface-400 hover:bg-surface-600'"
+          ? 'bg-accent/20 text-accent hover:bg-accent/25'
+          : 'bg-bg-secondary text-text-muted hover:bg-bg-elevated'"
         :title="voiceEnabled ? 'Voice output ON' : 'Voice output OFF'"
         @click="unlockAudio(); toggleVoice()"
       >
@@ -63,17 +63,17 @@
     <RoundTripTimings v-if="showRoundTripTimings" />
 
     <!-- Input Area -->
-    <div class="border-t border-surface-700 bg-surface-800">
+    <div class="border-t border-bg-elevated bg-bg-secondary">
       <div class="px-4 py-4 max-w-[1200px] mx-auto">
       <!-- Custom answer hint when a question is pending -->
-      <p v-if="hasPendingQuestion" class="text-xs text-indigo-400/70 mb-2 text-center">
+      <p v-if="hasPendingQuestion" class="text-xs text-accent/70 mb-2 text-center">
         Type or speak a custom answer, or select an option above
       </p>
       <div class="flex items-end gap-3">
         <template v-if="isBusy && !isRecording">
           <!-- Stop button — replaces input row when agent is streaming or TTS is playing (but not if user is recording) -->
           <button
-            class="flex-1 p-3 rounded-xl bg-red-600 hover:bg-red-500 active:bg-red-700 transition-colors text-white font-medium text-sm flex items-center justify-center gap-2"
+            class="flex-1 p-3 rounded-xl bg-accent-warn hover:bg-accent-warn active:bg-accent-warn transition-colors text-white font-medium text-sm flex items-center justify-center gap-2"
             @click="abortSession"
           >
             <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
@@ -86,7 +86,7 @@
           <textarea
             ref="inputRef"
             v-model="inputText"
-            class="flex-1 bg-surface-700 rounded-xl px-4 py-3 text-sm resize-none outline-none focus:ring-2 focus:ring-blue-500/50 placeholder-surface-400"
+            class="flex-1 bg-bg-secondary rounded-xl px-4 py-3 text-sm resize-none outline-none focus:ring-2 focus:ring-accent/50 placeholder-text-muted"
             :rows="1"
             placeholder="Type a message or tap the mic..."
             @keydown.enter.exact.prevent="handleSend"
@@ -97,7 +97,7 @@
             @transcription="handleTranscription"
           />
           <button
-            class="flex-shrink-0 p-3 rounded-xl bg-blue-600 hover:bg-blue-500 transition-colors disabled:opacity-50"
+            class="flex-shrink-0 p-3 rounded-xl bg-accent hover:bg-accent transition-colors disabled:opacity-50"
             :disabled="!inputText.trim()"
             @click="handleSend"
           >

@@ -2,7 +2,7 @@
   <div class="relative">
     <!-- Gear icon button -->
     <button
-      class="p-1.5 rounded-lg hover:bg-surface-700 transition-colors text-surface-400"
+      class="p-1.5 rounded-lg hover:bg-bg-secondary transition-colors text-text-muted"
       title="Settings"
       @click="isOpen = !isOpen"
     >
@@ -18,22 +18,22 @@
       <!-- Recording indicator dot -->
       <span
         v-if="debugEnabled"
-        class="absolute -top-0.5 -right-0.5 inline-flex rounded-full h-2 w-2 bg-green-500"
+        class="absolute -top-0.5 -right-0.5 inline-flex rounded-full h-2 w-2 bg-accent"
       />
     </button>
 
     <!-- Dropdown panel -->
     <div
       v-if="isOpen"
-      class="absolute right-0 top-full mt-2 w-72 bg-surface-800 border border-surface-700 rounded-xl shadow-lg z-50 p-4"
+      class="absolute right-0 top-full mt-2 w-72 bg-bg-primary border border-bg-elevated rounded-xl shadow-lg z-50 p-4"
     >
       <!-- Voice section -->
-      <h3 class="text-xs font-semibold text-surface-300 uppercase tracking-wide mb-3">Voice</h3>
+      <h3 class="text-xs font-semibold text-text-primary uppercase tracking-wide mb-3">Voice</h3>
 
       <div class="mb-4">
         <div class="flex items-center justify-between mb-1.5">
-          <label class="text-sm text-surface-300">Silence timeout</label>
-          <span class="text-xs text-surface-400 tabular-nums">{{ (silenceDuration / 1000).toFixed(1) }}s</span>
+          <label class="text-sm text-text-primary">Silence timeout</label>
+          <span class="text-xs text-text-muted tabular-nums">{{ (silenceDuration / 1000).toFixed(1) }}s</span>
         </div>
         <input
           type="range"
@@ -41,23 +41,23 @@
           max="5000"
           step="250"
           :value="silenceDuration"
-          class="w-full h-1 bg-surface-600 rounded-lg appearance-none cursor-pointer accent-blue-500"
+          class="w-full h-1 bg-bg-elevated rounded-lg appearance-none cursor-pointer accent-accent"
           @input="onSilenceChange"
         />
-        <div class="flex justify-between text-[10px] text-surface-400 mt-0.5">
+        <div class="flex justify-between text-[10px] text-text-muted mt-0.5">
           <span>0.5s</span>
           <span>5s</span>
         </div>
       </div>
 
       <!-- Display section -->
-      <h3 class="text-xs font-semibold text-surface-300 uppercase tracking-wide mb-3">Display</h3>
+      <h3 class="text-xs font-semibold text-text-primary uppercase tracking-wide mb-3">Display</h3>
 
       <div class="flex items-center justify-between mb-4">
-        <label class="text-sm text-surface-300">Round-trip timings</label>
+        <label class="text-sm text-text-primary">Round-trip timings</label>
         <button
           class="relative inline-flex h-5 w-9 rounded-full transition-colors"
-          :class="showRoundTripTimings ? 'bg-green-600' : 'bg-surface-600'"
+          :class="showRoundTripTimings ? 'bg-accent' : 'bg-bg-elevated'"
           @click="setShowRoundTripTimings(!showRoundTripTimings)"
         >
           <span
@@ -68,14 +68,14 @@
       </div>
 
       <!-- Debug section -->
-      <h3 class="text-xs font-semibold text-surface-300 uppercase tracking-wide mb-3">Debug Log</h3>
+      <h3 class="text-xs font-semibold text-text-primary uppercase tracking-wide mb-3">Debug Log</h3>
 
       <!-- Toggle -->
       <div class="flex items-center justify-between mb-3">
-        <label class="text-sm text-surface-300">Record debug log</label>
+        <label class="text-sm text-text-primary">Record debug log</label>
         <button
           class="relative inline-flex h-5 w-9 rounded-full transition-colors"
-          :class="debugEnabled ? 'bg-green-600' : 'bg-surface-600'"
+          :class="debugEnabled ? 'bg-accent' : 'bg-bg-elevated'"
           @click="toggleDebug"
         >
           <span
@@ -86,19 +86,19 @@
       </div>
 
       <!-- Recording since -->
-      <p v-if="debugEnabled && recordingSinceLabel" class="text-xs text-surface-400 mb-3">
+      <p v-if="debugEnabled && recordingSinceLabel" class="text-xs text-text-muted mb-3">
         Recording since {{ recordingSinceLabel }}
       </p>
 
       <!-- Entry count -->
-      <p v-if="debugEnabled" class="text-xs text-surface-400 mb-3">
+      <p v-if="debugEnabled" class="text-xs text-text-muted mb-3">
         {{ entryCount }} entries captured
       </p>
 
       <!-- Download button -->
       <button
         v-if="debugEnabled"
-        class="w-full px-3 py-2 text-xs rounded-lg bg-blue-600/30 text-blue-300 hover:bg-blue-600/50 transition-colors disabled:opacity-50"
+        class="w-full px-3 py-2 text-xs rounded-lg bg-accent/20 text-accent hover:bg-accent/30 transition-colors disabled:opacity-50"
         :disabled="isDownloading || entryCount === 0"
         @click="downloadDebugLog"
       >

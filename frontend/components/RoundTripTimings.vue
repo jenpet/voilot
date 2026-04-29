@@ -1,7 +1,7 @@
 <template>
   <div
     v-if="timings.measuredAt"
-    class="flex flex-col gap-1.5 px-4 py-2.5 bg-surface-800 border-t border-surface-700 text-xs font-mono"
+    class="flex flex-col gap-1.5 px-4 py-2.5 bg-bg-primary border-t border-bg-elevated text-xs font-mono"
   >
     <!-- Phase bar -->
     <div class="flex items-center gap-1 h-4">
@@ -18,7 +18,7 @@
       </template>
     </div>
     <!-- Phase details -->
-    <div class="flex items-center gap-3 text-surface-400">
+    <div class="flex items-center gap-3 text-text-muted">
       <template v-for="phase in orderedPhases" :key="phase.key">
         <span v-if="phase.timing" class="flex items-center gap-1">
           <span
@@ -28,7 +28,7 @@
           {{ phase.timing.label }}: {{ formatMs(phase.timing.ms) }}
         </span>
       </template>
-      <span v-if="timings.totalMs != null" class="ml-auto text-surface-300 font-semibold">
+      <span v-if="timings.totalMs != null" class="ml-auto text-text-primary font-semibold">
         Total: {{ formatMs(timings.totalMs) }}
       </span>
     </div>
@@ -56,22 +56,22 @@ function formatMs(ms: number): string {
 
 function phaseColor(phase: Phase): string {
   const map: Record<Phase, string> = {
-    stt: 'bg-amber-600/70 text-amber-100',
-    agent_ttft: 'bg-blue-600/70 text-blue-100',
-    agent_full: 'bg-indigo-600/70 text-indigo-100',
-    tts_synth: 'bg-purple-600/70 text-purple-100',
-    tts_play: 'bg-green-600/70 text-green-100',
+    stt: 'bg-accent-secondary/70 text-text-primary',
+    agent_ttft: 'bg-accent/70 text-text-primary',
+    agent_full: 'bg-accent/50 text-text-primary',
+    tts_synth: 'bg-accent-warn/70 text-text-primary',
+    tts_play: 'bg-accent/30 text-text-primary',
   }
   return map[phase]
 }
 
 function phaseDotColor(phase: Phase): string {
   const map: Record<Phase, string> = {
-    stt: 'bg-amber-500',
-    agent_ttft: 'bg-blue-500',
-    agent_full: 'bg-indigo-500',
-    tts_synth: 'bg-purple-500',
-    tts_play: 'bg-green-500',
+    stt: 'bg-accent-secondary',
+    agent_ttft: 'bg-accent',
+    agent_full: 'bg-accent',
+    tts_synth: 'bg-accent-warn',
+    tts_play: 'bg-accent',
   }
   return map[phase]
 }

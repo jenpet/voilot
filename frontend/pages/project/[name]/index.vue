@@ -1,11 +1,11 @@
 <template>
   <div class="flex flex-col h-screen safe-top">
     <!-- Header -->
-    <header class="bg-surface-800 border-b border-surface-700">
+    <header class="bg-bg-secondary border-b border-bg-elevated">
       <div class="flex items-center justify-between px-4 py-5 max-w-[1200px] mx-auto">
       <div class="flex items-center gap-2">
         <button
-          class="text-surface-400 hover:text-surface-200 transition-colors"
+          class="text-text-muted hover:text-text-primary transition-colors"
           @click="router.push('/')"
         >
           &larr;
@@ -13,7 +13,7 @@
         <h1 class="text-lg font-semibold">{{ projectName }}</h1>
       </div>
       <button
-        class="px-3 py-1.5 text-sm rounded-lg bg-surface-700 hover:bg-surface-600 transition-colors"
+        class="px-3 py-1.5 text-sm rounded-lg bg-bg-secondary hover:bg-bg-elevated transition-colors"
         @click="showNewWorktree = true"
       >
         + Worktree
@@ -22,15 +22,15 @@
     </header>
 
     <!-- New worktree input -->
-    <div v-if="showNewWorktree" class="bg-surface-800 border-b border-surface-700">
+    <div v-if="showNewWorktree" class="bg-bg-secondary border-b border-bg-elevated">
       <div class="px-4 py-3 max-w-[1200px] mx-auto">
       <form class="flex flex-col gap-2" @submit.prevent="doCreateWorktree">
         <!-- Branch selector -->
         <div>
-          <label class="block text-xs text-surface-400 mb-1">Base branch</label>
+          <label class="block text-xs text-text-muted mb-1">Base branch</label>
           <select
             v-model="selectedBranch"
-            class="w-full px-3 py-1.5 text-sm rounded-lg bg-surface-900 border border-surface-600 text-surface-100 focus:outline-none focus:border-blue-500"
+            class="w-full px-3 py-1.5 text-sm rounded-lg bg-bg-primary border border-bg-elevated text-text-primary focus:outline-none focus:border-accent"
             :disabled="branchesLoading"
           >
             <option v-if="branchesLoading" value="">Loading branches...</option>
@@ -45,31 +45,31 @@
             v-model="newDescription"
             type="text"
             placeholder="Short description (e.g. PWA offline support)"
-            class="flex-1 px-3 py-1.5 text-sm rounded-lg bg-surface-900 border border-surface-600 text-surface-100 placeholder:text-surface-500 focus:outline-none focus:border-blue-500"
+            class="flex-1 px-3 py-1.5 text-sm rounded-lg bg-bg-primary border border-bg-elevated text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent"
           />
           <button
             type="submit"
-            class="px-3 py-1.5 text-sm rounded-lg bg-blue-600 hover:bg-blue-500 text-white transition-colors"
+            class="px-3 py-1.5 text-sm rounded-lg bg-accent hover:bg-accent text-white transition-colors"
             :disabled="!newDescription.trim() || branchesLoading"
           >
             Create
           </button>
           <button
             type="button"
-            class="px-3 py-1.5 text-sm rounded-lg bg-surface-700 hover:bg-surface-600 transition-colors"
+            class="px-3 py-1.5 text-sm rounded-lg bg-bg-secondary hover:bg-bg-elevated transition-colors"
             @click="showNewWorktree = false; newDescription = ''"
           >
             Cancel
           </button>
         </div>
       </form>
-      <p v-if="createError" class="mt-2 text-sm text-red-400">{{ createError }}</p>
+      <p v-if="createError" class="mt-2 text-sm text-accent-warn">{{ createError }}</p>
       </div>
     </div>
 
     <!-- Worktree List -->
     <main class="flex-1 overflow-y-auto p-4">
-      <div v-if="!project" class="flex items-center justify-center h-full text-surface-400">
+      <div v-if="!project" class="flex items-center justify-center h-full text-text-muted">
         <p>Project not found</p>
       </div>
 
@@ -77,7 +77,7 @@
         <div
           v-for="wt in project.worktrees"
           :key="wt.name"
-          class="bg-surface-800 border border-surface-700 rounded-xl p-4 cursor-pointer hover:bg-surface-750 transition-colors"
+          class="bg-bg-secondary border border-bg-elevated rounded-xl p-4 cursor-pointer hover:bg-bg-elevated transition-colors"
           @click="navigateToWorktree(wt)"
         >
           <div class="flex items-center justify-between">
@@ -85,7 +85,7 @@
               <h2 class="text-base font-medium">{{ wt.name }}</h2>
               <span
                 v-if="wt.branch === project?.defaultBranch"
-                class="px-1.5 py-0.5 text-xs rounded bg-blue-600/20 text-blue-300"
+                class="px-1.5 py-0.5 text-xs rounded bg-accent/15 text-accent"
               >
                 default
               </span>
@@ -93,20 +93,20 @@
             <div v-if="!wt.isRoot" class="flex items-center gap-1">
               <button
                 v-if="confirmingDelete !== wt.name"
-                class="p-1.5 rounded-lg hover:bg-surface-600 text-surface-400 hover:text-red-400 transition-colors"
+                class="p-1.5 rounded-lg hover:bg-bg-elevated text-text-muted hover:text-accent-warn transition-colors"
                 @click.stop="confirmingDelete = wt.name"
               >
                 &times;
               </button>
               <template v-else>
                 <button
-                  class="px-2 py-1 text-xs rounded-lg bg-red-600 hover:bg-red-500 text-white transition-colors"
+                  class="px-2 py-1 text-xs rounded-lg bg-accent-warn hover:bg-accent-warn text-white transition-colors"
                   @click.stop="doRemoveWorktree(wt.name)"
                 >
                   Remove
                 </button>
                 <button
-                  class="px-2 py-1 text-xs rounded-lg bg-surface-700 hover:bg-surface-600 transition-colors"
+                  class="px-2 py-1 text-xs rounded-lg bg-bg-secondary hover:bg-bg-elevated transition-colors"
                   @click.stop="confirmingDelete = ''"
                 >
                   Cancel
@@ -114,7 +114,7 @@
               </template>
             </div>
           </div>
-          <div class="mt-1 text-sm text-surface-400 font-mono">
+          <div class="mt-1 text-sm text-text-muted font-mono">
             {{ wt.branch }}
           </div>
         </div>

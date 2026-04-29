@@ -1,7 +1,7 @@
 <template>
   <div ref="scrollContainer" class="relative h-full overflow-y-auto overflow-x-hidden">
     <div class="px-3 py-4 space-y-3 max-w-[1200px] mx-auto sm:px-6">
-      <div v-if="messages.length === 0" class="flex items-center justify-center h-full text-surface-400">
+      <div v-if="messages.length === 0" class="flex items-center justify-center h-full text-text-muted">
         <p>Start a conversation...</p>
       </div>
 
@@ -20,7 +20,7 @@
         />
       </template>
 
-      <div v-if="isStreaming" class="flex items-center gap-2 text-surface-400 text-sm">
+      <div v-if="isStreaming" class="flex items-center gap-2 text-text-muted text-sm">
         <span
           class="inline-block w-2 h-2 rounded-full animate-pulse"
           :class="streamingIndicatorColor"
@@ -32,7 +32,7 @@
     <!-- Jump to bottom button -->
     <button
       v-if="showJumpToBottom"
-      class="sticky bottom-4 left-full -translate-x-8 w-8 h-8 rounded-full bg-surface-700 hover:bg-surface-600 text-surface-300 shadow-lg flex items-center justify-center transition-colors"
+      class="sticky bottom-4 left-full -translate-x-8 w-8 h-8 rounded-full bg-bg-secondary hover:bg-bg-elevated text-text-primary shadow-lg flex items-center justify-center transition-colors"
       title="Jump to latest"
       @click="jumpToBottom"
     >
@@ -56,9 +56,9 @@ const props = defineProps<{
 
 // Streaming indicator state — priority: permission > question > default
 const streamingIndicatorColor = computed(() => {
-  if (props.hasPendingPermission) return 'bg-amber-400'
-  if (props.hasPendingQuestion) return 'bg-indigo-400'
-  return 'bg-blue-400'
+  if (props.hasPendingPermission) return 'bg-accent-secondary'
+  if (props.hasPendingQuestion) return 'bg-accent'
+  return 'bg-accent'
 })
 const streamingIndicatorText = computed(() => {
   if (props.hasPendingPermission) return 'Waiting for approval...'

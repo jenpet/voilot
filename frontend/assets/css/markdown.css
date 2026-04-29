@@ -42,7 +42,7 @@
 .prose-chat h4,
 .prose-chat h5,
 .prose-chat h6 {
-  color: #f1f5f9; /* surface-100 */
+  color: var(--text-primary);
   font-weight: 600;
   margin: 1em 0 0.5em;
   line-height: 1.3;
@@ -67,8 +67,8 @@
 /* ─── Code blocks ───────────────────────────────────────────────────── */
 
 .prose-chat pre {
-  background-color: #0f172a; /* surface-900 */
-  border: 1px solid #334155; /* surface-700 */
+  background-color: var(--bg-secondary);
+  border: 1px solid var(--bg-elevated);
   border-radius: 0.5rem;
   padding: 0.75rem 1rem;
   margin: 0.75em 0;
@@ -83,7 +83,7 @@
   border-radius: 0;
   font-size: 0.8125em; /* 13px at 16px base */
   line-height: 1.5;
-  color: #cbd5e1; /* surface-300 */
+  color: var(--text-primary);
   white-space: pre;
   word-break: normal;
   overflow-wrap: normal;
@@ -92,18 +92,18 @@
 /* ─── Inline code ───────────────────────────────────────────────────── */
 
 .prose-chat :not(pre) > code {
-  background-color: rgba(51, 65, 85, 0.5); /* surface-700/50 */
+  background-color: var(--bg-secondary);
   border-radius: 0.25rem;
   padding: 0.15em 0.35em;
   font-size: 0.875em;
-  color: #e2e8f0; /* surface-200 */
+  color: var(--text-primary);
   word-break: break-word;
 }
 
 /* ─── Links ─────────────────────────────────────────────────────────── */
 
 .prose-chat a {
-  color: #60a5fa; /* blue-400 */
+  color: var(--accent);
   text-decoration: none;
 }
 
@@ -139,10 +139,10 @@
 /* ─── Blockquotes ───────────────────────────────────────────────────── */
 
 .prose-chat blockquote {
-  border-left: 3px solid #475569; /* surface-600 */
+  border-left: 3px solid var(--bg-elevated);
   padding: 0.25em 0.75em;
   margin: 0.75em 0;
-  color: #94a3b8; /* surface-400 */
+  color: var(--text-muted);
   font-style: italic;
 }
 
@@ -154,7 +154,7 @@
 
 .prose-chat hr {
   border: none;
-  border-top: 1px solid #334155; /* surface-700 */
+  border-top: 1px solid var(--bg-elevated);
   margin: 1em 0;
 }
 
@@ -169,19 +169,19 @@
 
 .prose-chat th,
 .prose-chat td {
-  border: 1px solid #334155; /* surface-700 */
+  border: 1px solid var(--bg-elevated);
   padding: 0.4em 0.75em;
   text-align: left;
 }
 
 .prose-chat th {
-  background-color: rgba(30, 41, 59, 0.7); /* surface-800/70 */
-  color: #e2e8f0; /* surface-200 */
+  background-color: var(--bg-secondary);
+  color: var(--text-primary);
   font-weight: 600;
 }
 
 .prose-chat tr:nth-child(even) td {
-  background-color: rgba(15, 23, 42, 0.4); /* surface-900/40 */
+  background-color: var(--bg-primary);
 }
 
 /* ─── Images ────────────────────────────────────────────────────────── */
@@ -195,7 +195,7 @@
 /* ─── Strong & emphasis ─────────────────────────────────────────────── */
 
 .prose-chat strong {
-  color: #f1f5f9; /* surface-100 */
+  color: var(--text-primary);
   font-weight: 600;
 }
 

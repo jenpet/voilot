@@ -1,22 +1,22 @@
 <template>
   <div class="flex flex-col h-screen safe-top">
     <!-- Header -->
-    <header class="bg-surface-800 border-b border-surface-700">
+    <header class="bg-bg-secondary border-b border-bg-elevated">
       <div class="flex items-center justify-between px-4 py-5 max-w-[1200px] mx-auto">
       <div class="flex items-center gap-2">
         <button
-          class="text-surface-400 hover:text-surface-200 transition-colors"
+          class="text-text-muted hover:text-text-primary transition-colors"
           @click="router.push(`/project/${projectName}`)"
         >
           &larr;
         </button>
         <div>
           <h1 class="text-lg font-semibold">{{ worktreeName }}</h1>
-          <p class="text-xs text-surface-400">{{ projectName }}</p>
+          <p class="text-xs text-text-muted">{{ projectName }}</p>
         </div>
       </div>
       <button
-        class="px-3 py-1.5 text-sm rounded-lg bg-surface-700 hover:bg-surface-600 transition-colors"
+        class="px-3 py-1.5 text-sm rounded-lg bg-bg-secondary hover:bg-bg-elevated transition-colors"
         @click="createSessionForWorktree"
       >
         + New Session
@@ -26,7 +26,7 @@
 
     <!-- Session List -->
     <main class="flex-1 overflow-y-auto p-4">
-      <div v-if="worktreeSessions.length === 0" class="flex flex-col items-center justify-center h-full text-surface-400">
+      <div v-if="worktreeSessions.length === 0" class="flex flex-col items-center justify-center h-full text-text-muted">
         <p class="text-xl mb-2">No sessions yet</p>
         <p class="text-sm">Create a new session to start working in this worktree</p>
       </div>

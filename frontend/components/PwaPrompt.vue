@@ -1,7 +1,7 @@
 <template>
   <div
     v-if="promptType"
-    class="fixed inset-0 z-[100] bg-surface-900 flex flex-col items-center justify-center p-8"
+    class="fixed inset-0 z-[100] bg-bg-primary flex flex-col items-center justify-center p-8"
   >
     <!-- App icon -->
     <img
@@ -11,16 +11,16 @@
     />
 
     <!-- App name -->
-    <h1 class="text-2xl font-bold text-surface-100 mb-2">{{ appName }}</h1>
-    <p class="text-surface-400 text-sm mb-8">Voice-first AI agent</p>
+    <h1 class="text-2xl font-bold text-text-primary mb-2">{{ appName }}</h1>
+    <p class="text-text-muted text-sm mb-8">Voice-first AI agent</p>
 
     <!-- Install (Android) -->
     <template v-if="promptType === 'install-android'">
-      <p class="text-surface-300 text-center max-w-sm mb-8 leading-relaxed">
+      <p class="text-text-primary text-center max-w-sm mb-8 leading-relaxed">
         Install {{ appName }} on your home screen for the best experience.
       </p>
       <button
-        class="bg-blue-600 hover:bg-blue-500 active:bg-blue-700 text-white rounded-xl px-8 py-4 text-lg font-medium transition-colors"
+        class="bg-accent hover:bg-accent active:bg-accent text-white rounded-xl px-8 py-4 text-lg font-medium transition-colors"
         @click="triggerInstall"
       >
         Install {{ appName }}
@@ -29,14 +29,14 @@
 
     <!-- Install (iOS) -->
     <template v-else-if="promptType === 'install-ios'">
-      <div class="text-surface-300 text-center max-w-sm mb-8 leading-relaxed space-y-4">
+      <div class="text-text-primary text-center max-w-sm mb-8 leading-relaxed space-y-4">
         <p>To install, follow these steps:</p>
         <div class="flex flex-col items-center gap-4 text-sm">
           <div class="flex items-center gap-2">
-            <span class="text-surface-100 font-medium bg-surface-800 rounded-lg px-3 py-1.5">1</span>
+            <span class="text-text-primary font-medium bg-bg-secondary rounded-lg px-3 py-1.5">1</span>
             <span>Tap the</span>
             <!-- iOS Share icon (inline SVG) -->
-            <svg class="w-5 h-5 text-blue-400 inline-block" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <svg class="w-5 h-5 text-accent inline-block" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <path d="M4 12v8a2 2 0 002 2h12a2 2 0 002-2v-8" />
               <polyline points="16 6 12 2 8 6" />
               <line x1="12" y1="2" x2="12" y2="15" />
@@ -44,10 +44,10 @@
             <span>Share button</span>
           </div>
           <div class="flex items-center gap-2">
-            <span class="text-surface-100 font-medium bg-surface-800 rounded-lg px-3 py-1.5">2</span>
+            <span class="text-text-primary font-medium bg-bg-secondary rounded-lg px-3 py-1.5">2</span>
             <span>Scroll down and tap</span>
           </div>
-          <div class="flex items-center gap-2 text-surface-100 font-medium bg-surface-800 rounded-lg px-4 py-2">
+          <div class="flex items-center gap-2 text-text-primary font-medium bg-bg-secondary rounded-lg px-4 py-2">
             <!-- Plus icon -->
             <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
               <line x1="12" y1="5" x2="12" y2="19" />
@@ -58,7 +58,7 @@
         </div>
       </div>
       <button
-        class="bg-blue-600 hover:bg-blue-500 active:bg-blue-700 text-white rounded-xl px-8 py-4 text-lg font-medium transition-colors"
+        class="bg-accent hover:bg-accent active:bg-accent text-white rounded-xl px-8 py-4 text-lg font-medium transition-colors"
         @click="dismiss"
       >
         Got it
@@ -67,11 +67,11 @@
 
     <!-- Update available -->
     <template v-else-if="promptType === 'update'">
-      <p class="text-surface-300 text-center max-w-sm mb-8 leading-relaxed">
+      <p class="text-text-primary text-center max-w-sm mb-8 leading-relaxed">
         A new version of {{ appName }} is available.
       </p>
       <button
-        class="bg-blue-600 hover:bg-blue-500 active:bg-blue-700 text-white rounded-xl px-8 py-4 text-lg font-medium transition-colors"
+        class="bg-accent hover:bg-accent active:bg-accent text-white rounded-xl px-8 py-4 text-lg font-medium transition-colors"
         @click="triggerUpdate"
       >
         Update now
@@ -81,7 +81,7 @@
     <!-- Dismiss link -->
     <button
       v-if="promptType !== 'install-ios'"
-      class="text-surface-400 hover:text-surface-300 text-sm mt-6 transition-colors"
+      class="text-text-muted hover:text-text-primary text-sm mt-6 transition-colors"
       @click="dismiss"
     >
       {{ promptType === 'update' ? 'Later' : 'Not now' }}

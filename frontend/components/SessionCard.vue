@@ -1,6 +1,6 @@
 <template>
   <div
-    class="block w-full text-left p-4 rounded-xl bg-surface-800 hover:bg-surface-750 border border-surface-700 hover:border-surface-600 transition-colors cursor-pointer"
+    class="block w-full text-left p-4 rounded-xl bg-bg-secondary hover:bg-bg-elevated border border-bg-elevated hover:border-bg-elevated transition-colors cursor-pointer"
   >
     <div class="flex items-start justify-between">
       <div class="min-w-0 flex-1">
@@ -17,11 +17,11 @@
             />
             {{ session.agent || 'planitect' }}
           </span>
-          <span class="text-xs text-surface-400">{{ session.id.slice(0, 8) }}</span>
+          <span class="text-xs text-text-muted">{{ session.id.slice(0, 8) }}</span>
         </div>
       </div>
       <button
-        class="p-1.5 rounded-lg hover:bg-surface-600 text-surface-400 hover:text-red-400 transition-colors"
+        class="p-1.5 rounded-lg hover:bg-bg-elevated text-text-muted hover:text-accent-warn transition-colors"
         @click.stop="$emit('delete')"
       >
         &times;
@@ -56,8 +56,8 @@ const agentBadgeStyle = computed(() => {
     }
   }
   return {
-    backgroundColor: 'rgb(var(--surface-700) / 0.5)',
-    color: 'rgb(var(--surface-300))',
+    backgroundColor: 'var(--bg-elevated)',
+    color: 'var(--text-primary)',
   }
 })
 </script>

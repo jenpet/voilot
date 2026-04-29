@@ -2,7 +2,7 @@
   <div class="relative">
     <button
       class="flex items-center gap-1.5 text-xs px-2 py-0.5 rounded-full transition-colors"
-      :class="model ? 'bg-surface-700/50 text-surface-300' : 'bg-surface-700/70 text-surface-200'"
+      :class="model ? 'bg-bg-secondary/50 text-text-primary' : 'bg-bg-secondary/70 text-text-primary'"
       @click="toggleDropdown"
     >
       <span class="truncate max-w-[200px] hidden sm:inline">{{ activeLabel }}</span>
@@ -14,29 +14,29 @@
 
     <div
       v-if="isOpen"
-      class="absolute top-full left-0 mt-1 w-80 bg-surface-800 border border-surface-600 rounded-lg shadow-xl z-50 py-1 max-h-72 overflow-y-auto"
+      class="absolute top-full left-0 mt-1 w-80 bg-bg-primary border border-bg-elevated rounded-lg shadow-xl z-50 py-1 max-h-72 overflow-y-auto"
     >
       <button
-        class="w-full text-left px-3 py-2 hover:bg-surface-700 transition-colors"
-        :class="{ 'bg-surface-700/50': !model }"
+        class="w-full text-left px-3 py-2 hover:bg-bg-secondary transition-colors"
+        :class="{ 'bg-bg-secondary/50': !model }"
         @click="selectModel('')"
       >
-        <div class="text-xs font-medium text-surface-100">Default (OpenCode)</div>
-        <div v-if="defaultLabel" class="text-xs text-surface-400 mt-0.5">{{ defaultLabel }}</div>
+        <div class="text-xs font-medium text-text-primary">Default (OpenCode)</div>
+        <div v-if="defaultLabel" class="text-xs text-text-muted mt-0.5">{{ defaultLabel }}</div>
       </button>
 
       <button
         v-for="m in models"
         :key="m.id"
-        class="w-full text-left px-3 py-2 hover:bg-surface-700 transition-colors"
-        :class="{ 'bg-surface-700/50': m.id === model }"
+        class="w-full text-left px-3 py-2 hover:bg-bg-secondary transition-colors"
+        :class="{ 'bg-bg-secondary/50': m.id === model }"
         @click="selectModel(m.id)"
       >
-        <div class="text-xs font-medium text-surface-100">{{ m.name || modelNameFromId(m.id) }}</div>
-        <div class="text-xs text-surface-400 mt-0.5">{{ formatProviderAndId(m) }}</div>
+        <div class="text-xs font-medium text-text-primary">{{ m.name || modelNameFromId(m.id) }}</div>
+        <div class="text-xs text-text-muted mt-0.5">{{ formatProviderAndId(m) }}</div>
       </button>
 
-      <div v-if="models.length === 0" class="px-3 py-2 text-xs text-surface-400 italic">
+      <div v-if="models.length === 0" class="px-3 py-2 text-xs text-text-muted italic">
         No models available
       </div>
     </div>

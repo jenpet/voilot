@@ -1,7 +1,7 @@
 <template>
   <div v-if="queue.length > 0" class="fixed bottom-24 right-4 z-50">
     <button
-      class="p-2 rounded-full bg-surface-800 border border-surface-600 text-surface-300 hover:text-white transition-colors"
+      class="p-2 rounded-full bg-bg-primary border border-bg-elevated text-text-primary hover:text-white transition-colors"
       @click="stop"
     >
       <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">

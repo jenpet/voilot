@@ -6,7 +6,7 @@
     <!-- Agent name shown on agent switch -->
     <p
       v-if="showAgentName"
-      class="text-[10px] text-surface-400 mb-1"
+      class="text-[10px] text-text-muted mb-1"
     >
       {{ agentName }}
     </p>
@@ -15,41 +15,41 @@
       <!-- Header row: icon + title -->
       <div class="flex items-start gap-2">
         <span v-if="isPermissionResolved" class="text-sm mt-0.5 flex-shrink-0">
-          <span v-if="permissionResponse === 'reject'" class="text-red-400">&#x2717;</span>
-          <span v-else class="text-green-400">&#x2713;</span>
+          <span v-if="permissionResponse === 'reject'" class="text-accent-warn">&#x2717;</span>
+          <span v-else class="text-accent">&#x2713;</span>
         </span>
-        <span v-else class="text-sm mt-0.5 flex-shrink-0 text-amber-400">&#x26A0;</span>
+        <span v-else class="text-sm mt-0.5 flex-shrink-0 text-accent-secondary">&#x26A0;</span>
         <div class="flex-1 min-w-0">
-          <p class="text-xs font-medium" :class="isPermissionResolved ? 'text-surface-300' : 'text-amber-200'">
+          <p class="text-xs font-medium" :class="isPermissionResolved ? 'text-text-primary' : 'text-accent-secondary'">
             {{ permissionTitle }}
           </p>
-          <p v-if="permissionPattern" class="text-xs text-surface-400 mt-0.5 truncate font-mono">
+          <p v-if="permissionPattern" class="text-xs text-text-muted mt-0.5 truncate font-mono">
             {{ permissionPattern }}
           </p>
         </div>
       </div>
 
       <!-- Resolution label -->
-      <p v-if="isPermissionResolved" class="text-xs mt-2" :class="permissionResponse === 'reject' ? 'text-red-400/80' : 'text-green-400/80'">
+      <p v-if="isPermissionResolved" class="text-xs mt-2" :class="permissionResponse === 'reject' ? 'text-accent-warn/80' : 'text-accent/80'">
         {{ permissionResponseLabel }}
       </p>
 
       <!-- Action buttons (only when pending) -->
       <div v-else class="flex items-center gap-2 mt-3">
         <button
-          class="px-3 py-1.5 text-xs bg-green-600/30 text-green-300 hover:bg-green-600/50 active:bg-green-600/70 transition-colors"
+          class="px-3 py-1.5 text-xs bg-accent/20 text-accent hover:bg-accent/30 active:bg-accent/40 transition-colors"
           @click="respond('once')"
         >
           Allow Once
         </button>
         <button
-          class="px-3 py-1.5 text-xs bg-blue-600/30 text-blue-300 hover:bg-blue-600/50 active:bg-blue-600/70 transition-colors"
+          class="px-3 py-1.5 text-xs bg-accent/20 text-accent hover:bg-accent/30 active:bg-accent/40 transition-colors"
           @click="respond('always')"
         >
           Allow Always
         </button>
         <button
-          class="px-3 py-1.5 text-xs bg-red-600/30 text-red-300 hover:bg-red-600/50 active:bg-red-600/70 transition-colors"
+          class="px-3 py-1.5 text-xs bg-accent-warn/20 text-accent-warn hover:bg-accent-warn/30 active:bg-accent-warn/40 transition-colors"
           @click="respond('reject')"
         >
           Deny
@@ -62,16 +62,16 @@
       <!-- Header row: icon + question -->
       <div class="flex items-start gap-2">
         <span v-if="isQuestionResolved" class="text-sm mt-0.5 flex-shrink-0">
-          <span v-if="isQuestionRejected" class="text-red-400">&#x2717;</span>
-          <span v-else class="text-indigo-400">&#x2713;</span>
+          <span v-if="isQuestionRejected" class="text-accent-warn">&#x2717;</span>
+          <span v-else class="text-accent">&#x2713;</span>
         </span>
-        <span v-else class="text-sm mt-0.5 flex-shrink-0 text-indigo-400">?</span>
+        <span v-else class="text-sm mt-0.5 flex-shrink-0 text-accent">?</span>
         <div class="flex-1 min-w-0">
           <p v-if="questionHeader" class="text-[10px] font-semibold uppercase tracking-wider mb-0.5"
-            :class="isQuestionResolved ? 'text-surface-400' : 'text-indigo-400/70'">
+            :class="isQuestionResolved ? 'text-text-muted' : 'text-accent/70'">
             {{ questionHeader }}
           </p>
-          <p class="text-xs font-medium" :class="isQuestionResolved ? 'text-surface-300' : 'text-indigo-200'">
+          <p class="text-xs font-medium" :class="isQuestionResolved ? 'text-text-primary' : 'text-accent'">
             {{ message.content }}
           </p>
         </div>
@@ -79,10 +79,10 @@
 
       <!-- Resolved: show selected answer or rejection -->
       <div v-if="isQuestionResolved" class="mt-2">
-        <p v-if="isQuestionRejected" class="text-xs text-red-400/80">
+        <p v-if="isQuestionRejected" class="text-xs text-accent-warn/80">
           Dismissed
         </p>
-        <p v-else class="text-xs text-indigo-400/80">
+        <p v-else class="text-xs text-accent/80">
           {{ questionSelectedLabel }}
         </p>
       </div>
@@ -93,7 +93,7 @@
           <button
             v-for="option in questionOptions"
             :key="option.label"
-            class="px-3 py-1.5 text-xs bg-indigo-600/25 text-indigo-300 hover:bg-indigo-600/45 active:bg-indigo-600/65 transition-colors"
+            class="px-3 py-1.5 text-xs bg-accent/15 text-accent hover:bg-accent/25 active:bg-accent/35 transition-colors"
             :title="option.description"
             @click="selectOption(option.label)"
           >
@@ -102,7 +102,7 @@
         </div>
         <!-- Dismiss button -->
         <button
-          class="mt-2 px-2 py-1 text-[10px] text-surface-400 hover:text-red-400 hover:bg-red-600/15 transition-colors"
+          class="mt-2 px-2 py-1 text-[10px] text-text-muted hover:text-accent-warn hover:bg-accent-warn/10 transition-colors"
           @click="dismissQuestion"
         >
           Dismiss
@@ -111,7 +111,7 @@
 
       <!-- Waiting: not yet active in multi-question batch -->
       <div v-else class="mt-2">
-        <p class="text-[10px] text-surface-400 italic">
+        <p class="text-[10px] text-text-muted italic">
           Waiting for previous question...
         </p>
       </div>
@@ -123,17 +123,17 @@
         {{ message.type === 'tool_use' ? '⚙' : '✓' }}
       </span>
       <div class="min-w-0">
-        <p class="text-xs font-medium text-surface-300">
+        <p class="text-xs font-medium text-text-primary">
           {{ toolTitle }}
         </p>
-        <p v-if="message.content && message.type === 'tool_result'" class="text-xs text-surface-400 mt-1 truncate">
+        <p v-if="message.content && message.type === 'tool_result'" class="text-xs text-text-muted mt-1 truncate">
           {{ message.content.slice(0, 200) }}
         </p>
       </div>
     </div>
 
     <!-- System message -->
-    <div v-else-if="message.role === 'system'" class="text-xs text-surface-400 italic">
+    <div v-else-if="message.role === 'system'" class="text-xs text-text-muted italic">
       {{ message.content }}
     </div>
 
@@ -256,31 +256,31 @@ const messageClasses = computed(() => {
     const base = 'px-4 py-3'
     if (isPermissionResolved.value) {
       return permissionResponse.value === 'reject'
-        ? `${base} bg-red-900/20 border border-red-800/30 text-surface-200`
-        : `${base} bg-green-900/20 border border-green-800/30 text-surface-200`
+        ? `${base} bg-accent-warn/10 border border-accent-warn/30 text-text-primary`
+        : `${base} bg-accent/10 border border-accent/30 text-text-primary`
     }
-    return `${base} bg-amber-900/20 border border-amber-700/40 text-surface-200`
+    return `${base} bg-accent-secondary/10 border border-accent-secondary/30 text-text-primary`
   }
   if (props.message.type === 'question_request') {
     const base = 'px-4 py-3'
     if (isQuestionResolved.value) {
       return isQuestionRejected.value
-        ? `${base} bg-red-900/20 border border-red-800/30 text-surface-200`
-        : `${base} bg-indigo-900/20 border border-indigo-800/30 text-surface-200`
+        ? `${base} bg-accent-warn/10 border border-accent-warn/30 text-text-primary`
+        : `${base} bg-accent/10 border border-accent/30 text-text-primary`
     }
-    return `${base} bg-indigo-900/20 border border-indigo-700/40 text-surface-200`
+    return `${base} bg-accent/10 border border-accent/30 text-text-primary`
   }
   if (props.message.role === 'user') {
-    return 'px-4 py-3 border-l-2 border-blue-500 bg-blue-600/10 text-blue-100'
+    return 'px-4 py-3 border-l-2 border-accent bg-accent/10 text-text-primary'
   }
   if (props.message.role === 'system') {
-    return 'px-4 py-3 mx-auto bg-surface-800/50 text-surface-400 text-center'
+    return 'px-4 py-3 mx-auto bg-bg-primary/50 text-text-muted text-center'
   }
   if (props.message.type === 'tool_use' || props.message.type === 'tool_result') {
-    return 'px-4 py-3 bg-surface-800/60 border border-surface-700/50 text-surface-300'
+    return 'px-4 py-3 bg-bg-primary/60 border border-bg-elevated/50 text-text-primary'
   }
   // Assistant text: no box styling
-  return 'py-1 text-surface-100'
+  return 'py-1 text-text-primary'
 })
 
 const toolTitle = computed(() => {

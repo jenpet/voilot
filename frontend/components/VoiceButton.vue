@@ -10,7 +10,7 @@
       <div
         v-if="isRecording || isMonitoring"
         class="absolute inset-0 rounded-xl border-2 transition-opacity"
-        :class="isRecording ? 'border-red-400' : 'border-purple-400'"
+        :class="isRecording ? 'border-accent-warn' : 'border-accent'"
         :style="{ opacity: Math.min(audioLevel / 40, 1) }"
       />
       <svg
@@ -40,21 +40,21 @@
       v-if="isRecording"
       class="absolute -top-1 -right-1 flex h-3 w-3"
     >
-      <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75" />
-      <span class="relative inline-flex rounded-full h-3 w-3 bg-red-500" />
+      <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-accent-warn opacity-75" />
+      <span class="relative inline-flex rounded-full h-3 w-3 bg-accent-warn" />
     </span>
     <!-- Monitoring indicator dot (purple, no ping) -->
     <span
       v-else-if="isMonitoring"
       class="absolute -top-1 -right-1 flex h-3 w-3"
     >
-      <span class="relative inline-flex rounded-full h-3 w-3 bg-purple-500" />
+      <span class="relative inline-flex rounded-full h-3 w-3 bg-accent" />
     </span>
     <!-- Status text -->
     <span
       v-if="statusText"
       class="absolute -top-8 left-1/2 -translate-x-1/2 whitespace-nowrap text-xs px-2 py-0.5 rounded"
-      :class="lastError ? 'bg-red-900/80 text-red-300' : 'bg-surface-700 text-surface-300'"
+      :class="lastError ? 'bg-accent-warn/50 text-accent-warn' : 'bg-bg-secondary text-text-primary'"
     >
       {{ statusText }}
     </span>
@@ -101,12 +101,12 @@ let statusTimeout: ReturnType<typeof setTimeout> | null = null
 
 const buttonClasses = computed(() => {
   if (isProcessing.value) {
-    return 'bg-amber-600/50 cursor-wait opacity-70'
+    return 'bg-accent-secondary/50 cursor-wait opacity-70'
   }
   if (isRecording.value) {
-    return 'bg-red-600 hover:bg-red-500 animate-pulse scale-110'
+    return 'bg-accent-warn hover:bg-accent-warn animate-pulse scale-110'
   }
-  return 'bg-surface-700 hover:bg-surface-600'
+  return 'bg-bg-secondary hover:bg-bg-elevated'
 })
 
 function showStatus(text: string, duration = 2000) {

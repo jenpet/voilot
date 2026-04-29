@@ -2,7 +2,7 @@
   <div class="relative">
     <!-- Clickable status dot -->
     <button
-      class="inline-flex items-center justify-center w-5 h-5 rounded-full focus:outline-none focus:ring-2 focus:ring-offset-1 focus:ring-offset-surface-800 focus:ring-blue-500/50"
+      class="inline-flex items-center justify-center w-5 h-5 rounded-full focus:outline-none focus:ring-2 focus:ring-offset-1 focus:ring-offset-bg-primary focus:ring-accent/50"
       :title="tooltipText"
       @click="open = !open"
     >
@@ -23,9 +23,9 @@
     >
       <div
         v-if="open"
-        class="absolute right-0 top-full mt-2 w-56 rounded-lg bg-surface-700 border border-surface-600 shadow-lg z-50 py-2 px-3"
+        class="absolute right-0 top-full mt-2 w-56 rounded-lg bg-bg-secondary border border-bg-elevated shadow-lg z-50 py-2 px-3"
       >
-        <div class="text-xs font-medium text-surface-300 mb-2 uppercase tracking-wide">
+        <div class="text-xs font-medium text-text-primary mb-2 uppercase tracking-wide">
           Service Status
         </div>
         <ul class="space-y-1.5">
@@ -34,15 +34,15 @@
             :key="svc.name"
             class="flex items-center justify-between text-sm"
           >
-            <span class="text-surface-200 capitalize">{{ svc.name }}</span>
+            <span class="text-text-primary capitalize">{{ svc.name }}</span>
             <span class="flex items-center gap-1.5">
               <span
                 class="inline-block w-1.5 h-1.5 rounded-full"
-                :class="svc.available ? 'bg-green-400' : 'bg-red-400'"
+                :class="svc.available ? 'bg-accent' : 'bg-accent-warn'"
               />
               <span
                 class="text-xs"
-                :class="svc.available ? 'text-green-400' : 'text-red-400'"
+                :class="svc.available ? 'text-accent' : 'text-accent-warn'"
               >
                 {{ svc.available ? 'ok' : (svc.error || 'down') }}
               </span>
@@ -68,13 +68,13 @@ const open = ref(false);
 const dotClass = computed(() => {
   switch (health.value.overall) {
     case 'green':
-      return 'bg-green-400';
+      return 'bg-accent';
     case 'yellow':
-      return 'bg-yellow-400 animate-pulse';
+      return 'bg-accent-secondary animate-pulse';
     case 'red':
-      return 'bg-red-400';
+      return 'bg-accent-warn';
     default:
-      return 'bg-red-400';
+      return 'bg-accent-warn';
   }
 });
 
