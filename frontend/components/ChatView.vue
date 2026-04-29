@@ -1,29 +1,43 @@
 <template>
-  <div ref="scrollContainer" class="p-4 space-y-3 max-w-2xl mx-auto">
-    <div v-if="messages.length === 0" class="flex items-center justify-center h-full text-surface-400">
-      <p>Start a conversation...</p>
+  <div ref="scrollContainer" class="relative h-full overflow-y-auto overflow-x-hidden">
+    <div class="p-4 space-y-3 max-w-2xl mx-auto">
+      <div v-if="messages.length === 0" class="flex items-center justify-center h-full text-surface-400">
+        <p>Start a conversation...</p>
+      </div>
+
+      <template v-for="(item, idx) in groupedMessages" :key="item.key">
+        <!-- Tool group: collapsible block for consecutive tool_use / tool_result -->
+        <ToolGroup
+          v-if="item.kind === 'tool_group'"
+          :messages="item.messages"
+        />
+        <!-- Regular message -->
+        <ChatMessage
+          v-else
+          :message="item.message"
+        />
+      </template>
+
+      <div v-if="isStreaming" class="flex items-center gap-2 text-surface-400 text-sm">
+        <span
+          class="inline-block w-2 h-2 rounded-full animate-pulse"
+          :class="streamingIndicatorColor"
+        />
+        <span>{{ streamingIndicatorText }}</span>
+      </div>
     </div>
 
-    <template v-for="(item, idx) in groupedMessages" :key="item.key">
-      <!-- Tool group: collapsible block for consecutive tool_use / tool_result -->
-      <ToolGroup
-        v-if="item.kind === 'tool_group'"
-        :messages="item.messages"
-      />
-      <!-- Regular message -->
-      <ChatMessage
-        v-else
-        :message="item.message"
-      />
-    </template>
-
-    <div v-if="isStreaming" class="flex items-center gap-2 text-surface-400 text-sm">
-      <span
-        class="inline-block w-2 h-2 rounded-full animate-pulse"
-        :class="streamingIndicatorColor"
-      />
-      <span>{{ streamingIndicatorText }}</span>
-    </div>
+    <!-- Jump to bottom button -->
+    <button
+      v-if="showJumpToBottom"
+      class="sticky bottom-4 left-full -translate-x-8 w-8 h-8 rounded-full bg-surface-700 hover:bg-surface-600 text-surface-300 shadow-lg flex items-center justify-center transition-colors"
+      title="Jump to latest"
+      @click="jumpToBottom"
+    >
+      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 14l-7 7m0 0l-7-7m7 7V3" />
+      </svg>
+    </button>
   </div>
 </template>
 
@@ -93,21 +107,36 @@ const groupedMessages = computed<GroupedItem[]>(() => {
 })
 
 const scrollContainer = ref<HTMLElement>()
-let isUserScrolled = false
+const isUserScrolled = ref(false)
+
+// Show jump-to-bottom when user has scrolled away and there's activity
+const showJumpToBottom = computed(() => isUserScrolled.value && (props.isStreaming || props.messages.length > 0))
 
 // Track if user has scrolled up (to avoid fighting auto-scroll)
 function onScroll() {
   if (!scrollContainer.value) return
   const el = scrollContainer.value
   const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight
-  isUserScrolled = distanceFromBottom > 100
+  isUserScrolled.value = distanceFromBottom > 150
 }
 
 function scrollToBottom() {
-  if (isUserScrolled) return
+  if (isUserScrolled.value) return
   nextTick(() => {
     if (scrollContainer.value) {
       scrollContainer.value.scrollTop = scrollContainer.value.scrollHeight
+    }
+  })
+}
+
+function jumpToBottom() {
+  isUserScrolled.value = false
+  nextTick(() => {
+    if (scrollContainer.value) {
+      scrollContainer.value.scrollTo({
+        top: scrollContainer.value.scrollHeight,
+        behavior: 'smooth',
+      })
     }
   })
 }
@@ -132,8 +161,14 @@ watch(
   },
 )
 
+// Scroll to bottom on initial load
 onMounted(() => {
   scrollContainer.value?.addEventListener('scroll', onScroll, { passive: true })
+  nextTick(() => {
+    if (scrollContainer.value) {
+      scrollContainer.value.scrollTop = scrollContainer.value.scrollHeight
+    }
+  })
 })
 
 onUnmounted(() => {
