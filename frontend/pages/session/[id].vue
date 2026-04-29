@@ -1,7 +1,7 @@
 <template>
-  <div class="flex flex-col h-screen">
+   <div class="flex flex-col h-screen safe-top safe-bottom">
     <!-- Header -->
-    <header class="flex items-center gap-3 px-4 py-3 bg-surface-800 border-b border-surface-700">
+    <header class="flex items-center gap-3 px-4 py-5 bg-surface-800 border-b border-surface-700">
       <button
         class="p-1.5 rounded-lg hover:bg-surface-700 transition-colors"
         @click="router.push('/')"
@@ -47,19 +47,20 @@
     </header>
 
     <!-- Chat Messages -->
-    <ChatView
-      class="flex-1 overflow-y-auto"
-      :messages="messages"
-      :is-streaming="isStreaming"
-      :has-pending-permission="hasPendingPermission"
-      :has-pending-question="hasPendingQuestion"
-    />
+    <main class="flex-1 min-h-0">
+      <ChatView
+        :messages="messages"
+        :is-streaming="isStreaming"
+        :has-pending-permission="hasPendingPermission"
+        :has-pending-question="hasPendingQuestion"
+      />
+    </main>
 
     <!-- Round-trip timing display (shows after a voice interaction) -->
-    <RoundTripTimings />
+    <RoundTripTimings v-if="showRoundTripTimings" />
 
     <!-- Input Area -->
-    <div class="border-t border-surface-700 bg-surface-800 p-4">
+    <div class="border-t border-surface-700 bg-surface-800 px-4 py-4">
       <!-- Custom answer hint when a question is pending -->
       <p v-if="hasPendingQuestion" class="text-xs text-indigo-400/70 mb-2 text-center max-w-2xl mx-auto">
         Type or speak a custom answer, or select an option above
@@ -111,6 +112,7 @@ import { getState } from '~/composables/useStateMachine'
 const route = useRoute()
 const router = useRouter()
 const sessionId = route.params.id as string
+const { showRoundTripTimings } = useSettings()
 
 // Initialize the action-gated state machine — registers the state accessor
 // for debug logs so every entry includes the current interaction state.

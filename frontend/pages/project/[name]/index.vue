@@ -1,7 +1,7 @@
 <template>
-  <div class="flex flex-col h-screen">
+  <div class="flex flex-col h-screen safe-top">
     <!-- Header -->
-    <header class="flex items-center justify-between px-4 py-3 bg-surface-800 border-b border-surface-700">
+    <header class="flex items-center justify-between px-4 py-5 bg-surface-800 border-b border-surface-700">
       <div class="flex items-center gap-2">
         <button
           class="text-surface-400 hover:text-surface-200 transition-colors"
