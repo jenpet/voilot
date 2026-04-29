@@ -1,7 +1,8 @@
 <template>
    <div class="flex flex-col h-screen safe-top">
     <!-- Header -->
-    <header class="flex items-center justify-between px-4 py-5 bg-surface-800 border-b border-surface-700">
+    <header class="bg-surface-800 border-b border-surface-700">
+      <div class="flex items-center justify-between px-4 py-5 max-w-[1200px] mx-auto">
       <div class="flex items-center gap-2">
         <h1 class="text-lg font-semibold">voilot</h1>
         <StatusIndicator />
@@ -21,10 +22,12 @@
           + New
         </button>
       </div>
+      </div>
     </header>
 
     <!-- Add project form -->
-    <div v-if="showAddProject" class="px-4 py-3 bg-surface-800 border-b border-surface-700">
+    <div v-if="showAddProject" class="bg-surface-800 border-b border-surface-700">
+      <div class="px-4 py-3 max-w-[1200px] mx-auto">
       <div class="flex gap-2 mb-3">
         <button
           class="px-3 py-1 text-sm rounded-lg transition-colors"
@@ -72,6 +75,7 @@
         </button>
       </form>
       <p v-if="addError" class="mt-2 text-sm text-red-400">{{ addError }}</p>
+      </div>
     </div>
 
     <!-- Project List -->
@@ -85,7 +89,7 @@
         <p class="text-sm">Configure --workspace-dir to discover projects</p>
       </div>
 
-      <div v-else class="space-y-3 max-w-2xl mx-auto">
+      <div v-else class="space-y-3 max-w-[1200px] mx-auto">
         <div
           v-for="project in projects"
           :key="project.name"

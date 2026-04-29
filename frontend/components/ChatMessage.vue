@@ -1,8 +1,15 @@
 <template>
   <div
-    class="rounded-xl px-4 py-3 max-w-[85%] min-w-0"
+    class="min-w-0"
     :class="messageClasses"
   >
+    <!-- Agent name shown on agent switch -->
+    <p
+      v-if="showAgentName"
+      class="text-[10px] text-surface-400 mb-1"
+    >
+      {{ agentName }}
+    </p>
     <!-- Permission request -->
     <div v-if="message.type === 'permission_request'" class="min-w-0">
       <!-- Header row: icon + title -->
@@ -30,19 +37,19 @@
       <!-- Action buttons (only when pending) -->
       <div v-else class="flex items-center gap-2 mt-3">
         <button
-          class="px-3 py-1.5 text-xs rounded-lg bg-green-600/30 text-green-300 hover:bg-green-600/50 active:bg-green-600/70 transition-colors"
+          class="px-3 py-1.5 text-xs bg-green-600/30 text-green-300 hover:bg-green-600/50 active:bg-green-600/70 transition-colors"
           @click="respond('once')"
         >
           Allow Once
         </button>
         <button
-          class="px-3 py-1.5 text-xs rounded-lg bg-blue-600/30 text-blue-300 hover:bg-blue-600/50 active:bg-blue-600/70 transition-colors"
+          class="px-3 py-1.5 text-xs bg-blue-600/30 text-blue-300 hover:bg-blue-600/50 active:bg-blue-600/70 transition-colors"
           @click="respond('always')"
         >
           Allow Always
         </button>
         <button
-          class="px-3 py-1.5 text-xs rounded-lg bg-red-600/30 text-red-300 hover:bg-red-600/50 active:bg-red-600/70 transition-colors"
+          class="px-3 py-1.5 text-xs bg-red-600/30 text-red-300 hover:bg-red-600/50 active:bg-red-600/70 transition-colors"
           @click="respond('reject')"
         >
           Deny
@@ -86,7 +93,7 @@
           <button
             v-for="option in questionOptions"
             :key="option.label"
-            class="px-3 py-1.5 text-xs rounded-lg bg-indigo-600/25 text-indigo-300 hover:bg-indigo-600/45 active:bg-indigo-600/65 transition-colors"
+            class="px-3 py-1.5 text-xs bg-indigo-600/25 text-indigo-300 hover:bg-indigo-600/45 active:bg-indigo-600/65 transition-colors"
             :title="option.description"
             @click="selectOption(option.label)"
           >
@@ -95,7 +102,7 @@
         </div>
         <!-- Dismiss button -->
         <button
-          class="mt-2 px-2 py-1 text-[10px] rounded text-surface-400 hover:text-red-400 hover:bg-red-600/15 transition-colors"
+          class="mt-2 px-2 py-1 text-[10px] text-surface-400 hover:text-red-400 hover:bg-red-600/15 transition-colors"
           @click="dismissQuestion"
         >
           Dismiss
@@ -140,9 +147,6 @@
       />
       <!-- User: plain text -->
       <p v-else class="text-sm whitespace-pre-wrap break-words">{{ message.content }}</p>
-      <span class="block mt-1 text-xs text-surface-400">
-        {{ message.role === 'user' ? 'You' : 'Agent' }}
-      </span>
     </div>
   </div>
 </template>
@@ -154,7 +158,17 @@ import { renderMarkdown } from '~/composables/useMarkdown'
 
 const props = defineProps<{
   message: Message
+  agentName?: string
+  previousAgentName?: string
 }>()
+
+// Show agent name only on assistant text messages when agent differs from previous
+const showAgentName = computed(() => {
+  if (props.message.role !== 'assistant') return false
+  if (props.message.type && props.message.type !== 'text') return false
+  if (!props.agentName) return false
+  return props.agentName !== props.previousAgentName
+})
 
 // ─── Markdown rendering (assistant messages only) ──────────────────
 const renderedContent = computed(() => renderMarkdown(props.message.content))
@@ -239,31 +253,34 @@ function dismissQuestion() {
 
 const messageClasses = computed(() => {
   if (props.message.type === 'permission_request') {
+    const base = 'px-4 py-3'
     if (isPermissionResolved.value) {
       return permissionResponse.value === 'reject'
-        ? 'mr-auto bg-red-900/20 border border-red-800/30 text-surface-200'
-        : 'mr-auto bg-green-900/20 border border-green-800/30 text-surface-200'
+        ? `${base} bg-red-900/20 border border-red-800/30 text-surface-200`
+        : `${base} bg-green-900/20 border border-green-800/30 text-surface-200`
     }
-    return 'mr-auto bg-amber-900/20 border border-amber-700/40 text-surface-200'
+    return `${base} bg-amber-900/20 border border-amber-700/40 text-surface-200`
   }
   if (props.message.type === 'question_request') {
+    const base = 'px-4 py-3'
     if (isQuestionResolved.value) {
       return isQuestionRejected.value
-        ? 'mr-auto bg-red-900/20 border border-red-800/30 text-surface-200'
-        : 'mr-auto bg-indigo-900/20 border border-indigo-800/30 text-surface-200'
+        ? `${base} bg-red-900/20 border border-red-800/30 text-surface-200`
+        : `${base} bg-indigo-900/20 border border-indigo-800/30 text-surface-200`
     }
-    return 'mr-auto bg-indigo-900/20 border border-indigo-700/40 text-surface-200'
+    return `${base} bg-indigo-900/20 border border-indigo-700/40 text-surface-200`
   }
   if (props.message.role === 'user') {
-    return 'ml-auto bg-blue-600/20 text-blue-100'
+    return 'px-4 py-3 border-l-2 border-blue-500 bg-blue-600/10 text-blue-100'
   }
   if (props.message.role === 'system') {
-    return 'mx-auto bg-surface-800/50 text-surface-400 max-w-full text-center'
+    return 'px-4 py-3 mx-auto bg-surface-800/50 text-surface-400 text-center'
   }
   if (props.message.type === 'tool_use' || props.message.type === 'tool_result') {
-    return 'mr-auto bg-surface-800/60 border border-surface-700/50 text-surface-300'
+    return 'px-4 py-3 bg-surface-800/60 border border-surface-700/50 text-surface-300'
   }
-  return 'mr-auto bg-surface-800 text-surface-100'
+  // Assistant text: no box styling
+  return 'py-1 text-surface-100'
 })
 
 const toolTitle = computed(() => {

@@ -1,7 +1,8 @@
 <template>
    <div class="flex flex-col h-screen safe-top safe-bottom">
     <!-- Header -->
-    <header class="flex items-center gap-3 px-4 py-5 bg-surface-800 border-b border-surface-700">
+    <header class="bg-surface-800 border-b border-surface-700">
+      <div class="flex items-center gap-3 px-4 py-5 max-w-[1200px] mx-auto">
       <button
         class="p-1.5 rounded-lg hover:bg-surface-700 transition-colors"
         @click="router.push('/')"
@@ -44,6 +45,7 @@
         {{ voiceEnabled ? 'Voice ON' : 'Voice OFF' }}
       </button>
       <SettingsPanel />
+      </div>
     </header>
 
     <!-- Chat Messages -->
@@ -53,6 +55,7 @@
         :is-streaming="isStreaming"
         :has-pending-permission="hasPendingPermission"
         :has-pending-question="hasPendingQuestion"
+        :agent-name="session?.agent"
       />
     </main>
 
@@ -60,12 +63,13 @@
     <RoundTripTimings v-if="showRoundTripTimings" />
 
     <!-- Input Area -->
-    <div class="border-t border-surface-700 bg-surface-800 px-4 py-4">
+    <div class="border-t border-surface-700 bg-surface-800">
+      <div class="px-4 py-4 max-w-[1200px] mx-auto">
       <!-- Custom answer hint when a question is pending -->
-      <p v-if="hasPendingQuestion" class="text-xs text-indigo-400/70 mb-2 text-center max-w-2xl mx-auto">
+      <p v-if="hasPendingQuestion" class="text-xs text-indigo-400/70 mb-2 text-center">
         Type or speak a custom answer, or select an option above
       </p>
-      <div class="flex items-end gap-3 max-w-2xl mx-auto">
+      <div class="flex items-end gap-3">
         <template v-if="isBusy && !isRecording">
           <!-- Stop button — replaces input row when agent is streaming or TTS is playing (but not if user is recording) -->
           <button
@@ -100,6 +104,7 @@
             <span class="text-sm">Send</span>
           </button>
         </template>
+      </div>
       </div>
     </div>
   </div>

@@ -1,7 +1,8 @@
 <template>
   <div class="flex flex-col h-screen safe-top">
     <!-- Header -->
-    <header class="flex items-center justify-between px-4 py-5 bg-surface-800 border-b border-surface-700">
+    <header class="bg-surface-800 border-b border-surface-700">
+      <div class="flex items-center justify-between px-4 py-5 max-w-[1200px] mx-auto">
       <div class="flex items-center gap-2">
         <button
           class="text-surface-400 hover:text-surface-200 transition-colors"
@@ -17,10 +18,12 @@
       >
         + Worktree
       </button>
+      </div>
     </header>
 
     <!-- New worktree input -->
-    <div v-if="showNewWorktree" class="px-4 py-3 bg-surface-800 border-b border-surface-700">
+    <div v-if="showNewWorktree" class="bg-surface-800 border-b border-surface-700">
+      <div class="px-4 py-3 max-w-[1200px] mx-auto">
       <form class="flex flex-col gap-2" @submit.prevent="doCreateWorktree">
         <!-- Branch selector -->
         <div>
@@ -61,6 +64,7 @@
         </div>
       </form>
       <p v-if="createError" class="mt-2 text-sm text-red-400">{{ createError }}</p>
+      </div>
     </div>
 
     <!-- Worktree List -->
@@ -69,7 +73,7 @@
         <p>Project not found</p>
       </div>
 
-      <div v-else class="space-y-3 max-w-2xl mx-auto">
+      <div v-else class="space-y-3 max-w-[1200px] mx-auto">
         <div
           v-for="wt in project.worktrees"
           :key="wt.name"

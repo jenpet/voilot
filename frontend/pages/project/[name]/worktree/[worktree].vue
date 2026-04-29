@@ -1,7 +1,8 @@
 <template>
   <div class="flex flex-col h-screen safe-top">
     <!-- Header -->
-    <header class="flex items-center justify-between px-4 py-5 bg-surface-800 border-b border-surface-700">
+    <header class="bg-surface-800 border-b border-surface-700">
+      <div class="flex items-center justify-between px-4 py-5 max-w-[1200px] mx-auto">
       <div class="flex items-center gap-2">
         <button
           class="text-surface-400 hover:text-surface-200 transition-colors"
@@ -20,6 +21,7 @@
       >
         + New Session
       </button>
+      </div>
     </header>
 
     <!-- Session List -->
@@ -29,7 +31,7 @@
         <p class="text-sm">Create a new session to start working in this worktree</p>
       </div>
 
-      <div v-else class="space-y-3 max-w-2xl mx-auto">
+      <div v-else class="space-y-3 max-w-[1200px] mx-auto">
         <SessionCard
           v-for="session in worktreeSessions"
           :key="session.id"

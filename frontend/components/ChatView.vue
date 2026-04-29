@@ -1,6 +1,6 @@
 <template>
   <div ref="scrollContainer" class="relative h-full overflow-y-auto overflow-x-hidden">
-    <div class="p-4 space-y-3 max-w-2xl mx-auto">
+    <div class="px-3 py-4 space-y-3 max-w-[1200px] mx-auto sm:px-6">
       <div v-if="messages.length === 0" class="flex items-center justify-center h-full text-surface-400">
         <p>Start a conversation...</p>
       </div>
@@ -15,6 +15,8 @@
         <ChatMessage
           v-else
           :message="item.message"
+          :agent-name="props.agentName"
+          :previous-agent-name="item.previousAgentName"
         />
       </template>
 
@@ -49,6 +51,7 @@ const props = defineProps<{
   isStreaming: boolean
   hasPendingPermission: boolean
   hasPendingQuestion: boolean
+  agentName?: string
 }>()
 
 // Streaming indicator state — priority: permission > question > default
@@ -69,6 +72,7 @@ interface SingleItem {
   kind: 'single'
   key: string
   message: Message
+  previousAgentName?: string
 }
 interface ToolGroupItem {
   kind: 'tool_group'
@@ -80,6 +84,7 @@ type GroupedItem = SingleItem | ToolGroupItem
 const groupedMessages = computed<GroupedItem[]>(() => {
   const result: GroupedItem[] = []
   let toolBatch: Message[] = []
+  let lastAgentName: string | undefined
 
   function flushToolBatch() {
     if (toolBatch.length === 0) return
@@ -99,7 +104,12 @@ const groupedMessages = computed<GroupedItem[]>(() => {
       toolBatch.push(msg)
     } else {
       flushToolBatch()
-      result.push({ kind: 'single', key: msg.id, message: msg })
+      const prevAgent = lastAgentName
+      // Track agent name for assistant text messages
+      if (msg.role === 'assistant' && (!msg.type || msg.type === 'text')) {
+        lastAgentName = props.agentName
+      }
+      result.push({ kind: 'single', key: msg.id, message: msg, previousAgentName: prevAgent })
     }
   }
   flushToolBatch()

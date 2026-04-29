@@ -1,8 +1,8 @@
 <template>
-  <div class="mr-auto max-w-[85%] rounded-xl bg-surface-800/60 border border-surface-700/50 text-surface-300">
+  <div class="bg-surface-800/60 border border-surface-700/50 text-surface-300">
     <!-- Header: summary + total duration + chevron toggle -->
     <button
-      class="w-full flex items-center gap-2.5 px-4 py-3 text-left hover:bg-surface-700/30 transition-colors rounded-xl"
+      class="w-full flex items-center gap-2.5 px-4 py-3 text-left hover:bg-surface-700/30 transition-colors"
       @click="expanded = !expanded"
     >
       <span class="text-xs flex-shrink-0 text-surface-400">⚙</span>
