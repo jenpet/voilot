@@ -1,8 +1,7 @@
 <template>
   <div class="relative">
     <button
-      class="flex items-center gap-1.5 text-xs px-2 py-0.5 rounded-full transition-colors"
-      :style="buttonStyle"
+      class="flex items-center gap-1.5 text-xs px-2 py-0.5 rounded-full transition-colors bg-surface-700/50 text-surface-200"
       @click="toggleDropdown"
     >
       <span
@@ -41,7 +40,7 @@
           </div>
         </div>
       </button>
-      <div v-if="agents.length === 0" class="px-3 py-2 text-xs text-surface-500 italic">
+      <div v-if="agents.length === 0" class="px-3 py-2 text-xs text-surface-400 italic">
         No agents available
       </div>
     </div>
@@ -71,20 +70,6 @@ const isOpen = ref(false)
 const activeAgent = computed(() =>
   agents.value.find(a => a.name === props.agent)
 )
-
-const buttonStyle = computed(() => {
-  const color = activeAgent.value?.color
-  if (color) {
-    return {
-      backgroundColor: `${color}20`,
-      color: color,
-    }
-  }
-  return {
-    backgroundColor: 'rgb(var(--surface-700) / 0.5)',
-    color: 'rgb(var(--surface-300))',
-  }
-})
 
 function toggleDropdown() {
   isOpen.value = !isOpen.value

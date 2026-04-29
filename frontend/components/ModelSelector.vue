@@ -2,10 +2,11 @@
   <div class="relative">
     <button
       class="flex items-center gap-1.5 text-xs px-2 py-0.5 rounded-full transition-colors"
-      :style="buttonStyle"
+      :class="model ? 'bg-surface-700/50 text-surface-300' : 'bg-surface-700/70 text-surface-200'"
       @click="toggleDropdown"
     >
-      <span class="truncate max-w-[200px]">{{ activeLabel }}</span>
+      <span class="truncate max-w-[200px] hidden sm:inline">{{ activeLabel }}</span>
+      <span class="truncate max-w-[100px] sm:hidden">{{ compactLabel }}</span>
       <svg class="w-3 h-3 flex-shrink-0 opacity-60" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
       </svg>
@@ -35,7 +36,7 @@
         <div class="text-xs text-surface-400 mt-0.5">{{ formatProviderAndId(m) }}</div>
       </button>
 
-      <div v-if="models.length === 0" class="px-3 py-2 text-xs text-surface-500 italic">
+      <div v-if="models.length === 0" class="px-3 py-2 text-xs text-surface-400 italic">
         No models available
       </div>
     </div>
@@ -101,6 +102,13 @@ const activeLabel = computed(() => {
   return provider ? `${provider} - ${modelName}` : modelName
 })
 
+const compactLabel = computed(() => {
+  const resolvedId = props.model || defaultModel.value || ''
+  if (!resolvedId) return 'Default'
+  const selected = modelMap.value.get(resolvedId)
+  return selected?.name || modelNameFromId(resolvedId)
+})
+
 const defaultLabel = computed(() => {
   const id = defaultModel.value
   if (!id) return ''
@@ -117,19 +125,6 @@ const lastUsedLabel = computed(() => {
   const modelName = selected?.name || modelNameFromId(id)
   const provider = selected?.providerName || selected?.providerId || providerFromId(id)
   return provider ? `${provider} - ${modelName}` : modelName
-})
-
-const buttonStyle = computed(() => {
-  if (!props.model) {
-    return {
-      backgroundColor: 'rgb(var(--surface-700) / 0.7)',
-      color: 'rgb(var(--surface-200))',
-    }
-  }
-  return {
-    backgroundColor: 'rgb(var(--surface-700) / 0.5)',
-    color: 'rgb(var(--surface-300))',
-  }
 })
 
 function toggleDropdown() {

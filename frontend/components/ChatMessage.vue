@@ -1,6 +1,6 @@
 <template>
   <div
-    class="rounded-xl px-4 py-3 max-w-[85%]"
+    class="rounded-xl px-4 py-3 max-w-[85%] min-w-0"
     :class="messageClasses"
   >
     <!-- Permission request -->
@@ -61,7 +61,7 @@
         <span v-else class="text-sm mt-0.5 flex-shrink-0 text-indigo-400">?</span>
         <div class="flex-1 min-w-0">
           <p v-if="questionHeader" class="text-[10px] font-semibold uppercase tracking-wider mb-0.5"
-            :class="isQuestionResolved ? 'text-surface-500' : 'text-indigo-400/70'">
+            :class="isQuestionResolved ? 'text-surface-400' : 'text-indigo-400/70'">
             {{ questionHeader }}
           </p>
           <p class="text-xs font-medium" :class="isQuestionResolved ? 'text-surface-300' : 'text-indigo-200'">
@@ -95,7 +95,7 @@
         </div>
         <!-- Dismiss button -->
         <button
-          class="mt-2 px-2 py-1 text-[10px] rounded text-surface-500 hover:text-red-400 hover:bg-red-600/15 transition-colors"
+          class="mt-2 px-2 py-1 text-[10px] rounded text-surface-400 hover:text-red-400 hover:bg-red-600/15 transition-colors"
           @click="dismissQuestion"
         >
           Dismiss
@@ -104,7 +104,7 @@
 
       <!-- Waiting: not yet active in multi-question batch -->
       <div v-else class="mt-2">
-        <p class="text-[10px] text-surface-500 italic">
+        <p class="text-[10px] text-surface-400 italic">
           Waiting for previous question...
         </p>
       </div>
@@ -140,7 +140,7 @@
       />
       <!-- User: plain text -->
       <p v-else class="text-sm whitespace-pre-wrap break-words">{{ message.content }}</p>
-      <span class="block mt-1 text-xs text-surface-500">
+      <span class="block mt-1 text-xs text-surface-400">
         {{ message.role === 'user' ? 'You' : 'Agent' }}
       </span>
     </div>

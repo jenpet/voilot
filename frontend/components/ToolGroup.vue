@@ -9,12 +9,12 @@
       <span class="text-xs font-medium text-surface-200 flex-1 min-w-0">
         {{ summaryText }}
       </span>
-      <span v-if="totalDuration" class="text-xs text-surface-500 flex-shrink-0 tabular-nums">
+      <span v-if="totalDuration" class="text-xs text-surface-400 flex-shrink-0 tabular-nums">
         {{ totalDuration }}
       </span>
       <!-- Chevron -->
       <svg
-        class="w-3.5 h-3.5 text-surface-500 flex-shrink-0 transition-transform duration-200"
+        class="w-3.5 h-3.5 text-surface-400 flex-shrink-0 transition-transform duration-200"
         :class="{ 'rotate-180': expanded }"
         viewBox="0 0 20 20"
         fill="currentColor"
@@ -38,7 +38,7 @@
         <span class="text-xs text-surface-300 flex-1 min-w-0 truncate">
           {{ inv.title }}
         </span>
-        <span v-if="inv.duration" class="text-xs text-surface-500 flex-shrink-0 tabular-nums">
+        <span v-if="inv.duration" class="text-xs text-surface-400 flex-shrink-0 tabular-nums">
           {{ inv.duration }}
         </span>
       </div>

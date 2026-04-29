@@ -1,0 +1,19 @@
+/*
+ * Global app styles — mobile UX, safe area insets, touch behavior.
+ */
+
+/* Prevent double-tap zoom on all elements while preserving pinch-zoom */
+html {
+  touch-action: manipulation;
+}
+
+/* Safe area inset support for notched devices (iPhone X+).
+   Applied to the outermost page container so it doesn't conflict
+   with component padding. On non-notched devices these resolve to 0. */
+.safe-top {
+  padding-top: env(safe-area-inset-top, 0px) !important;
+}
+
+.safe-bottom {
+  padding-bottom: env(safe-area-inset-bottom, 0px) !important;
+}

@@ -7,7 +7,7 @@ const iconPrefix = isDev ? '/icons/dev' : '/icons';
 export default defineNuxtConfig({
   compatibilityDate: '2025-01-01',
 
-  devtools: { enabled: true },
+  devtools: { enabled: false },
 
   devServer: {
     port: 3000,
@@ -78,20 +78,21 @@ export default defineNuxtConfig({
       clientsClaim: true,
     },
     devOptions: {
-      enabled: true,
-      type: 'module',
+      enabled: false,
     },
   },
 
   // Global CSS
-  css: ['~/assets/css/markdown.css'],
+  css: ['~/assets/css/global.css', '~/assets/css/markdown.css'],
 
   // App configuration
   app: {
     head: {
+      htmlAttrs: { lang: 'en' },
       title: 'voilot',
       meta: [
-        { name: 'viewport', content: 'width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no' },
+        { name: 'viewport', content: 'width=device-width, initial-scale=1, viewport-fit=cover' },
+        { name: 'description', content: 'Voice-first AI coding agent client' },
         { name: 'theme-color', content: '#0f172a' },
         { name: 'apple-mobile-web-app-capable', content: 'yes' },
         { name: 'apple-mobile-web-app-status-bar-style', content: 'black-translucent' },

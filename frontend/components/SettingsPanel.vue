@@ -44,10 +44,27 @@
           class="w-full h-1 bg-surface-600 rounded-lg appearance-none cursor-pointer accent-blue-500"
           @input="onSilenceChange"
         />
-        <div class="flex justify-between text-[10px] text-surface-500 mt-0.5">
+        <div class="flex justify-between text-[10px] text-surface-400 mt-0.5">
           <span>0.5s</span>
           <span>5s</span>
         </div>
+      </div>
+
+      <!-- Display section -->
+      <h3 class="text-xs font-semibold text-surface-300 uppercase tracking-wide mb-3">Display</h3>
+
+      <div class="flex items-center justify-between mb-4">
+        <label class="text-sm text-surface-300">Round-trip timings</label>
+        <button
+          class="relative inline-flex h-5 w-9 rounded-full transition-colors"
+          :class="showRoundTripTimings ? 'bg-green-600' : 'bg-surface-600'"
+          @click="setShowRoundTripTimings(!showRoundTripTimings)"
+        >
+          <span
+            class="inline-block h-4 w-4 rounded-full bg-white transform transition-transform mt-0.5"
+            :class="showRoundTripTimings ? 'translate-x-4 ml-0.5' : 'translate-x-0.5'"
+          />
+        </button>
       </div>
 
       <!-- Debug section -->
@@ -97,7 +114,7 @@ import { useSettings } from '~/composables/useSettings';
 import type { DebugLogExport } from '~/composables/useDebugLog';
 
 const { enable, disable, isEnabled, getRecordingSince, getEntryCount, exportLog } = useDebugLog();
-const { silenceDurationMs, setSilenceDuration } = useSettings();
+const { silenceDurationMs, setSilenceDuration, showRoundTripTimings, setShowRoundTripTimings } = useSettings();
 
 const isOpen = ref(false);
 const debugEnabled = ref(isEnabled());
