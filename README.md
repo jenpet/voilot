@@ -32,7 +32,7 @@ Voice-first, mobile-first PWA client for AI coding agents. Plan via voice conver
 - **Plan vs Implement mode** — "plan" restricts the agent to discussion only; "implement" gives full tool access
 - **Voice command router** — separates app commands (mode switch, new session, stop) from agent messages
 - **Smart TTS filter** — speaks text, summarizes code blocks, skips thinking, announces errors
-- **Pluggable agent adapters** — OpenCode first, Claude Agent SDK planned
+- **Pluggable agent adapters** — OpenCode first; Claude Code and Pi are potential next candidates for integration
 
 ## Prerequisites
 

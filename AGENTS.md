@@ -23,7 +23,7 @@ Kokoro TTS (:8880)   faster-whisper STT (:5003)   OpenCode (:4096)
 - **Plan vs Implement mode** — "plan" restricts the agent to discussion only (via system prompt prepended to messages); "implement" gives full tool access. This is a voilot-level concept, not native to OpenCode. Session modes are stored in-memory in the Go backend (ephemeral, reset on restart).
 - **Voice command router** — keyword detection separates app commands (mode switch, new session, stop) from agent messages (forwarded as natural language).
 - **Smart TTS filter** — speaks text, summarizes code blocks ("Wrote 45 lines of TypeScript"), skips thinking blocks, announces errors.
-- **Pluggable agent adapters** — Go interface (`agent.Adapter`) that backends implement. OpenCode is the first; Claude Agent SDK is planned.
+- **Pluggable agent adapters** — Go interface (`agent.Adapter`) that backends implement. OpenCode is the first; Claude Code and Pi are potential next candidates for integration.
 
 ### Design Constraints
 
