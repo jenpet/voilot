@@ -24,7 +24,7 @@
         v-if="voiceEnabled && isTTSPlaying"
         class="px-3 py-1.5 text-xs rounded-lg transition-colors bg-accent-warn/20 text-accent-warn hover:bg-accent-warn/30"
         title="Stop playback"
-        @click="stopTTS"
+        @click="stopPlayback"
       >
         <span class="flex items-center gap-1">
           <svg class="w-3 h-3" fill="currentColor" viewBox="0 0 24 24">
@@ -142,7 +142,7 @@ const {
   loopRecordingActive,
   sendMessage,
   abortSession,
-  stopTTS,
+  stopPlayback,
   setAgent,
   setModel,
   toggleVoice,

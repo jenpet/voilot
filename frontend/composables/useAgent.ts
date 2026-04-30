@@ -645,8 +645,12 @@ export function useAgent(sessionId: string) {
     }
   }
 
-  // Abort the current session
+  // Abort the current session (guarded against repeated calls)
+  let abortSentAt = 0
   function abortSession() {
+    const now = Date.now()
+    if (now - abortSentAt < 2000) return // Debounce repeated taps
+    abortSentAt = now
     log('info', 'agent', 'abort_session')
     abortedTurn = true
     agentDone = false
@@ -669,6 +673,15 @@ export function useAgent(sessionId: string) {
       type: 'abort',
       sessionId,
     })
+  }
+
+  // Stop TTS playback and silence the voice pipeline (monitoring + recording)
+  // so residual mic input doesn't get transcribed and looped back.
+  function stopPlayback() {
+    log('info', 'agent', 'stop_playback')
+    stopTTS()
+    forceStopRecording()
+    stopMonitoring()
   }
 
   // Toggle voice mode (TTS for agent responses)
@@ -1104,7 +1117,7 @@ export function useAgent(sessionId: string) {
     connectionState,
     sendMessage,
     abortSession,
-    stopTTS,
+    stopPlayback,
     setAgent,
     setModel,
     toggleVoice,
