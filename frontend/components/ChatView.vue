@@ -184,4 +184,6 @@ onMounted(() => {
 onUnmounted(() => {
   scrollContainer.value?.removeEventListener('scroll', onScroll)
 })
+
+defineExpose({ jumpToBottom })
 </script>

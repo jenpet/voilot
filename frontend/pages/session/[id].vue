@@ -51,6 +51,7 @@
     <!-- Chat Messages -->
     <main class="flex-1 min-h-0">
       <ChatView
+        ref="chatViewRef"
         :messages="messages"
         :is-streaming="isStreaming"
         :has-pending-permission="hasPendingPermission"
@@ -69,7 +70,7 @@
       <p v-if="hasPendingQuestion" class="text-xs text-accent/70 mb-2 text-center">
         Type or speak a custom answer, or select an option above
       </p>
-      <div class="flex items-end gap-3">
+      <div class="flex items-end gap-2">
         <template v-if="isBusy && !isRecording">
           <!-- Stop button — replaces input row when agent is streaming or TTS is playing (but not if user is recording) -->
           <button
@@ -86,9 +87,12 @@
           <textarea
             ref="inputRef"
             v-model="inputText"
-            class="flex-1 bg-bg-secondary rounded-xl px-4 py-3 text-sm resize-none outline-none focus:ring-2 focus:ring-accent/50 placeholder-text-muted"
+            class="flex-1 bg-bg-secondary border border-bg-elevated rounded-xl px-4 py-3 text-sm resize-none outline-none focus:border-accent focus:ring-1 focus:ring-accent/50 placeholder-text-muted"
+            style="max-height: 6rem; overflow-y: auto;"
             :rows="1"
-            placeholder="Type a message or tap the mic..."
+            placeholder="Message..."
+            @input="autoGrow"
+            @focus="handleInputFocus"
             @keydown.enter.exact.prevent="handleSend"
           />
           <VoiceButton
@@ -97,11 +101,12 @@
             @transcription="handleTranscription"
           />
           <button
-            class="flex-shrink-0 p-3 rounded-xl bg-accent hover:bg-accent transition-colors disabled:opacity-50"
+            class="flex-shrink-0 p-3 rounded-xl transition-colors"
+            :class="inputText.trim() ? 'bg-accent text-bg-primary' : 'bg-bg-elevated text-text-muted opacity-50'"
             :disabled="!inputText.trim()"
             @click="handleSend"
           >
-            <span class="text-sm">Send</span>
+            <span class="text-sm font-medium">Send</span>
           </button>
         </template>
       </div>
@@ -189,13 +194,30 @@ const isBusy = computed(() => {
 
 const inputText = ref('')
 const inputRef = ref<HTMLTextAreaElement>()
+const chatViewRef = ref<{ jumpToBottom: () => void }>()
+
+function autoGrow() {
+  const el = inputRef.value;
+  if (!el) return;
+  el.style.height = 'auto';
+  el.style.height = Math.min(el.scrollHeight, 96) + 'px';
+}
+
+function handleInputFocus() {
+  setTimeout(() => {
+    chatViewRef.value?.jumpToBottom();
+  }, 300);
+}
 
 function handleSend() {
   const text = inputText.value.trim()
   // Allow sending when a question is pending (custom answer), even though isStreaming is true
   if (!text || (isStreaming.value && !hasPendingQuestion.value)) return
   inputText.value = ''
+  // Reset textarea height
+  if (inputRef.value) inputRef.value.style.height = 'auto';
   sendMessage(text, { origin: 'text' })
+  nextTick(() => chatViewRef.value?.jumpToBottom())
 }
 
 function handleTranscription(text: string) {
@@ -204,6 +226,8 @@ function handleTranscription(text: string) {
   const trimmed = inputText.value.trim()
   if (!trimmed || (isStreaming.value && !hasPendingQuestion.value)) return
   inputText.value = ''
+  if (inputRef.value) inputRef.value.style.height = 'auto';
   sendMessage(trimmed, { origin: 'voice' })
+  nextTick(() => chatViewRef.value?.jumpToBottom())
 }
 </script>

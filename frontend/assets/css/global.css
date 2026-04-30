@@ -2,6 +2,13 @@
  * Global app styles — mobile UX, safe area insets, touch behavior.
  */
 
+/* Dark background on the root elements — prevents white bleed-through
+   in iOS safe-area gaps, keyboard accessory bar, and overscroll bounce. */
+html, body {
+  background-color: #1A1A1A;
+  color: #E5E5E5;
+}
+
 /* Prevent double-tap zoom on all elements while preserving pinch-zoom */
 html {
   touch-action: manipulation;
