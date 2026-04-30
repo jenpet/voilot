@@ -2,10 +2,17 @@
    <div class="flex flex-col h-screen safe-top">
     <!-- Header -->
     <header class="bg-bg-secondary border-b border-bg-elevated">
-      <div class="flex items-center justify-between px-4 py-5 max-w-[1200px] mx-auto">
+      <div class="flex items-center justify-between px-4 py-3 max-w-[1200px] mx-auto">
       <div class="flex items-center gap-2">
-        <h1 class="text-lg font-semibold">voilot</h1>
         <StatusIndicator />
+      </div>
+      <div class="flex items-center gap-1.5">
+        <img
+          class="h-10 brightness-0 invert"
+          src="~/assets/svg/voilot-logo.svg"
+          alt="voilot"
+        >
+        <span class="text-lg font-semibold">voilot</span>
       </div>
       <div class="flex items-center gap-2">
         <button
@@ -80,8 +87,8 @@
 
     <!-- Project List -->
     <main class="flex-1 overflow-y-auto p-4">
-      <div v-if="loading" class="flex items-center justify-center h-full text-text-muted">
-        <p>Scanning workspace...</p>
+      <div v-if="showLoading" class="flex items-center justify-center h-full">
+        <LoadingLogo ref="workspaceLogoRef" message="Preparing workspace..." />
       </div>
 
       <div v-else-if="projects.length === 0" class="flex flex-col items-center justify-center h-full text-text-muted">
@@ -117,6 +124,14 @@
 const router = useRouter();
 const { projects, loading, addProject, cloneProject, initProject } = useWorkspace();
 const { promptType, canShowInstall, reopen } = usePwaPrompt();
+
+// Min display time for workspace loading
+const workspaceLogoRef = ref<InstanceType<typeof LoadingLogo>>()
+const minLoadActive = ref(true)
+watch(() => workspaceLogoRef.value?.minActive, (v) => {
+  if (v === false) minLoadActive.value = false
+})
+const showLoading = computed(() => loading.value || minLoadActive.value)
 
 const showAddProject = ref(false);
 const projectInput = ref('');

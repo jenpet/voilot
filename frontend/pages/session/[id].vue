@@ -1,5 +1,5 @@
 <template>
-   <div class="flex flex-col h-screen safe-top safe-bottom">
+   <div class="fixed inset-0 flex flex-col safe-top safe-bottom">
     <!-- Header -->
     <header class="bg-bg-secondary border-b border-bg-elevated">
       <div class="flex items-center gap-3 px-4 py-5 max-w-[1200px] mx-auto">
@@ -54,6 +54,7 @@
         ref="chatViewRef"
         :messages="messages"
         :is-streaming="isStreaming"
+        :is-loading="isLoading"
         :has-pending-permission="hasPendingPermission"
         :has-pending-question="hasPendingQuestion"
         :agent-name="session?.agent"
@@ -65,7 +66,7 @@
 
     <!-- Input Area -->
     <div class="border-t border-bg-elevated bg-bg-secondary">
-      <div class="px-4 py-4 max-w-[1200px] mx-auto">
+      <div class="px-4 pt-4 max-w-[1200px] mx-auto" :class="keyboardVisible ? 'pb-4' : 'pb-8'">
       <!-- Custom answer hint when a question is pending -->
       <p v-if="hasPendingQuestion" class="text-xs text-accent/70 mb-2 text-center">
         Type or speak a custom answer, or select an option above
@@ -132,6 +133,7 @@ const {
   session,
   messages,
   isStreaming,
+  isLoading,
   hasPendingPermission,
   hasPendingQuestion,
   isTTSPlaying,
@@ -146,6 +148,21 @@ const {
   toggleVoice,
   cleanup,
 } = useAgent(sessionId)
+
+const chatViewRef = ref<{ jumpToBottom: () => void }>()
+
+// Detect iOS virtual keyboard for footer padding adjustment
+const keyboardVisible = ref(false)
+onMounted(() => {
+  if (window.visualViewport) {
+    const threshold = 0.75
+    const onResize = () => {
+      keyboardVisible.value = window.visualViewport!.height < window.innerHeight * threshold
+    }
+    window.visualViewport.addEventListener('resize', onResize)
+    onUnmounted(() => window.visualViewport?.removeEventListener('resize', onResize))
+  }
+})
 
 // Acoustic feedback: blip on recording start, double-blip on stop
 useRecordingFeedback()
@@ -194,7 +211,6 @@ const isBusy = computed(() => {
 
 const inputText = ref('')
 const inputRef = ref<HTMLTextAreaElement>()
-const chatViewRef = ref<{ jumpToBottom: () => void }>()
 
 function autoGrow() {
   const el = inputRef.value;

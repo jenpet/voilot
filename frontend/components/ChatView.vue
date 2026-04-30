@@ -1,7 +1,10 @@
 <template>
   <div ref="scrollContainer" class="relative h-full overflow-y-auto overflow-x-hidden">
-    <div class="px-3 py-4 space-y-3 max-w-[1200px] mx-auto sm:px-6">
-      <div v-if="messages.length === 0" class="flex items-center justify-center h-full text-text-muted">
+    <div class="px-3 py-4 space-y-3 max-w-[1200px] mx-auto sm:px-6" :class="{ 'min-h-full flex flex-col justify-center': showLoading }">
+      <div v-if="showLoading" class="flex items-center justify-center">
+        <LoadingLogo ref="loadingLogoRef" />
+      </div>
+      <div v-else-if="messages.length === 0" class="flex items-center justify-center h-full text-text-muted">
         <p>Start a conversation...</p>
       </div>
 
@@ -20,7 +23,7 @@
         />
       </template>
 
-      <div v-if="isStreaming" class="flex items-center gap-2 text-text-muted text-sm">
+      <div v-if="isStreaming && !showLoading" class="flex items-center gap-2 text-text-muted text-sm">
         <span
           class="inline-block w-2 h-2 rounded-full animate-pulse"
           :class="streamingIndicatorColor"
@@ -45,14 +48,38 @@
 
 <script setup lang="ts">
 import type { Message } from '~/composables/useAgent'
+import { startWorkingHum, stopWorkingHum, playHandoff } from '~/composables/useAudioFeedback'
 
 const props = defineProps<{
   messages: Message[]
   isStreaming: boolean
+  isLoading: boolean
   hasPendingPermission: boolean
   hasPendingQuestion: boolean
   agentName?: string
 }>()
+
+// LoadingLogo ref — exposes minActive for minimum display time
+const loadingLogoRef = ref<InstanceType<typeof LoadingLogo>>()
+
+// Track min display independently — starts true, cleared when LoadingLogo signals minActive=false
+const minLoadActive = ref(true)
+watch(() => loadingLogoRef.value?.minActive, (v) => {
+  if (v === false) minLoadActive.value = false
+})
+
+const showLoading = computed(() =>
+  props.messages.length === 0 && (props.isLoading || props.isStreaming || minLoadActive.value),
+)
+
+// Audio feedback for initial loading: hum while loading, handoff when done
+watch(showLoading, (loading, wasLoading) => {
+  if (loading) {
+    startWorkingHum()
+  } else if (wasLoading) {
+    stopWorkingHum().then(() => playHandoff())
+  }
+})
 
 // Streaming indicator state — priority: permission > question > default
 const streamingIndicatorColor = computed(() => {

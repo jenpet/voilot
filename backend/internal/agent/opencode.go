@@ -352,6 +352,9 @@ func (a *OpenCodeAdapter) GetMessages(ctx context.Context, sessionID string) ([]
 	}
 
 	var messages []HistoryMessage
+	firstUserSeen := false
+	firstUserHidden := false
+	secondUserSeen := false
 	for _, ocMsg := range ocMessages {
 		role := ocMsg.Info.Role
 		timestamp := ocMsg.Info.Time.Created
@@ -372,14 +375,32 @@ func (a *OpenCodeAdapter) GetMessages(ctx context.Context, sessionID string) ([]
 				}
 			}
 			if len(textParts) > 0 {
+				content := strings.Join(textParts, "\n")
 				meta := map[string]interface{}{}
 				if model != "" {
 					meta["model"] = model
 				}
+
+				// Strip [Working in: ...] prefix from user messages
+				if idx := strings.Index(content, "]\n\n"); idx != -1 && strings.HasPrefix(content, "[Working in: ") {
+					content = content[idx+3:]
+				}
+
+				// Mark the auto-generated scoping message as hidden
+				if !firstUserSeen {
+					firstUserSeen = true
+					if strings.HasPrefix(content, "You are working in ") && strings.Contains(content, "Briefly welcome the user") {
+						meta["hidden"] = true
+						firstUserHidden = true
+					}
+				} else {
+					secondUserSeen = true
+				}
+
 				messages = append(messages, HistoryMessage{
 					ID:        ocMsg.Info.ID,
 					Role:      "user",
-					Content:   strings.Join(textParts, "\n"),
+					Content:   content,
 					Timestamp: timestamp,
 					Meta:      meta,
 				})
@@ -398,6 +419,10 @@ func (a *OpenCodeAdapter) GetMessages(ctx context.Context, sessionID string) ([]
 					meta := map[string]interface{}{}
 					if part.Tool != "" {
 						meta["tool"] = part.Tool
+					}
+					// Hide tool messages from the initial scoping response
+					if firstUserHidden && !secondUserSeen {
+						meta["hidden"] = true
 					}
 					toolType := "tool_use"
 					content := part.Text

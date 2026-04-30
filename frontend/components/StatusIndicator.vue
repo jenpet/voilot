@@ -23,7 +23,7 @@
     >
       <div
         v-if="open"
-        class="absolute right-0 top-full mt-2 w-56 rounded-lg bg-bg-secondary border border-bg-elevated shadow-lg z-50 py-2 px-3"
+        class="absolute left-0 top-full mt-2 w-56 rounded-lg bg-bg-secondary border border-bg-elevated shadow-lg z-50 py-2 px-3"
       >
         <div class="text-xs font-medium text-text-primary mb-2 uppercase tracking-wide">
           Service Status

@@ -88,7 +88,13 @@ export function useAgent(sessionId: string) {
   const session = ref<Session | null>(null)
   const messages = ref<Message[]>([])
   const isStreaming = ref(false)
+  const isLoading = ref(true)
   const voiceEnabled = ref(true)
+
+  // Suppress tool events during the initial welcome response (before the
+  // user has sent any message). Once the first text event arrives or the
+  // user sends a message, this flag is cleared permanently.
+  let suppressInitialTools = true
 
   // Track whether the current turn was aborted by the user.
   // Prevents finishStreaming() from playing a success chime after abort.
@@ -266,6 +272,7 @@ export function useAgent(sessionId: string) {
   // Fetch existing message history from the backend
   async function fetchMessages() {
     try {
+      isLoading.value = true
       interface HistoryMessage {
         id: string
         role: 'user' | 'assistant'
@@ -278,18 +285,26 @@ export function useAgent(sessionId: string) {
       if (data && data.length > 0) {
         // Only load history if we don't already have messages (avoid duplicates on reconnect)
         if (messages.value.length === 0) {
-          messages.value = data.map(m => ({
-            id: m.id,
-            role: m.role,
-            content: m.content,
-            timestamp: m.timestamp,
-            type: m.type as AgentEvent['type'] | undefined,
-            meta: m.meta,
-          }))
+          messages.value = data
+            .filter(m => !m.meta?.hidden)
+            .map(m => ({
+              id: m.id,
+              role: m.role,
+              content: m.content,
+              timestamp: m.timestamp,
+              type: m.type as AgentEvent['type'] | undefined,
+              meta: m.meta,
+            }))
+          // If history has any user messages, initial tools phase is over
+          if (data.some(m => m.role === 'user' && !m.meta?.hidden)) {
+            suppressInitialTools = false
+          }
         }
       }
     } catch {
       console.error('Failed to fetch message history')
+    } finally {
+      isLoading.value = false
     }
   }
 
@@ -327,6 +342,7 @@ export function useAgent(sessionId: string) {
     // Exclude permission events, question events, control events, and
     // error events during aborted turns from the batcher.
     if (voiceEnabled.value
+      && !suppressInitialTools
       && eventDisplay === 'default'
       && event.type !== 'text'
       && event.type !== 'done'
@@ -341,9 +357,12 @@ export function useAgent(sessionId: string) {
 
     switch (event.type) {
       case 'text':
+        suppressInitialTools = false
         handleTextEvent(event)
         break
       case 'tool_use':
+        // Suppress tool events during the initial welcome response
+        if (suppressInitialTools) break
         // Record start time for duration tracking
         if (event.partId) {
           toolStartTimes.set(event.partId, Date.now())
@@ -353,6 +372,8 @@ export function useAgent(sessionId: string) {
         appendAssistantMeta(event.content, 'tool_use', event.meta)
         break
       case 'tool_result': {
+        // Suppress tool events during the initial welcome response
+        if (suppressInitialTools) break
         // Compute duration from matching tool_use event
         const resultMeta = { ...event.meta }
         if (event.partId && toolStartTimes.has(event.partId)) {
@@ -555,6 +576,7 @@ export function useAgent(sessionId: string) {
   // Send a message via WebSocket
   function sendMessage(text: string, options?: { origin?: 'voice' | 'text' }) {
     log('info', 'agent', 'send_message', { origin: options?.origin, length: text.length, hasPendingQuestion: hasPendingQuestion.value })
+    suppressInitialTools = false
     abortedTurn = false
     // If there's a pending question, intercept the input as a custom answer
     if (hasPendingQuestion.value && tryAnswerPendingQuestion(text)) {
@@ -1071,6 +1093,7 @@ export function useAgent(sessionId: string) {
     session: readonly(session),
     messages,
     isStreaming: readonly(isStreaming),
+    isLoading: readonly(isLoading),
     hasPendingPermission,
     hasPendingQuestion,
     isTTSPlaying,
