@@ -11,7 +11,21 @@
       </button>
       <div class="flex-1 min-w-0">
         <div class="flex items-center gap-2">
-          <h1 class="text-sm font-medium truncate">{{ session?.title || 'Untitled Session' }}</h1>
+          <h1
+            v-if="!editingTitle"
+            class="text-sm font-medium truncate cursor-pointer hover:text-accent transition-colors"
+            @click="startEditTitle"
+          >{{ session?.title || 'Untitled Session' }}</h1>
+          <input
+            v-else
+            ref="titleInputRef"
+            v-model="editTitleText"
+            class="text-sm font-medium bg-bg-primary border border-accent rounded px-1.5 py-0.5 outline-none w-full max-w-[300px]"
+            maxlength="80"
+            @keydown.enter.prevent="saveTitle"
+            @keydown.escape.prevent="cancelEditTitle"
+            @blur="saveTitle"
+          />
           <StatusIndicator />
         </div>
         <div class="flex items-center gap-2 mt-0.5">
@@ -124,6 +138,34 @@ const route = useRoute()
 const router = useRouter()
 const sessionId = route.params.id as string
 const { showRoundTripTimings } = useSettings()
+const { renameSession } = useSession()
+
+// Inline title editing
+const editingTitle = ref(false)
+const editTitleText = ref('')
+const titleInputRef = ref<HTMLInputElement>()
+
+function startEditTitle() {
+  editTitleText.value = session.value?.title || ''
+  editingTitle.value = true
+  nextTick(() => titleInputRef.value?.select())
+}
+
+async function saveTitle() {
+  if (!editingTitle.value) return
+  editingTitle.value = false
+  const newTitle = editTitleText.value.trim()
+  const oldTitle = session.value?.title || ''
+  if (newTitle === oldTitle) return
+  const ok = await renameSession(sessionId, newTitle)
+  if (ok) {
+    setTitle(newTitle, newTitle !== '')
+  }
+}
+
+function cancelEditTitle() {
+  editingTitle.value = false
+}
 
 // Initialize the action-gated state machine — registers the state accessor
 // for debug logs so every entry includes the current interaction state.
@@ -143,6 +185,7 @@ const {
   sendMessage,
   abortSession,
   stopPlayback,
+  setTitle,
   setAgent,
   setModel,
   toggleVoice,

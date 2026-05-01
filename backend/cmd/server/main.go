@@ -49,25 +49,24 @@ func main() {
 		log.Println("STT disabled (no --stt-url provided)")
 	}
 
-	// Initialize workspace scanner and session map (optional)
+	// Initialize workspace scanner (optional) and session map (always)
 	var scanner *workspace.Scanner
-	var sesMap *sessionmap.Map
 	if *workspaceDir != "" {
 		scanner = workspace.NewScanner(*workspaceDir)
 		if _, err := scanner.Scan(); err != nil {
 			log.Fatalf("Failed to scan workspace: %v", err)
 		}
 		log.Printf("Workspace enabled: %s", *workspaceDir)
-
-		var err error
-		sesMap, err = sessionmap.New(fmt.Sprintf("%s/session-map.json", *dataDir))
-		if err != nil {
-			log.Fatalf("Failed to load session map: %v", err)
-		}
-		log.Printf("Session map: %s/session-map.json", *dataDir)
 	} else {
 		log.Println("Workspace disabled (no --workspace-dir provided)")
 	}
+
+	// Session map is always created for title persistence (and worktree mapping when workspace is enabled)
+	sesMap, err := sessionmap.New(fmt.Sprintf("%s/session-map.json", *dataDir))
+	if err != nil {
+		log.Fatalf("Failed to load session map: %v", err)
+	}
+	log.Printf("Session map: %s/session-map.json", *dataDir)
 
 	// Create API server
 	server := api.NewServer(agentAdapter, ttsProvider, sttProvider, scanner, sesMap)

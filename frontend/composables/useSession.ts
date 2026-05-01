@@ -1,6 +1,7 @@
 export interface Session {
   id: string
   title: string
+  titleOverride?: boolean
   mode: 'plan' | 'implement'
   agent?: string
   model?: string
@@ -57,6 +58,24 @@ export function useSession() {
     }
   }
 
+  async function renameSession(id: string, title: string): Promise<boolean> {
+    try {
+      await $fetch(`${apiBase}/sessions/${id}/title`, {
+        method: 'PATCH',
+        body: { title },
+      })
+      const session = sessions.value.find(s => s.id === id)
+      if (session) {
+        session.title = title
+        session.titleOverride = title !== ''
+      }
+      return true
+    } catch {
+      console.error('Failed to rename session')
+      return false
+    }
+  }
+
   // Fetch sessions on first use
   if (sessions.value.length === 0) {
     fetchSessions()
@@ -67,5 +86,6 @@ export function useSession() {
     fetchSessions,
     createSession,
     deleteSession,
+    renameSession,
   }
 }

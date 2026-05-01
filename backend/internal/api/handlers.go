@@ -135,13 +135,34 @@ func (s *Server) handleListModels(w http.ResponseWriter, r *http.Request) {
 	jsonResponse(w, http.StatusOK, models)
 }
 
+// sessionResponse wraps a session with the titleOverride flag.
+type sessionResponse struct {
+	agent.Session
+	TitleOverride bool `json:"titleOverride"`
+}
+
+func (s *Server) applyTitleOverride(session *agent.Session) sessionResponse {
+	resp := sessionResponse{Session: *session}
+	if s.sessionMap != nil {
+		if t := s.sessionMap.GetTitle(session.ID); t != "" {
+			resp.Title = t
+			resp.TitleOverride = true
+		}
+	}
+	return resp
+}
+
 func (s *Server) handleListSessions(w http.ResponseWriter, r *http.Request) {
 	sessions, err := s.agentAdapter.ListSessions(r.Context())
 	if err != nil {
 		jsonError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	jsonResponse(w, http.StatusOK, sessions)
+	result := make([]sessionResponse, len(sessions))
+	for i := range sessions {
+		result[i] = s.applyTitleOverride(&sessions[i])
+	}
+	jsonResponse(w, http.StatusOK, result)
 }
 
 func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
@@ -207,15 +228,15 @@ func (s *Server) handleGetSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Wrap the session with a busy flag so the frontend can detect
-	// stale agent:streaming state after page reload / reconnect.
+	// Wrap the session with a busy flag and title override.
+	resp := s.applyTitleOverride(session)
 	type sessionWithStatus struct {
-		*agent.Session
+		sessionResponse
 		Busy bool `json:"busy"`
 	}
 	jsonResponse(w, http.StatusOK, sessionWithStatus{
-		Session: session,
-		Busy:    s.agentAdapter.GetSessionBusy(id),
+		sessionResponse: resp,
+		Busy:            s.agentAdapter.GetSessionBusy(id),
 	})
 }
 
@@ -227,6 +248,34 @@ func (s *Server) handleGetSessionMessages(w http.ResponseWriter, r *http.Request
 		return
 	}
 	jsonResponse(w, http.StatusOK, messages)
+}
+
+func (s *Server) handleSetSessionTitle(w http.ResponseWriter, r *http.Request) {
+	id := mux.Vars(r)["id"]
+
+	var body struct {
+		Title string `json:"title"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		jsonError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	if len(body.Title) > 80 {
+		jsonError(w, http.StatusBadRequest, "title must be 80 characters or less")
+		return
+	}
+
+	if err := s.sessionMap.SetTitle(id, body.Title); err != nil {
+		jsonError(w, http.StatusInternalServerError, "failed to save title: "+err.Error())
+		return
+	}
+
+	jsonResponse(w, http.StatusOK, map[string]interface{}{
+		"id":            id,
+		"title":         body.Title,
+		"titleOverride": body.Title != "",
+	})
 }
 
 func (s *Server) handleSetSessionMode(w http.ResponseWriter, r *http.Request) {

@@ -517,7 +517,7 @@ func (s *Server) handleInitProject(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleWorktreeSessions(w http.ResponseWriter, r *http.Request) {
-	if s.sessionMap == nil {
+	if s.scanner == nil {
 		jsonError(w, http.StatusServiceUnavailable, "workspace not configured")
 		return
 	}

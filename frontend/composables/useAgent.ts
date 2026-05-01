@@ -249,7 +249,7 @@ export function useAgent(sessionId: string) {
       const data = await $fetch<Session & { busy?: boolean }>(`${apiBase}/sessions/${sessionId}`)
       const isBusy = data.busy === true
       // Remove the busy field before storing — it's transient, not part of Session
-      delete (data as Record<string, unknown>).busy
+      delete (data as unknown as Record<string, unknown>).busy
       session.value = data
 
       // If the backend reports the session as busy, sync the frontend state.
@@ -424,7 +424,10 @@ export function useAgent(sessionId: string) {
             playModeSignature()
           }
         } else if (session.value && event.content) {
-          session.value.title = event.content
+          // Only apply OpenCode's auto-title if no manual override exists
+          if (!session.value.titleOverride) {
+            session.value.title = event.content
+          }
         }
         break
       case 'permission_request':
@@ -691,6 +694,13 @@ export function useAgent(sessionId: string) {
       stopTTS()
       stopMonitoring()
     }
+  }
+
+  // Update the session title locally (after a successful backend PATCH).
+  function setTitle(title: string, override: boolean) {
+    if (!session.value) return
+    session.value.title = title
+    session.value.titleOverride = override
   }
 
   // Switch the active agent for this session
@@ -1118,6 +1128,7 @@ export function useAgent(sessionId: string) {
     sendMessage,
     abortSession,
     stopPlayback,
+    setTitle,
     setAgent,
     setModel,
     toggleVoice,
