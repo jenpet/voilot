@@ -24,10 +24,11 @@ type Project struct {
 
 // Worktree represents a single git worktree (root or linked).
 type Worktree struct {
-	Name   string `json:"name"`   // display name (branch slug or directory name)
-	Path   string `json:"path"`   // absolute path to this worktree directory
-	Branch string `json:"branch"` // current branch name
-	IsRoot bool   `json:"isRoot"` // true for the primary/root worktree directory
+	Name         string `json:"name"`                   // display name (branch slug or directory name)
+	Path         string `json:"path"`                   // absolute path to this worktree directory
+	Branch       string `json:"branch"`                 // current branch name
+	IsRoot       bool   `json:"isRoot"`                 // true for the primary/root worktree directory
+	LastActivity int64  `json:"lastActivity,omitempty"` // unix ms of most recent session activity (0 = none)
 }
 
 // Scanner discovers projects and worktrees from the workspace directory.

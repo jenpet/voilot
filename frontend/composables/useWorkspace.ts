@@ -10,6 +10,7 @@ export interface Worktree {
   path: string;
   branch: string;
   isRoot: boolean;
+  lastActivity?: number;
 }
 
 export interface BranchInfo {

@@ -47,14 +47,28 @@ func (s *Server) handleListProjects(w http.ResponseWriter, r *http.Request) {
 		// For each project, find the max session timestamp across all worktrees.
 		for i := range projects {
 			var maxTs int64
-			for _, wt := range projects[i].Worktrees {
-				for _, sid := range s.sessionMap.SessionsForWorktree(wt.Path) {
-					if ts, ok := sessionUpdated[sid]; ok && ts > maxTs {
-						maxTs = ts
+			for j := range projects[i].Worktrees {
+				var wtMax int64
+				for _, sid := range s.sessionMap.SessionsForWorktree(projects[i].Worktrees[j].Path) {
+					if ts, ok := sessionUpdated[sid]; ok && ts > wtMax {
+						wtMax = ts
 					}
+				}
+				projects[i].Worktrees[j].LastActivity = wtMax
+				if wtMax > maxTs {
+					maxTs = wtMax
 				}
 			}
 			projects[i].LastActivity = maxTs
+
+			// Sort worktrees: root pinned first, then by last activity descending.
+			sort.SliceStable(projects[i].Worktrees, func(a, b int) bool {
+				wa, wb := projects[i].Worktrees[a], projects[i].Worktrees[b]
+				if wa.IsRoot != wb.IsRoot {
+					return wa.IsRoot
+				}
+				return wa.LastActivity > wb.LastActivity
+			})
 		}
 	}
 

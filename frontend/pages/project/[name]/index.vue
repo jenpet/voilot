@@ -74,23 +74,27 @@
       </div>
 
       <div v-else class="space-y-3 max-w-[1200px] mx-auto">
-        <div
+        <ListCard
           v-for="wt in project.worktrees"
           :key="wt.name"
-          class="bg-bg-secondary border border-bg-elevated rounded-xl p-4 cursor-pointer hover:bg-bg-elevated transition-colors"
+          :timestamp="wt.lastActivity"
           @click="navigateToWorktree(wt)"
         >
-          <div class="flex items-center justify-between">
-            <div class="flex items-center gap-2">
-              <h2 class="text-base font-medium">{{ wt.name }}</h2>
-              <span
-                v-if="wt.branch === project?.defaultBranch"
-                class="px-1.5 py-0.5 text-xs rounded bg-accent/15 text-accent"
-              >
-                default
-              </span>
-            </div>
-            <div v-if="!wt.isRoot" class="flex items-center gap-1">
+          <div class="flex items-center gap-2">
+            <h2 class="text-base font-medium truncate">{{ wt.name }}</h2>
+            <span
+              v-if="wt.branch === project?.defaultBranch"
+              class="px-1.5 py-0.5 text-xs rounded bg-accent/15 text-accent flex-shrink-0"
+            >
+              default
+            </span>
+          </div>
+          <div class="mt-1 text-sm text-text-muted font-mono truncate">
+            {{ wt.branch }}
+          </div>
+          <template #actions>
+            <div class="flex items-center gap-1 flex-shrink-0 w-8">
+              <template v-if="!wt.isRoot">
               <button
                 v-if="confirmingDelete !== wt.name"
                 class="p-1.5 rounded-lg hover:bg-bg-elevated text-text-muted hover:text-accent-warn transition-colors"
@@ -112,12 +116,10 @@
                   Cancel
                 </button>
               </template>
+              </template>
             </div>
-          </div>
-          <div class="mt-1 text-sm text-text-muted font-mono">
-            {{ wt.branch }}
-          </div>
-        </div>
+          </template>
+        </ListCard>
       </div>
     </main>
   </div>
