@@ -15,11 +15,6 @@
         />
         <circle cx="12" cy="12" r="3" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" />
       </svg>
-      <!-- Recording indicator dot -->
-      <span
-        v-if="debugEnabled"
-        class="absolute -top-0.5 -right-0.5 inline-flex rounded-full h-2 w-2 bg-accent"
-      />
     </button>
 
     <!-- Dropdown panel -->
@@ -85,14 +80,9 @@
         </button>
       </div>
 
-      <!-- Recording since -->
-      <p v-if="debugEnabled && recordingSinceLabel" class="text-xs text-text-muted mb-3">
-        Recording since {{ recordingSinceLabel }}
-      </p>
-
-      <!-- Entry count -->
+      <!-- Recording info -->
       <p v-if="debugEnabled" class="text-xs text-text-muted mb-3">
-        {{ entryCount }} entries captured
+        <template v-if="recordingSinceLabel">Since {{ recordingSinceLabel }} · </template>{{ entryCount }} entries
       </p>
 
       <!-- Download button -->
