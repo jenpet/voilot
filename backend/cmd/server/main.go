@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
+	"strconv"
 
 	"github.com/jenpet/voilot/internal/agent"
 	"github.com/jenpet/voilot/internal/api"
@@ -17,19 +19,36 @@ import (
 
 func main() {
 	var (
-		port         = flag.Int("port", 8080, "HTTP server port")
-		hostname     = flag.String("hostname", "127.0.0.1", "Hostname to bind to")
-		opencodeURL  = flag.String("opencode-url", "http://localhost:4096", "OpenCode server URL")
-		ttsURL       = flag.String("tts-url", "", "TTS server URL (optional)")
-		sttURL       = flag.String("stt-url", "", "faster-whisper server URL (optional)")
-		workspaceDir = flag.String("workspace-dir", "", "Workspace directory for project/worktree discovery (optional)")
-		dataDir      = flag.String("data-dir", "voilot-data", "Directory for persistent data (session map, etc.)")
-		allowOrigins = flag.String("cors-origins", "*", "Allowed CORS origins (comma-separated)")
+		port           = flag.Int("port", 8080, "HTTP server port")
+		hostname       = flag.String("hostname", "127.0.0.1", "Hostname to bind to")
+		opencodeBinary = flag.String("opencode-binary", "", "Path to opencode binary (default: resolve from PATH)")
+		ttsURL         = flag.String("tts-url", "", "TTS server URL (optional)")
+		sttURL         = flag.String("stt-url", "", "faster-whisper server URL (optional)")
+		workspaceDir   = flag.String("workspace-dir", "", "Workspace directory for project/worktree discovery (optional)")
+		dataDir        = flag.String("data-dir", "voilot-data", "Directory for persistent data (session map, PID files, etc.)")
+		allowOrigins   = flag.String("cors-origins", "*", "Allowed CORS origins (comma-separated)")
 	)
 	flag.Parse()
 
-	// Initialize agent adapter
-	agentAdapter := agent.NewOpenCodeAdapter(*opencodeURL)
+	// Initialize provider registry (replaces single agentAdapter)
+	provider := agent.NewOpenCodeProvider(*opencodeBinary)
+
+	maxInstances := agent.DefaultMaxInstances
+	if v := os.Getenv("VOILOT_MAX_INSTANCES"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			maxInstances = n
+		}
+	}
+
+	pidDir := fmt.Sprintf("%s/pids", *dataDir)
+	registry, err := agent.NewProviderRegistry(provider, pidDir,
+		agent.WithMaxInstances(maxInstances),
+	)
+	if err != nil {
+		log.Fatalf("Failed to create provider registry: %v", err)
+	}
+	defer registry.Close()
+	log.Printf("Provider registry: max %d instances, PID dir %s", maxInstances, pidDir)
 
 	// Initialize TTS provider (optional)
 	var ttsProvider tts.Provider
@@ -49,7 +68,7 @@ func main() {
 		log.Println("STT disabled (no --stt-url provided)")
 	}
 
-	// Initialize workspace scanner (optional) and session map (always)
+	// Initialize workspace scanner (optional)
 	var scanner *workspace.Scanner
 	if *workspaceDir != "" {
 		scanner = workspace.NewScanner(*workspaceDir)
@@ -69,7 +88,7 @@ func main() {
 	log.Printf("Session map: %s/session-map.json", *dataDir)
 
 	// Create API server
-	server := api.NewServer(agentAdapter, ttsProvider, sttProvider, scanner, sesMap)
+	server := api.NewServer(registry, ttsProvider, sttProvider, scanner, sesMap)
 
 	// CORS middleware (for development; in production nginx handles this)
 	handler := cors.New(cors.Options{
@@ -81,7 +100,6 @@ func main() {
 
 	addr := fmt.Sprintf("%s:%d", *hostname, *port)
 	log.Printf("voilot backend starting on %s", addr)
-	log.Printf("OpenCode: %s", *opencodeURL)
 	if err := http.ListenAndServe(addr, handler); err != nil {
 		log.Fatalf("Server failed: %v", err)
 	}

@@ -24,9 +24,9 @@ export function useSession() {
   const sessions = useState<Session[]>('sessions', () => [])
   const apiBase = `${resolveBackendUrl()}/api`
 
-  async function fetchSessions() {
+  async function fetchSessions(worktreePath: string) {
     try {
-      const data = await $fetch<Session[]>(`${apiBase}/sessions`)
+      const data = await $fetch<Session[]>(`${apiBase}/sessions?worktree=${encodeURIComponent(worktreePath)}`)
       sessions.value = data || []
     } catch {
       console.error('Failed to fetch sessions')
@@ -74,11 +74,6 @@ export function useSession() {
       console.error('Failed to rename session')
       return false
     }
-  }
-
-  // Fetch sessions on first use
-  if (sessions.value.length === 0) {
-    fetchSessions()
   }
 
   return {

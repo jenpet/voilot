@@ -110,15 +110,6 @@ export function useWorkspace() {
     }
   }
 
-  async function fetchWorktreeSessions(worktreePath: string): Promise<string[]> {
-    try {
-      const data = await $fetch<string[]>(`${apiBase}/worktree-sessions?path=${encodeURIComponent(worktreePath)}`);
-      return data || [];
-    } catch {
-      return [];
-    }
-  }
-
   async function fetchBranches(projectName: string): Promise<BranchInfo[]> {
     try {
       const data = await $fetch<BranchInfo[]>(`${apiBase}/projects/${projectName}/branches`);
@@ -142,7 +133,6 @@ export function useWorkspace() {
     initProject,
     createWorktree,
     removeWorktree,
-    fetchWorktreeSessions,
     fetchBranches,
   };
 }

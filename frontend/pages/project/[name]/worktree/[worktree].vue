@@ -47,8 +47,8 @@
 <script setup lang="ts">
 const router = useRouter();
 const route = useRoute();
-const { sessions, createSession, deleteSession: doDeleteSession } = useSession();
-const { projects, fetchWorktreeSessions } = useWorkspace();
+const { sessions, fetchSessions, createSession, deleteSession: doDeleteSession } = useSession();
+const { projects } = useWorkspace();
 
 const projectName = computed(() => route.params.name as string);
 const worktreeName = computed(() => decodeURIComponent(route.params.worktree as string));
@@ -59,20 +59,16 @@ const worktree = computed(() => {
   return project.worktrees.find(wt => wt.name === worktreeName.value) || null;
 });
 
-// Session IDs mapped to this worktree
-const mappedSessionIds = ref<string[]>([]);
+// Sessions are fetched directly for the worktree via ?worktree= param
+// Sort by last updated, most recent first
+const worktreeSessions = computed(() =>
+  [...sessions.value].sort((a, b) => (b.time?.updated ?? 0) - (a.time?.updated ?? 0))
+);
 
 async function loadWorktreeSessions() {
   if (!worktree.value) return;
-  mappedSessionIds.value = await fetchWorktreeSessions(worktree.value.path);
+  await fetchSessions(worktree.value.path);
 }
-
-// Filter sessions to only those mapped to this worktree
-const worktreeSessions = computed(() => {
-  if (mappedSessionIds.value.length === 0) return [];
-  const idSet = new Set(mappedSessionIds.value);
-  return sessions.value.filter(s => idSet.has(s.id));
-});
 
 // Load on mount and when worktree changes
 watch(worktree, () => loadWorktreeSessions(), { immediate: true });

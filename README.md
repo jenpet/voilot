@@ -84,7 +84,7 @@ Environment variables (set in `.env` or pass to `docker compose`):
 ```bash
 cd voilot/backend
 go build ./cmd/server
-./server --opencode-url http://localhost:4096
+./server --opencode-binary opencode
 ```
 
 ### Frontend (Nuxt 3)

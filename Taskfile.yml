@@ -23,7 +23,7 @@
 version: "3"
 
 vars:
-  OPENCODE_URL: '{{.OPENCODE_URL | default "http://localhost:4096"}}'
+  OPENCODE_BINARY: '{{.OPENCODE_BINARY | default "opencode"}}'
   TTS_URL: '{{.TTS_URL | default "http://localhost:8880"}}'
   TTS_PROVIDER: '{{.TTS_PROVIDER | default "kokoro"}}'
   STT_URL: '{{.STT_URL | default "http://localhost:5003"}}'
@@ -62,7 +62,7 @@ tasks:
     dir: backend
     cmds:
       - go run ./cmd/server
-          --opencode-url {{.OPENCODE_URL}}
+          --opencode-binary {{.OPENCODE_BINARY}}
           --tts-url {{.TTS_URL}}
           --stt-url {{.STT_URL}}
           --workspace-dir {{.WORKSPACE_DIR}}

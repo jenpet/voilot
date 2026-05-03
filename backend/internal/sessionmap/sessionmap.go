@@ -15,6 +15,7 @@ import (
 type Entry struct {
 	WorktreePath string `json:"worktreePath,omitempty"`
 	Title        string `json:"title,omitempty"`
+	UpdatedAt    int64  `json:"updatedAt,omitempty"` // last activity timestamp (epoch ms), from backfill or runtime
 }
 
 // Map manages session-to-entry mappings with file-backed persistence.
@@ -126,6 +127,45 @@ func (m *Map) SessionsForWorktree(worktreePath string) []string {
 		}
 	}
 	return ids
+}
+
+// LastActivityForWorktree returns the most recent UpdatedAt timestamp
+// across all sessions mapped to the given worktree path.
+func (m *Map) LastActivityForWorktree(worktreePath string) int64 {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	var max int64
+	for _, e := range m.entries {
+		if e.WorktreePath == worktreePath && e.UpdatedAt > max {
+			max = e.UpdatedAt
+		}
+	}
+	return max
+}
+
+// SetEntry stores a full entry for a session and persists.
+func (m *Map) SetEntry(sessionID string, e Entry) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.entries[sessionID] = e
+	return m.save()
+}
+
+// UpdateTimestamp updates the UpdatedAt field for a session without
+// touching other fields. No-op if session is not in the map.
+func (m *Map) UpdateTimestamp(sessionID string, ts int64) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	e, ok := m.entries[sessionID]
+	if !ok {
+		return
+	}
+	if ts > e.UpdatedAt {
+		e.UpdatedAt = ts
+		m.entries[sessionID] = e
+		// Best-effort save; don't block on timestamp updates.
+		_ = m.save()
+	}
 }
 
 // AllEntries returns a copy of all mappings.

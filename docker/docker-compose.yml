@@ -13,7 +13,7 @@
 #
 # Local dev (hybrid): run frontend + backend locally, Docker only for TTS/STT:
 #   docker compose --profile voice up tts stt
-#   # Then: cd backend && go run ./cmd/server --opencode-url http://localhost:4096 --tts-url http://localhost:8880 --stt-url http://localhost:5003
+#   # Then: cd backend && go run ./cmd/server --opencode-binary opencode --tts-url http://localhost:8880 --stt-url http://localhost:5003
 #   # Then: cd frontend && npm run dev
 #
 # HTTPS: Use Tailscale for TLS termination (tailscale serve).
@@ -43,7 +43,7 @@ services:
       dockerfile: docker/Dockerfile.backend
     command:
       - --hostname=0.0.0.0
-      - --opencode-url=${OPENCODE_URL:-http://host.docker.internal:4096}
+      - --opencode-binary=${OPENCODE_BINARY:-opencode}
       - --tts-url=${TTS_URL:-}
       - --stt-url=${STT_URL:-}
     # Not exposed to host directly; nginx proxies /api/* and /ws/*

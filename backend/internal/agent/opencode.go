@@ -196,6 +196,7 @@ func (a *OpenCodeAdapter) GetStatus(ctx context.Context) (*Status, error) {
 // openCodeSession is the JSON shape returned by OpenCode's /session endpoints.
 type openCodeSession struct {
 	ID        string `json:"id"`
+	ParentID  string `json:"parentID"`
 	ProjectID string `json:"projectID"`
 	Title     string `json:"title"`
 	Version   string `json:"version"`
@@ -208,6 +209,7 @@ type openCodeSession struct {
 func (s *openCodeSession) toSession() Session {
 	return Session{
 		ID:        s.ID,
+		ParentID:  s.ParentID,
 		Title:     s.Title,
 		ProjectID: s.ProjectID,
 		Time: &TimeInfo{

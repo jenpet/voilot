@@ -96,7 +96,7 @@ go test ./...            # Run all tests
 go test ./internal/agent -run TestName  # Run specific test
 
 # Run locally:
-./server --opencode-url http://localhost:4096 \
+./server --opencode-binary opencode \
          --tts-url http://localhost:8880 \
          --stt-url http://localhost:5003
 ```

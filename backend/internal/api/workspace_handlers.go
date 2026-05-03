@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/gorilla/mux"
+	"github.com/jenpet/voilot/internal/agent"
 )
 
 func (s *Server) handleListProjects(w http.ResponseWriter, r *http.Request) {
@@ -29,31 +30,40 @@ func (s *Server) handleListProjects(w http.ResponseWriter, r *http.Request) {
 
 	// Compute last activity per project by joining session map + session timestamps.
 	if s.sessionMap != nil {
-		// Build sessionID → updatedAt lookup from all sessions.
-		sessionUpdated := make(map[string]int64)
-		sessions, err := s.agentAdapter.ListSessions(r.Context())
-		if err != nil {
-			log.Printf("warning: could not fetch sessions for sorting: %v", err)
-		} else {
-			for _, sess := range sessions {
+		// Build sessionID → updatedAt from running instances (overrides stored timestamps).
+		liveUpdated := make(map[string]int64)
+		for _, inst := range s.registry.ListInstances() {
+			sessions, err := inst.Adapter.ListSessions(r.Context())
+			if err != nil {
+				log.Printf("warning: could not fetch sessions from instance %s: %v", inst.WorkDir, err)
+				continue
+			}
+			for _, sess := range agent.FilterTopLevel(sessions) {
 				if sess.Time != nil && sess.Time.Updated > 0 {
-					sessionUpdated[sess.ID] = sess.Time.Updated
+					liveUpdated[sess.ID] = sess.Time.Updated
 				} else if sess.Time != nil {
-					sessionUpdated[sess.ID] = sess.Time.Created
+					liveUpdated[sess.ID] = sess.Time.Created
 				}
 			}
 		}
 
 		// For each project, find the max session timestamp across all worktrees.
+		// Use session map stored timestamps, overridden by live data when available.
 		for i := range projects {
 			var maxTs int64
 			for j := range projects[i].Worktrees {
-				var wtMax int64
-				for _, sid := range s.sessionMap.SessionsForWorktree(projects[i].Worktrees[j].Path) {
-					if ts, ok := sessionUpdated[sid]; ok && ts > wtMax {
+				wtPath := projects[i].Worktrees[j].Path
+
+				// Start with the session map's cached last activity.
+				wtMax := s.sessionMap.LastActivityForWorktree(wtPath)
+
+				// Override with live data from running instances.
+				for _, sid := range s.sessionMap.SessionsForWorktree(wtPath) {
+					if ts, ok := liveUpdated[sid]; ok && ts > wtMax {
 						wtMax = ts
 					}
 				}
+
 				projects[i].Worktrees[j].LastActivity = wtMax
 				if wtMax > maxTs {
 					maxTs = wtMax

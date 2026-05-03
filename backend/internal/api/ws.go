@@ -4,6 +4,7 @@ import (
 	"log"
 	"net/http"
 	"sync"
+	"time"
 
 	"github.com/gorilla/websocket"
 	"github.com/jenpet/voilot/internal/agent"
@@ -50,16 +51,8 @@ func (s *Server) handleWSChat(w http.ResponseWriter, r *http.Request) {
 
 	ctx := r.Context()
 
-	// Subscribe to SSE events from the agent backend
-	eventCh, err := s.agentAdapter.SubscribeEvents(ctx)
-	if err != nil {
-		log.Printf("Failed to subscribe to events: %v", err)
-		conn.WriteJSON(chatOutbound{
-			Type:    "error",
-			Content: "Failed to connect to agent: " + err.Error(),
-		})
-		return
-	}
+	// Subscribe to aggregated SSE events from all agent instances
+	eventCh := s.registry.SubscribeEvents(ctx)
 
 	// Write mutex for WebSocket (gorilla websocket is not safe for concurrent writes)
 	var writeMu sync.Mutex
@@ -113,32 +106,42 @@ func (s *Server) handleWSChat(w http.ResponseWriter, r *http.Request) {
 				continue
 			}
 
-			// Prepend worktree context if this session is mapped to one,
-			// so the agent stays anchored to the correct directory.
+			// Send message to the correct adapter instance
 			msgText := result.Text
-			if s.sessionMap != nil {
-				if wtPath := s.sessionMap.Get(msg.SessionID); wtPath != "" {
-					msgText = "[Working in: " + wtPath + "]\n\n" + msgText
-				}
+			adapter, err := s.resolveAdapter(r, msg.SessionID)
+			if err != nil {
+				writeJSON(chatOutbound{
+					Type:      "error",
+					SessionID: msg.SessionID,
+					Content:   "No agent instance for session: " + err.Error(),
+				})
+				continue
 			}
 
 			// Send message asynchronously — response events come via SSE
 			// Use the session's current agent and model override for routing
-			agentName := s.agentAdapter.GetSessionAgent(msg.SessionID)
-			modelID := s.agentAdapter.GetSessionModel(msg.SessionID)
-			if err := s.agentAdapter.SendMessageAsync(ctx, msg.SessionID, msgText, agentName, modelID); err != nil {
+			agentName := adapter.GetSessionAgent(msg.SessionID)
+			modelID := adapter.GetSessionModel(msg.SessionID)
+			if err := adapter.SendMessageAsync(ctx, msg.SessionID, msgText, agentName, modelID); err != nil {
 				writeJSON(chatOutbound{
 					Type:      "error",
 					SessionID: msg.SessionID,
 					Content:   "Failed to send message: " + err.Error(),
 				})
+			} else if s.sessionMap != nil {
+				// Update last activity timestamp for sorting.
+				s.sessionMap.UpdateTimestamp(msg.SessionID, time.Now().UnixMilli())
 			}
 
 		case "abort":
 			if msg.SessionID == "" {
 				continue
 			}
-			if err := s.agentAdapter.AbortSession(ctx, msg.SessionID); err != nil {
+			adapter, err := s.resolveAdapter(r, msg.SessionID)
+			if err != nil {
+				continue
+			}
+			if err := adapter.AbortSession(ctx, msg.SessionID); err != nil {
 				writeJSON(chatOutbound{
 					Type:      "error",
 					SessionID: msg.SessionID,
@@ -163,7 +166,11 @@ func (s *Server) handleWSChat(w http.ResponseWriter, r *http.Request) {
 				})
 				continue
 			}
-			s.agentAdapter.SetSessionMode(msg.SessionID, newMode)
+			adapter, err := s.resolveAdapter(r, msg.SessionID)
+			if err != nil {
+				continue
+			}
+			adapter.SetSessionMode(msg.SessionID, newMode)
 			writeJSON(chatOutbound{
 				Type:      "event",
 				SessionID: msg.SessionID,
@@ -193,7 +200,11 @@ func (s *Server) handleWSChat(w http.ResponseWriter, r *http.Request) {
 				})
 				continue
 			}
-			s.agentAdapter.SetSessionAgent(msg.SessionID, msg.Content)
+			adapter, err := s.resolveAdapter(r, msg.SessionID)
+			if err != nil {
+				continue
+			}
+			adapter.SetSessionAgent(msg.SessionID, msg.Content)
 			writeJSON(chatOutbound{
 				Type:      "event",
 				SessionID: msg.SessionID,
@@ -215,7 +226,11 @@ func (s *Server) handleWSChat(w http.ResponseWriter, r *http.Request) {
 				})
 				continue
 			}
-			s.agentAdapter.SetSessionModel(msg.SessionID, msg.Content)
+			adapter, err := s.resolveAdapter(r, msg.SessionID)
+			if err != nil {
+				continue
+			}
+			adapter.SetSessionModel(msg.SessionID, msg.Content)
 			writeJSON(chatOutbound{
 				Type:      "event",
 				SessionID: msg.SessionID,
@@ -253,7 +268,16 @@ func (s *Server) handleWSChat(w http.ResponseWriter, r *http.Request) {
 				})
 				continue
 			}
-			if err := s.agentAdapter.RespondToPermission(ctx, msg.SessionID, msg.PermissionID, msg.Response, msg.Remember); err != nil {
+			adapter, err := s.resolveAdapter(r, msg.SessionID)
+			if err != nil {
+				writeJSON(chatOutbound{
+					Type:      "error",
+					SessionID: msg.SessionID,
+					Content:   "No agent instance for session: " + err.Error(),
+				})
+				continue
+			}
+			if err := adapter.RespondToPermission(ctx, msg.SessionID, msg.PermissionID, msg.Response, msg.Remember); err != nil {
 				writeJSON(chatOutbound{
 					Type:      "error",
 					SessionID: msg.SessionID,
@@ -262,39 +286,76 @@ func (s *Server) handleWSChat(w http.ResponseWriter, r *http.Request) {
 			}
 
 		case "question_response":
-			if msg.QuestionID == "" {
+			if msg.SessionID == "" {
 				writeJSON(chatOutbound{
 					Type:    "error",
-					Content: "questionId is required",
+					Content: "sessionId is required",
+				})
+				continue
+			}
+			if msg.QuestionID == "" {
+				writeJSON(chatOutbound{
+					Type:      "error",
+					SessionID: msg.SessionID,
+					Content:   "questionId is required",
 				})
 				continue
 			}
 			if len(msg.Answers) == 0 {
 				writeJSON(chatOutbound{
-					Type:    "error",
-					Content: "answers are required",
+					Type:      "error",
+					SessionID: msg.SessionID,
+					Content:   "answers are required",
 				})
 				continue
 			}
-			if err := s.agentAdapter.RespondToQuestion(ctx, msg.QuestionID, msg.Answers); err != nil {
+			adapter, err := s.resolveAdapter(r, msg.SessionID)
+			if err != nil {
 				writeJSON(chatOutbound{
-					Type:    "error",
-					Content: "Failed to respond to question: " + err.Error(),
+					Type:      "error",
+					SessionID: msg.SessionID,
+					Content:   "No agent instance for session: " + err.Error(),
+				})
+				continue
+			}
+			if err := adapter.RespondToQuestion(ctx, msg.QuestionID, msg.Answers); err != nil {
+				writeJSON(chatOutbound{
+					Type:      "error",
+					SessionID: msg.SessionID,
+					Content:   "Failed to respond to question: " + err.Error(),
 				})
 			}
 
 		case "question_reject":
-			if msg.QuestionID == "" {
+			if msg.SessionID == "" {
 				writeJSON(chatOutbound{
 					Type:    "error",
-					Content: "questionId is required",
+					Content: "sessionId is required",
 				})
 				continue
 			}
-			if err := s.agentAdapter.RejectQuestion(ctx, msg.QuestionID); err != nil {
+			if msg.QuestionID == "" {
 				writeJSON(chatOutbound{
-					Type:    "error",
-					Content: "Failed to reject question: " + err.Error(),
+					Type:      "error",
+					SessionID: msg.SessionID,
+					Content:   "questionId is required",
+				})
+				continue
+			}
+			adapter, err := s.resolveAdapter(r, msg.SessionID)
+			if err != nil {
+				writeJSON(chatOutbound{
+					Type:      "error",
+					SessionID: msg.SessionID,
+					Content:   "No agent instance for session: " + err.Error(),
+				})
+				continue
+			}
+			if err := adapter.RejectQuestion(ctx, msg.QuestionID); err != nil {
+				writeJSON(chatOutbound{
+					Type:      "error",
+					SessionID: msg.SessionID,
+					Content:   "Failed to reject question: " + err.Error(),
 				})
 			}
 

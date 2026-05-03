@@ -10,6 +10,7 @@ interface ServiceStatus {
   name: string;
   available: boolean;
   error?: string;
+  instances?: number;
 }
 
 interface DetailedHealth {

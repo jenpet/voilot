@@ -10,6 +10,7 @@ import (
 
 	"github.com/gorilla/mux"
 	"github.com/jenpet/voilot/internal/agent"
+	"github.com/jenpet/voilot/internal/sessionmap"
 	"github.com/jenpet/voilot/internal/stt"
 	"github.com/jenpet/voilot/internal/tts"
 )
@@ -35,6 +36,7 @@ type ServiceStatus struct {
 	Name      string `json:"name"`
 	Available bool   `json:"available"`
 	Error     string `json:"error,omitempty"`
+	Instances *int   `json:"instances,omitempty"` // only set for agent
 }
 
 // DetailedHealth is the response for GET /api/health/detailed.
@@ -50,17 +52,17 @@ func (s *Server) handleHealthDetailed(w http.ResponseWriter, r *http.Request) {
 
 	var services []ServiceStatus
 
-	// 1. Agent (OpenCode) — critical
+	// 1. Agent (OpenCode) — check binary availability + instance count.
+	// With the provider registry, zero running instances is normal (on-demand).
 	agentStatus := ServiceStatus{Name: "agent"}
-	st, err := s.agentAdapter.GetStatus(ctx)
-	if err != nil {
+	instanceCount := s.registry.InstanceCount()
+	agentStatus.Instances = &instanceCount
+
+	if err := s.registry.Ready(ctx); err != nil {
 		agentStatus.Available = false
 		agentStatus.Error = err.Error()
 	} else {
-		agentStatus.Available = st.Connected
-		if !st.Connected {
-			agentStatus.Error = "not connected"
-		}
+		agentStatus.Available = true
 	}
 	services = append(services, agentStatus)
 
@@ -109,7 +111,12 @@ func (s *Server) handleHealthDetailed(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
-	status, err := s.agentAdapter.GetStatus(r.Context())
+	adapter, err := s.anyAdapter()
+	if err != nil {
+		jsonError(w, http.StatusServiceUnavailable, "no running agent instances")
+		return
+	}
+	status, err := adapter.GetStatus(r.Context())
 	if err != nil {
 		jsonError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -118,7 +125,12 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleListAgents(w http.ResponseWriter, r *http.Request) {
-	agents, err := s.agentAdapter.ListAgents(r.Context())
+	adapter, err := s.anyAdapter()
+	if err != nil {
+		jsonError(w, http.StatusServiceUnavailable, "no running agent instances")
+		return
+	}
+	agents, err := adapter.ListAgents(r.Context())
 	if err != nil {
 		jsonError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -127,7 +139,12 @@ func (s *Server) handleListAgents(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleListModels(w http.ResponseWriter, r *http.Request) {
-	models, err := s.agentAdapter.ListModels(r.Context())
+	adapter, err := s.anyAdapter()
+	if err != nil {
+		jsonError(w, http.StatusServiceUnavailable, "no running agent instances")
+		return
+	}
+	models, err := adapter.ListModels(r.Context())
 	if err != nil {
 		jsonError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -153,11 +170,22 @@ func (s *Server) applyTitleOverride(session *agent.Session) sessionResponse {
 }
 
 func (s *Server) handleListSessions(w http.ResponseWriter, r *http.Request) {
-	sessions, err := s.agentAdapter.ListSessions(r.Context())
+	worktreePath := r.URL.Query().Get("worktree")
+	if worktreePath == "" {
+		jsonError(w, http.StatusBadRequest, "worktree query parameter is required")
+		return
+	}
+	adapter, err := s.resolveAdapterForWorktree(r, worktreePath)
+	if err != nil {
+		jsonError(w, http.StatusServiceUnavailable, "failed to get agent instance: "+err.Error())
+		return
+	}
+	sessions, err := adapter.ListSessions(r.Context())
 	if err != nil {
 		jsonError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	sessions = agent.FilterTopLevel(sessions)
 	result := make([]sessionResponse, len(sessions))
 	for i := range sessions {
 		result[i] = s.applyTitleOverride(&sessions[i])
@@ -182,30 +210,34 @@ func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 			opts.Agent = "build"
 		}
 	}
-	session, err := s.agentAdapter.CreateSession(r.Context(), opts)
+	if opts.WorktreePath == "" {
+		jsonError(w, http.StatusBadRequest, "worktreePath is required")
+		return
+	}
+	adapter, err := s.resolveAdapterForWorktree(r, opts.WorktreePath)
+	if err != nil {
+		jsonError(w, http.StatusServiceUnavailable, "failed to get agent instance: "+err.Error())
+		return
+	}
+	session, err := adapter.CreateSession(r.Context(), opts)
 	if err != nil {
 		jsonError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 
-	// Map session to worktree if workspace mode is active
+	// Map session to worktree in the session map for lookup
 	if opts.WorktreePath != "" && s.sessionMap != nil {
-		if err := s.sessionMap.Set(session.ID, opts.WorktreePath); err != nil {
-			// Log but don't fail — session was already created
+		var ts int64
+		if session.Time != nil && session.Time.Created > 0 {
+			ts = session.Time.Created
+		}
+		if err := s.sessionMap.SetEntry(session.ID, sessionmap.Entry{
+			WorktreePath: opts.WorktreePath,
+			UpdatedAt:    ts,
+		}); err != nil {
 			jsonError(w, http.StatusInternalServerError, "session created but mapping failed: "+err.Error())
 			return
 		}
-
-		// Send a scoping message as the first interaction so the agent
-		// knows to work exclusively in this worktree directory.
-		scopeMsg := "You are working in " + opts.WorktreePath + ". " +
-			"Briefly welcome the user, mention the branch name and summarize " +
-			"the current repo state (dirty files, recent commits). " +
-			"Keep it to 2-3 sentences max. " +
-			"Do not scan or list files exhaustively."
-		agentName := s.agentAdapter.GetSessionAgent(session.ID)
-		modelID := s.agentAdapter.GetSessionModel(session.ID)
-		_ = s.agentAdapter.SendMessageAsync(r.Context(), session.ID, scopeMsg, agentName, modelID)
 	}
 
 	jsonResponse(w, http.StatusCreated, session)
@@ -213,7 +245,12 @@ func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleDeleteSession(w http.ResponseWriter, r *http.Request) {
 	id := mux.Vars(r)["id"]
-	if err := s.agentAdapter.DeleteSession(r.Context(), id); err != nil {
+	adapter, err := s.resolveAdapter(r, id)
+	if err != nil {
+		jsonError(w, http.StatusNotFound, "session not found: "+err.Error())
+		return
+	}
+	if err := adapter.DeleteSession(r.Context(), id); err != nil {
 		jsonError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -222,9 +259,18 @@ func (s *Server) handleDeleteSession(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleGetSession(w http.ResponseWriter, r *http.Request) {
 	id := mux.Vars(r)["id"]
-	session, err := s.agentAdapter.ResumeSession(r.Context(), id)
+	adapter, err := s.resolveAdapter(r, id)
 	if err != nil {
 		jsonError(w, http.StatusNotFound, "session not found: "+err.Error())
+		return
+	}
+	session, err := adapter.ResumeSession(r.Context(), id)
+	if err != nil {
+		jsonError(w, http.StatusNotFound, "session not found: "+err.Error())
+		return
+	}
+	if !session.IsTopLevel() {
+		jsonError(w, http.StatusNotFound, "session not found")
 		return
 	}
 
@@ -236,13 +282,18 @@ func (s *Server) handleGetSession(w http.ResponseWriter, r *http.Request) {
 	}
 	jsonResponse(w, http.StatusOK, sessionWithStatus{
 		sessionResponse: resp,
-		Busy:            s.agentAdapter.GetSessionBusy(id),
+		Busy:            adapter.GetSessionBusy(id),
 	})
 }
 
 func (s *Server) handleGetSessionMessages(w http.ResponseWriter, r *http.Request) {
 	id := mux.Vars(r)["id"]
-	messages, err := s.agentAdapter.GetMessages(r.Context(), id)
+	adapter, err := s.resolveAdapter(r, id)
+	if err != nil {
+		jsonError(w, http.StatusNotFound, "session not found: "+err.Error())
+		return
+	}
+	messages, err := adapter.GetMessages(r.Context(), id)
 	if err != nil {
 		jsonError(w, http.StatusInternalServerError, "failed to get messages: "+err.Error())
 		return
@@ -295,7 +346,12 @@ func (s *Server) handleSetSessionMode(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.agentAdapter.SetSessionMode(id, mode)
+	adapter, err := s.resolveAdapter(r, id)
+	if err != nil {
+		jsonError(w, http.StatusNotFound, "session not found: "+err.Error())
+		return
+	}
+	adapter.SetSessionMode(id, mode)
 	jsonResponse(w, http.StatusOK, map[string]string{"mode": string(mode)})
 }
 
@@ -310,7 +366,13 @@ func (s *Server) handleSendMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	events, err := s.agentAdapter.SendMessage(r.Context(), id, body.Message)
+	adapter, err := s.resolveAdapter(r, id)
+	if err != nil {
+		jsonError(w, http.StatusNotFound, "session not found: "+err.Error())
+		return
+	}
+
+	events, err := adapter.SendMessage(r.Context(), id, body.Message)
 	if err != nil {
 		jsonError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -375,7 +437,12 @@ func (s *Server) handleTTSVoices(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleAbortSession(w http.ResponseWriter, r *http.Request) {
 	id := mux.Vars(r)["id"]
-	if err := s.agentAdapter.AbortSession(r.Context(), id); err != nil {
+	adapter, err := s.resolveAdapter(r, id)
+	if err != nil {
+		jsonError(w, http.StatusNotFound, "session not found: "+err.Error())
+		return
+	}
+	if err := adapter.AbortSession(r.Context(), id); err != nil {
 		jsonError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -437,4 +504,47 @@ func (s *Server) handleSTTTranscribe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	jsonResponse(w, http.StatusOK, result)
+}
+
+// handleListInstances returns all running agent backend instances.
+func (s *Server) handleListInstances(w http.ResponseWriter, r *http.Request) {
+	instances := s.registry.ListInstances()
+	type instanceInfo struct {
+		WorkDir      string `json:"workDir"`
+		BaseURL      string `json:"baseURL"`
+		PID          int    `json:"pid"`
+		LastActivity string `json:"lastActivity"`
+		Idle         bool   `json:"idle"`
+	}
+	out := make([]instanceInfo, len(instances))
+	for i, inst := range instances {
+		out[i] = instanceInfo{
+			WorkDir:      inst.WorkDir,
+			BaseURL:      inst.BaseURL,
+			PID:          inst.PID,
+			LastActivity: inst.LastActivity.Format(time.RFC3339),
+			Idle:         inst.IsIdle(),
+		}
+	}
+	jsonResponse(w, http.StatusOK, out)
+}
+
+// handleStopInstance stops a running agent instance by worktree path.
+func (s *Server) handleStopInstance(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		WorkDir string `json:"workDir"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		jsonError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if req.WorkDir == "" {
+		jsonError(w, http.StatusBadRequest, "workDir is required")
+		return
+	}
+	if err := s.registry.StopInstance(req.WorkDir); err != nil {
+		jsonError(w, http.StatusNotFound, err.Error())
+		return
+	}
+	jsonResponse(w, http.StatusOK, map[string]string{"status": "stopped"})
 }

@@ -13,24 +13,24 @@ import (
 
 // Server is the main HTTP/WebSocket server for voilot.
 type Server struct {
-	router       *mux.Router
-	agentAdapter agent.Adapter
-	ttsProvider  tts.Provider
-	sttProvider  stt.Provider
-	scanner      *workspace.Scanner
-	sessionMap   *sessionmap.Map
+	router      *mux.Router
+	registry    *agent.ProviderRegistry
+	ttsProvider tts.Provider
+	sttProvider stt.Provider
+	scanner     *workspace.Scanner
+	sessionMap  *sessionmap.Map
 }
 
 // NewServer creates a new API server with the given dependencies.
 // scanner and sessionMap may be nil when workspace mode is disabled.
-func NewServer(agentAdapter agent.Adapter, ttsProvider tts.Provider, sttProvider stt.Provider, scanner *workspace.Scanner, sessionMap *sessionmap.Map) *Server {
+func NewServer(registry *agent.ProviderRegistry, ttsProvider tts.Provider, sttProvider stt.Provider, scanner *workspace.Scanner, sessionMap *sessionmap.Map) *Server {
 	s := &Server{
-		router:       mux.NewRouter(),
-		agentAdapter: agentAdapter,
-		ttsProvider:  ttsProvider,
-		sttProvider:  sttProvider,
-		scanner:      scanner,
-		sessionMap:   sessionMap,
+		router:      mux.NewRouter(),
+		registry:    registry,
+		ttsProvider: ttsProvider,
+		sttProvider: sttProvider,
+		scanner:     scanner,
+		sessionMap:  sessionMap,
 	}
 	s.registerRoutes()
 	return s
@@ -87,6 +87,10 @@ func (s *Server) registerRoutes() {
 	api.HandleFunc("/projects/{name}/worktrees", s.handleCreateWorktree).Methods("POST")
 	api.HandleFunc("/projects/{name}/worktrees/{worktree}", s.handleRemoveWorktree).Methods("DELETE")
 	api.HandleFunc("/worktree-sessions", s.handleWorktreeSessions).Methods("GET")
+
+	// Instance management
+	api.HandleFunc("/instances", s.handleListInstances).Methods("GET")
+	api.HandleFunc("/instances/stop", s.handleStopInstance).Methods("POST")
 
 	// WebSocket endpoints
 	ws := s.router.PathPrefix("/ws").Subrouter()

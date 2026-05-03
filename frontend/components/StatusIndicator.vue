@@ -44,7 +44,7 @@
                 class="text-xs"
                 :class="svc.available ? 'text-accent' : 'text-accent-warn'"
               >
-                {{ svc.available ? 'ok' : (svc.error || 'down') }}
+                {{ statusLabel(svc) }}
               </span>
             </span>
           </li>
@@ -64,6 +64,15 @@
 <script setup lang="ts">
 const { health } = useHealth();
 const open = ref(false);
+
+function statusLabel(svc: { available: boolean; error?: string; instances?: number }) {
+  if (!svc.available) return svc.error || 'down';
+  if (svc.instances != null) {
+    const n = svc.instances;
+    return n === 0 ? 'ready' : `ready (${n})`;
+  }
+  return 'ok';
+}
 
 const dotClass = computed(() => {
   switch (health.value.overall) {

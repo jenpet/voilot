@@ -16,6 +16,7 @@ const (
 // Aligned with OpenCode's Session type.
 type Session struct {
 	ID            string      `json:"id"`
+	ParentID      string      `json:"parentID,omitempty"`
 	Title         string      `json:"title,omitempty"`
 	Mode          SessionMode `json:"mode,omitempty"`
 	Agent         string      `json:"agent,omitempty"`         // active agent name (e.g. "build", "planitect")
@@ -23,6 +24,22 @@ type Session struct {
 	LastUsedModel string      `json:"lastUsedModel,omitempty"` // last model used in this session (provider/model)
 	ProjectID     string      `json:"projectId,omitempty"`
 	Time          *TimeInfo   `json:"time,omitempty"`
+}
+
+// IsTopLevel returns true if this session is not a sub-session.
+func (s Session) IsTopLevel() bool {
+	return s.ParentID == ""
+}
+
+// FilterTopLevel returns only sessions that are not sub-sessions.
+func FilterTopLevel(sessions []Session) []Session {
+	out := make([]Session, 0, len(sessions))
+	for _, s := range sessions {
+		if s.IsTopLevel() {
+			out = append(out, s)
+		}
+	}
+	return out
 }
 
 // TimeInfo tracks creation/update timestamps.

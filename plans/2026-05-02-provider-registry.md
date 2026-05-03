@@ -146,6 +146,93 @@ Deferred to a follow-up plan. Key ideas:
 - **Port discovery**: When using `--port 0`, how does OpenCode communicate the assigned port? Need to check if it logs it to stdout/stderr or if we need to scan for it another way.
 - **Config isolation**: Each OpenCode instance creates its own `.opencode/` directory in the worktree. Per-worktree config is acceptable for now; global OpenCode config (e.g. `~/.config/opencode`) is shared naturally.
 
+## Test Suite
+
+### Required refactors
+
+- Export `reapIdle` on `ProviderRegistry` (or add a `ReapIdle()` wrapper) so tests can trigger idle reaping deterministically without waiting for the background ticker.
+
+### Shared test infrastructure: `backend/internal/agent/agenttest`
+
+A shared package providing mock implementations importable by both `agent` and `api` test files.
+
+**`MockProvider`** — in-memory fake implementing `Provider`:
+- Tracks spawned instances (workDir → PID/URL)
+- Controllable: can inject spawn failures, unhealthy responses
+- Assigns fake PIDs and base URLs
+- `Stop` just removes from internal tracking
+
+**`MockAdapter`** — fake implementing `Adapter`:
+- `SubscribeEvents` returns a channel the test can push events into
+- `ListSessions` returns configurable session lists
+- Other methods return sensible defaults or configurable responses
+- Tracks calls for assertion (e.g. "was AbortSession called?")
+
+### Test file: `backend/internal/agent/registry_test.go`
+
+**GetOrSpawn lifecycle:**
+- Spawn a new instance for a worktree path, verify adapter returned
+- Second call for same worktree returns the same adapter (no re-spawn)
+- Different worktree spawns a new instance
+
+**LRU eviction:**
+- Set `WithMaxInstances(2)`, spawn instances for A, B
+- Touch activity on A (making B the LRU)
+- Spawn C — verify B was evicted, A and C remain
+- All-busy error: spawn 2 instances, mark both busy, attempt third — verify error returned (not eviction)
+
+**Idle reaping:**
+- Set `WithIdleTimeout(50ms)`, spawn an instance
+- Call exported `ReapIdle()` immediately — instance should survive (not idle long enough)
+- Sleep 60ms, call `ReapIdle()` again — instance should be reaped
+- Instance with active work (`MarkBusy`) should never be reaped regardless of idle timeout
+
+**PID file orphan cleanup:**
+- Spawn a real `sleep 9999` process
+- Write a PID file for it in the registry's PID directory
+- Create a new `ProviderRegistry` (triggers `sweepOrphans`)
+- Verify the sleep process was killed and the PID file removed
+- Also test with a stale PID file (process already dead) — verify file is cleaned up without error
+
+**SSE aggregation:**
+- Spawn two instances via MockProvider (returns MockAdapters with controllable event channels)
+- Subscribe to registry's aggregated `SubscribeEvents` channel
+- Push events into each mock adapter's channel
+- Verify all events arrive on the aggregated channel
+- Stop one instance, verify remaining events still flow
+
+**Activity tracking:**
+- `TouchActivity` updates `LastActivity`
+- `MarkBusy` / `MarkIdle` correctly track `ActiveCount` (reflected in `Instance.IsIdle()`)
+
+**Concurrency:**
+- Parallel `GetOrSpawn` calls for the same worktree — verify only one spawn occurs (no double-spawn race)
+
+### Test file: `backend/internal/api/handlers_test.go`
+
+All tests use `httptest.Server` with a real `Server` struct, `MockProvider`-backed `ProviderRegistry`, and real `sessionmap.Map` (temp file).
+
+**`resolveAdapter` pattern (session ID → worktree → adapter):**
+- `GET /api/sessions/{id}` — valid session in session map → 200
+- `GET /api/sessions/{id}` — unknown session ID (no mapping) → error response
+- `POST /api/sessions/{id}/abort` — valid session → adapter's `AbortSession` called
+
+**`resolveAdapterForWorktree` pattern (worktree path → adapter):**
+- `GET /api/sessions?worktree=/path` — spawns instance, returns sessions
+- `POST /api/sessions` with `worktreePath` in body — creates session, stores mapping
+
+**`anyAdapter` pattern (any running instance):**
+- `GET /api/agents` with running instance → 200 with agent list
+- `GET /api/agents` with no running instances → error response
+
+**Multi-instance aggregation:**
+- `GET /api/projects` with two running instances, each with sessions — verify `lastActivity` computed correctly across both instances
+
+**Instance management:**
+- `GET /api/instances` — returns list of running instances with correct fields
+- `POST /api/instances/stop` with valid workDir → instance stopped, 200
+- `POST /api/instances/stop` with unknown workDir → error response
+
 ## Acceptance Criteria
 
 - [ ] Voilot spawns a dedicated OpenCode process per active worktree on first session creation or worktree navigation.
@@ -161,3 +248,7 @@ Deferred to a follow-up plan. Key ideas:
 - [ ] Startup sweep kills orphaned OpenCode processes from previous crashes via PID files.
 - [ ] Crashed instances surface an error to the frontend; no auto-respawn.
 - [ ] SSE streams from all instances are aggregated into one internal bus; no frontend changes needed.
+- [ ] `agenttest` package provides shared MockProvider and MockAdapter for both `agent` and `api` tests.
+- [ ] Registry unit tests cover: GetOrSpawn lifecycle, LRU eviction (including all-busy error), idle reaping, PID orphan cleanup (real process), SSE aggregation, activity tracking, and concurrent spawn safety.
+- [ ] API handler tests cover: all three resolve patterns (`resolveAdapter`, `resolveAdapterForWorktree`, `anyAdapter`), multi-instance session aggregation, and instance management endpoints.
+- [ ] `go test ./...` passes with all new tests.
