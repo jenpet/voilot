@@ -24,11 +24,27 @@ const DefaultIdleTimeout = 10 * time.Minute
 // Instance represents a running agent backend process managed by the registry.
 type Instance struct {
 	WorkDir      string
+	ProviderName string
 	BaseURL      string
 	Adapter      Adapter
 	PID          int
 	LastActivity time.Time
 	activeCount  int32 // atomic: number of sessions with active work
+}
+
+// resolveWorktreePath resolves symlinks in a worktree path to its canonical form.
+// Falls back to the original path if resolution fails.
+func resolveWorktreePath(p string) string {
+	resolved, err := filepath.EvalSymlinks(p)
+	if err != nil {
+		return p
+	}
+	return resolved
+}
+
+// instanceKey builds the composite map key for (worktreePath, providerName).
+func instanceKey(worktreePath, providerName string) string {
+	return providerName + "\x00" + worktreePath
 }
 
 // IsIdle returns true if the instance has no active sessions.
@@ -47,13 +63,16 @@ type pidFileEntry struct {
 // ProviderRegistry manages provider instances per worktree.
 // It handles spawning, port tracking, health checks, idle teardown,
 // and PID file management for orphan cleanup.
+// Supports multiple providers keyed by name; instances are keyed by
+// (worktreePath, providerName) composite.
 type ProviderRegistry struct {
-	provider     Provider
-	mu           sync.RWMutex
-	instances    map[string]*Instance // worktreePath -> instance
-	maxInstances int
-	idleTimeout  time.Duration
-	pidDir       string // directory for PID files
+	providers       map[string]Provider // name -> provider
+	defaultProvider string
+	mu              sync.RWMutex
+	instances       map[string]*Instance // instanceKey -> instance
+	maxInstances    int
+	idleTimeout     time.Duration
+	pidDir          string // directory for PID files
 
 	// SSE aggregation: single channel that fans out events from all adapters
 	sseSubMu       sync.RWMutex
@@ -77,23 +96,31 @@ func WithIdleTimeout(d time.Duration) RegistryOption {
 	return func(r *ProviderRegistry) { r.idleTimeout = d }
 }
 
-// NewProviderRegistry creates a new registry for the given provider.
+// NewProviderRegistry creates a new registry for the given providers.
+// defaultProvider must be a key in the providers map.
 // pidDir is the directory where PID files are stored for orphan cleanup.
-func NewProviderRegistry(provider Provider, pidDir string, opts ...RegistryOption) (*ProviderRegistry, error) {
+func NewProviderRegistry(providers map[string]Provider, defaultProvider string, pidDir string, opts ...RegistryOption) (*ProviderRegistry, error) {
+	if len(providers) == 0 {
+		return nil, fmt.Errorf("at least one provider is required")
+	}
+	if _, ok := providers[defaultProvider]; !ok {
+		return nil, fmt.Errorf("default provider %q not found in providers map", defaultProvider)
+	}
 	if err := os.MkdirAll(pidDir, 0o755); err != nil {
 		return nil, fmt.Errorf("create PID directory %s: %w", pidDir, err)
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	r := &ProviderRegistry{
-		provider:       provider,
-		instances:      make(map[string]*Instance),
-		maxInstances:   DefaultMaxInstances,
-		idleTimeout:    DefaultIdleTimeout,
-		pidDir:         pidDir,
-		sseSubscribers: make(map[chan Event]struct{}),
-		cancel:         cancel,
-		stopped:        make(chan struct{}),
+		providers:       providers,
+		defaultProvider: defaultProvider,
+		instances:       make(map[string]*Instance),
+		maxInstances:    DefaultMaxInstances,
+		idleTimeout:     DefaultIdleTimeout,
+		pidDir:          pidDir,
+		sseSubscribers:  make(map[chan Event]struct{}),
+		cancel:          cancel,
+		stopped:         make(chan struct{}),
 	}
 	for _, opt := range opts {
 		opt(r)
@@ -108,12 +135,35 @@ func NewProviderRegistry(provider Provider, pidDir string, opts ...RegistryOptio
 	return r, nil
 }
 
-// GetOrSpawn returns the adapter for the given worktree path, spawning a new
-// instance if one doesn't already exist. If the max instance limit is reached,
-// the least recently active idle instance is evicted.
-func (r *ProviderRegistry) GetOrSpawn(ctx context.Context, worktreePath string) (Adapter, error) {
+// DefaultProviderName returns the name of the default provider.
+func (r *ProviderRegistry) DefaultProviderName() string {
+	return r.defaultProvider
+}
+
+// ProviderNames returns the names of all configured providers.
+func (r *ProviderRegistry) ProviderNames() []string {
+	names := make([]string, 0, len(r.providers))
+	for name := range r.providers {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
+}
+
+// GetOrSpawn returns the adapter for the given worktree path and provider,
+// spawning a new instance if one doesn't already exist. If the max instance
+// limit is reached, the least recently active idle instance is evicted.
+func (r *ProviderRegistry) GetOrSpawn(ctx context.Context, worktreePath string, providerName string) (Adapter, error) {
+	worktreePath = resolveWorktreePath(worktreePath)
+	provider, ok := r.providers[providerName]
+	if !ok {
+		return nil, fmt.Errorf("unknown provider %q", providerName)
+	}
+
+	key := instanceKey(worktreePath, providerName)
+
 	r.mu.RLock()
-	if inst, ok := r.instances[worktreePath]; ok {
+	if inst, ok := r.instances[key]; ok {
 		inst.LastActivity = time.Now()
 		r.mu.RUnlock()
 		return inst.Adapter, nil
@@ -124,7 +174,7 @@ func (r *ProviderRegistry) GetOrSpawn(ctx context.Context, worktreePath string) 
 	defer r.mu.Unlock()
 
 	// Double-check after acquiring write lock
-	if inst, ok := r.instances[worktreePath]; ok {
+	if inst, ok := r.instances[key]; ok {
 		inst.LastActivity = time.Now()
 		return inst.Adapter, nil
 	}
@@ -137,54 +187,58 @@ func (r *ProviderRegistry) GetOrSpawn(ctx context.Context, worktreePath string) 
 	}
 
 	// Spawn new instance
-	baseURL, pid, err := r.provider.Spawn(ctx, worktreePath)
+	baseURL, pid, err := provider.Spawn(ctx, worktreePath)
 	if err != nil {
-		return nil, fmt.Errorf("spawn %s in %s: %w", r.provider.Name(), worktreePath, err)
+		return nil, fmt.Errorf("spawn %s in %s: %w", providerName, worktreePath, err)
 	}
 
-	adapter := r.provider.NewAdapter(baseURL)
+	adapter := provider.NewAdapter(baseURL)
 	inst := &Instance{
 		WorkDir:      worktreePath,
+		ProviderName: providerName,
 		BaseURL:      baseURL,
 		Adapter:      adapter,
 		PID:          pid,
 		LastActivity: time.Now(),
 	}
-	r.instances[worktreePath] = inst
+	r.instances[key] = inst
 
 	// Write PID file
-	r.writePIDFile(worktreePath, inst)
+	r.writePIDFile(key, inst)
 
 	// Subscribe to this adapter's SSE events and aggregate
-	go r.aggregateSSE(worktreePath, adapter)
+	go r.aggregateSSE(key, adapter)
 
 	return adapter, nil
 }
 
 // TouchActivity updates the last activity timestamp for a worktree's instance.
-func (r *ProviderRegistry) TouchActivity(worktreePath string) {
+func (r *ProviderRegistry) TouchActivity(worktreePath, providerName string) {
+	worktreePath = resolveWorktreePath(worktreePath)
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	if inst, ok := r.instances[worktreePath]; ok {
+	if inst, ok := r.instances[instanceKey(worktreePath, providerName)]; ok {
 		inst.LastActivity = time.Now()
 	}
 }
 
 // MarkBusy increments the active session count for a worktree's instance.
-func (r *ProviderRegistry) MarkBusy(worktreePath string) {
+func (r *ProviderRegistry) MarkBusy(worktreePath, providerName string) {
+	worktreePath = resolveWorktreePath(worktreePath)
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	if inst, ok := r.instances[worktreePath]; ok {
+	if inst, ok := r.instances[instanceKey(worktreePath, providerName)]; ok {
 		atomic.AddInt32(&inst.activeCount, 1)
 		inst.LastActivity = time.Now()
 	}
 }
 
 // MarkIdle decrements the active session count for a worktree's instance.
-func (r *ProviderRegistry) MarkIdle(worktreePath string) {
+func (r *ProviderRegistry) MarkIdle(worktreePath, providerName string) {
+	worktreePath = resolveWorktreePath(worktreePath)
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	if inst, ok := r.instances[worktreePath]; ok {
+	if inst, ok := r.instances[instanceKey(worktreePath, providerName)]; ok {
 		if v := atomic.AddInt32(&inst.activeCount, -1); v < 0 {
 			atomic.StoreInt32(&inst.activeCount, 0)
 		}
@@ -192,27 +246,30 @@ func (r *ProviderRegistry) MarkIdle(worktreePath string) {
 	}
 }
 
-// StopInstance explicitly stops an instance for the given worktree.
+// StopInstance explicitly stops an instance for the given worktree and provider.
 // Returns an error if the instance is currently busy.
-func (r *ProviderRegistry) StopInstance(worktreePath string) error {
+func (r *ProviderRegistry) StopInstance(worktreePath, providerName string) error {
+	worktreePath = resolveWorktreePath(worktreePath)
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	inst, ok := r.instances[worktreePath]
+	key := instanceKey(worktreePath, providerName)
+	inst, ok := r.instances[key]
 	if !ok {
-		return fmt.Errorf("no instance for worktree %s", worktreePath)
+		return fmt.Errorf("no instance for worktree %s (provider %s)", worktreePath, providerName)
 	}
 	if !inst.IsIdle() {
-		return fmt.Errorf("instance for %s is currently busy", worktreePath)
+		return fmt.Errorf("instance for %s (provider %s) is currently busy", worktreePath, providerName)
 	}
-	return r.stopInstanceLocked(worktreePath, inst)
+	return r.stopInstanceLocked(key, inst)
 }
 
-// GetInstance returns the instance for a worktree, or nil if not running.
-func (r *ProviderRegistry) GetInstance(worktreePath string) *Instance {
+// GetInstance returns the instance for a worktree and provider, or nil if not running.
+func (r *ProviderRegistry) GetInstance(worktreePath, providerName string) *Instance {
+	worktreePath = resolveWorktreePath(worktreePath)
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	return r.instances[worktreePath]
+	return r.instances[instanceKey(worktreePath, providerName)]
 }
 
 // ListInstances returns all running instances.
@@ -233,9 +290,14 @@ func (r *ProviderRegistry) InstanceCount() int {
 	return len(r.instances)
 }
 
-// Ready checks whether the underlying provider can spawn new instances.
+// Ready checks whether all configured providers can spawn new instances.
 func (r *ProviderRegistry) Ready(ctx context.Context) error {
-	return r.provider.Ready(ctx)
+	for name, p := range r.providers {
+		if err := p.Ready(ctx); err != nil {
+			return fmt.Errorf("provider %s: %w", name, err)
+		}
+	}
+	return nil
 }
 
 // SubscribeEvents returns a channel that receives aggregated SSE events
@@ -281,11 +343,15 @@ func (r *ProviderRegistry) Close() error {
 
 // stopInstanceLocked stops an instance and removes it from the registry.
 // Caller must hold r.mu write lock.
-func (r *ProviderRegistry) stopInstanceLocked(worktreePath string, inst *Instance) error {
-	err := r.provider.Stop(inst.PID)
-	delete(r.instances, worktreePath)
-	r.removePIDFile(worktreePath)
-	log.Printf("Stopped instance for %s (pid=%d)", worktreePath, inst.PID)
+func (r *ProviderRegistry) stopInstanceLocked(key string, inst *Instance) error {
+	provider, ok := r.providers[inst.ProviderName]
+	if !ok {
+		return fmt.Errorf("provider %q not found for instance %s", inst.ProviderName, key)
+	}
+	err := provider.Stop(inst.PID)
+	delete(r.instances, key)
+	r.removePIDFile(key)
+	log.Printf("Stopped instance for %s [%s] (pid=%d)", inst.WorkDir, inst.ProviderName, inst.PID)
 	return err
 }
 

@@ -1,6 +1,9 @@
 package agent
 
-import "context"
+import (
+	"context"
+	"path/filepath"
+)
 
 // SessionMode controls what the agent is allowed to do.
 type SessionMode string
@@ -56,6 +59,7 @@ type SessionOptions struct {
 	Model        string      `json:"model,omitempty"` // model override (provider/model)
 	ParentID     string      `json:"parentID,omitempty"`
 	WorktreePath string      `json:"worktreePath,omitempty"` // workspace worktree to scope this session to
+	Provider     string      `json:"provider,omitempty"`     // provider name (e.g. "opencode"); empty = worktree default
 }
 
 // MessagePart represents one part of a message to send.
@@ -104,11 +108,31 @@ type HistoryMessage struct {
 	Meta      map[string]interface{} `json:"meta,omitempty"`
 }
 
+// ScopePrompt returns the standard scoping/welcome prompt for a worktree.
+// This is owned by voilot (not individual providers) to ensure consistent
+// welcome behavior across all agent backends.
+func ScopePrompt(worktreePath string) string {
+	if resolved, err := filepath.EvalSymlinks(worktreePath); err == nil {
+		worktreePath = resolved
+	}
+	return "You are working in " + worktreePath + ". " +
+		"Briefly welcome the user, mention the branch name and summarize " +
+		"the current repo state (dirty files, recent commits). " +
+		"Keep it to 2-3 sentences max. " +
+		"Do not scan or list files exhaustively."
+}
+
 // Adapter defines the interface that all agent backends must implement.
 // The first implementation will be OpenCode; Claude Agent SDK comes later.
 type Adapter interface {
 	// CreateSession starts a new conversation session.
 	CreateSession(ctx context.Context, opts SessionOptions) (*Session, error)
+
+	// InitializeSession performs post-creation setup such as sending the
+	// scoping/welcome prompt. The prompt text is provided by the caller;
+	// the adapter is responsible only for delivering it to the agent backend.
+	// Errors are non-fatal (callers should log but not fail).
+	InitializeSession(ctx context.Context, sessionID string, prompt string) error
 
 	// ResumeSession reconnects to an existing session by ID.
 	ResumeSession(ctx context.Context, id string) (*Session, error)

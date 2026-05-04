@@ -279,6 +279,14 @@ func (a *OpenCodeAdapter) CreateSession(ctx context.Context, opts SessionOptions
 	return &session, nil
 }
 
+// InitializeSession sends the provided prompt to the session as the first
+// interaction. It looks up the session's agent and model internally.
+func (a *OpenCodeAdapter) InitializeSession(ctx context.Context, sessionID string, prompt string) error {
+	agentName := a.GetSessionAgent(sessionID)
+	modelID := a.GetSessionModel(sessionID)
+	return a.SendMessageAsync(ctx, sessionID, prompt, agentName, modelID)
+}
+
 func (a *OpenCodeAdapter) ResumeSession(ctx context.Context, id string) (*Session, error) {
 	resp, err := a.doRequest(ctx, "GET", "/session/"+id, nil)
 	if err != nil {

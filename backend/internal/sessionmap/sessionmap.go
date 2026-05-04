@@ -14,6 +14,7 @@ import (
 // Entry holds all voilot-side metadata for a session.
 type Entry struct {
 	WorktreePath string `json:"worktreePath,omitempty"`
+	Provider     string `json:"provider,omitempty"` // provider name (e.g. "opencode")
 	Title        string `json:"title,omitempty"`
 	UpdatedAt    int64  `json:"updatedAt,omitempty"` // last activity timestamp (epoch ms), from backfill or runtime
 }
