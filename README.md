@@ -47,10 +47,12 @@ cd voilot/docker
 docker compose up --build
 
 # Start with voice services (TTS + STT)
-TTS_URL=http://tts:8880 STT_URL=http://stt:5003 docker compose --profile voice up --build
+docker compose --profile voice up --build
 ```
 
 The app will be available at `http://localhost:3000`.
+
+Backend configuration is in `docker/config.docker.json` (mounted into the container). Edit it to change provider settings, TTS/STT URLs, workspace path, etc.
 
 ### HTTPS (required for mobile mic access)
 
@@ -65,14 +67,31 @@ Access voilot via `https://<machine>.<tailnet>.ts.net` from any device on your t
 
 ## Configuration
 
-Environment variables (set in `.env` or pass to `docker compose`):
+The backend reads its configuration from a JSON file at `~/.config/voilot/config.json` (override with `--config`). Copy `config.example.json` to get started:
+
+```bash
+mkdir -p ~/.config/voilot
+cp config.example.json ~/.config/voilot/config.json
+# Edit the file: set your workspace path, provider binary, TTS/STT URLs
+```
+
+See `config.example.json` for all available fields. Key settings:
+
+| Field | Default | Description |
+|---|---|---|
+| `workspace` | — | Directory containing your git repos (may use symlinks) |
+| `defaultProvider` | `"opencode"` | Global default agent provider |
+| `providers` | — | Named providers with type and binary path |
+| `maxInstances` | `5` | Max concurrent agent instances (shared across providers) |
+| `idleTimeout` | `"10m"` | Auto-stop idle instances after this duration |
+| `ttsUrl` | `"http://localhost:8880"` | Kokoro TTS server URL |
+| `sttUrl` | `"http://localhost:5003"` | faster-whisper STT server URL |
+
+**Docker-specific env vars** (set in `.env` or pass to `docker compose`):
 
 | Variable | Default | Description |
 |---|---|---|
 | `VOILOT_PORT` | `3000` | Port to expose the frontend |
-| `OPENCODE_URL` | `http://host.docker.internal:4096` | OpenCode server URL |
-| `TTS_URL` | (empty) | TTS server URL (e.g. `http://tts:8880` for Kokoro) |
-| `STT_URL` | (empty) | faster-whisper server URL |
 | `KOKORO_DEFAULT_VOICE` | `af_heart` | Default Kokoro TTS voice |
 | `WHISPER_MODEL` | `base` | Whisper model size (`tiny`, `base`, `small`, `medium`, `large-v3`) |
 | `WHISPER_DEVICE` | `cpu` | Whisper device (`cpu` or `cuda`) |
@@ -84,8 +103,10 @@ Environment variables (set in `.env` or pass to `docker compose`):
 ```bash
 cd voilot/backend
 go build ./cmd/server
-./server --opencode-binary opencode
+./server --data-dir ./voilot-data
 ```
+
+Requires a config file at `~/.config/voilot/config.json`. The server will print a sample config and exit if none is found.
 
 ### Frontend (Nuxt 3)
 

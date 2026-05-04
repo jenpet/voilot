@@ -24,6 +24,8 @@ Kokoro TTS (:8880)   faster-whisper STT (:5003)   OpenCode (:4096)
 - **Voice command router** — keyword detection separates app commands (mode switch, new session, stop) from agent messages (forwarded as natural language).
 - **Smart TTS filter** — speaks text, summarizes code blocks ("Wrote 45 lines of TypeScript"), skips thinking blocks, announces errors.
 - **Pluggable agent adapters** — Go interface (`agent.Adapter`) that backends implement. OpenCode is the first; Claude Code and Pi are potential next candidates for integration.
+- **Multi-provider registry** — `ProviderRegistry` manages multiple named providers, each spawning agent instances per worktree. Instance keys are `(worktreePath, providerName)`. Symlinks in worktree paths are resolved at the registry boundary to prevent path mismatches.
+- **Config file** — `~/.config/voilot/config.json` (or `--config` override). Defines workspace directory, providers, TTS/STT URLs, instance limits. No env vars — config file is the single source of truth. See `config.example.json`.
 
 ### Design Constraints
 
@@ -38,13 +40,17 @@ Kokoro TTS (:8880)   faster-whisper STT (:5003)   OpenCode (:4096)
 ```
 voilot/
 ├── backend/
-│   ├── cmd/server/main.go       # Entrypoint, CLI flags (--tts-url, etc.)
+│   ├── cmd/server/main.go       # Entrypoint, config loading, CLI flags (--config, --data-dir, etc.)
 │   ├── go.mod                   # Module: github.com/jenpet/voilot
 │   └── internal/
-│       ├── agent/               # Adapter interface + OpenCode implementation
-│       │   ├── adapter.go       # Adapter interface, Session, SessionMode, PlanModeSystemPrompt
-│       │   ├── events.go        # Event types, OpenCode SSE wire-format structs
-│       │   └── opencode.go      # Full OpenCode HTTP client + SSE reader (~800 lines)
+│       ├── agent/               # Adapter interface, registry, provider implementations
+│       │   ├── adapter.go       # Adapter interface, Session, SessionMode, ScopePrompt
+│       │   ├── registry.go      # ProviderRegistry: multi-provider instance lifecycle
+│       │   ├── provider.go      # Provider interface
+│       │   ├── opencode.go      # Full OpenCode HTTP client + SSE reader
+│       │   ├── opencode_provider.go # OpenCode Provider implementation (spawn/stop)
+│       │   ├── worktree_defaults.go # Per-worktree default provider persistence
+│       │   └── events.go        # Event types, OpenCode SSE wire-format structs
 │       ├── api/                 # HTTP routes, handlers, WebSocket
 │       │   ├── router.go        # Route registration
 │       │   ├── handlers.go      # REST handlers (sessions, STT, TTS, abort, mode)
@@ -95,10 +101,16 @@ go build ./cmd/server    # Build server binary
 go test ./...            # Run all tests
 go test ./internal/agent -run TestName  # Run specific test
 
-# Run locally:
-./server --opencode-binary opencode \
-         --tts-url http://localhost:8880 \
-         --stt-url http://localhost:5003
+# Run locally (requires config file, see config.example.json):
+# cp config.example.json ~/.config/voilot/config.json  # then edit paths
+./server --data-dir ./voilot-data
+
+# CLI flags (deployment-specific only):
+#   --config <path>       Config file (default: ~/.config/voilot/config.json)
+#   --data-dir <path>     Runtime data directory (session map, PID files)
+#   --port <n>            Listen port (default: 8080)
+#   --hostname <addr>     Listen address (default: 127.0.0.1)
+#   --cors-origins <csv>  Allowed CORS origins
 ```
 
 ### Nuxt Frontend
@@ -114,10 +126,11 @@ npx nuxt generate        # Static build -> .output/public/
 
 ```bash
 cd docker
-docker compose up --build                                   # Frontend + backend only
-TTS_URL=http://tts:8880 STT_URL=http://stt:5003 \
-  docker compose --profile voice up --build                 # Full stack with voice
+docker compose up --build                       # Frontend + backend only
+docker compose --profile voice up --build       # Full stack with voice
 ```
+
+Backend config is mounted from `docker/config.docker.json`. Edit that file to change provider settings, TTS/STT URLs, or workspace path. No environment variables needed — TTS/STT URLs are in the config file with Docker service hostnames (`http://tts:8880`, `http://stt:5003`).
 
 ## Code Style Guidelines
 
@@ -231,7 +244,7 @@ Custom Flask sidecar wrapping the faster-whisper library.
 ## Docker Deployment Notes
 
 - `NUXT_PUBLIC_BACKEND_URL` must be `""` during Dockerfile.frontend build
-- TTS/STT URLs are NOT auto-wired with `--profile voice` — user must set `TTS_URL` and `STT_URL` env vars
+- Backend config is mounted from `docker/config.docker.json` — TTS/STT URLs use Docker service hostnames (`http://tts:8880`, `http://stt:5003`)
 - `host.docker.internal:host-gateway` extra_hosts needed for backend to reach host's OpenCode server
 - Nginx DNS caching: uses `resolver 127.0.0.11 valid=10s` and a variable for the upstream (`set $backend_upstream http://backend:8080`) so nginx re-resolves on container recreation
 

@@ -1,0 +1,14 @@
+{
+  "workspace": "/path/to/your/workspace",
+  "defaultProvider": "opencode",
+  "providers": {
+    "opencode": {
+      "type": "opencode",
+      "binary": "opencode"
+    }
+  },
+  "maxInstances": 5,
+  "idleTimeout": "10m",
+  "ttsUrl": "http://localhost:8880",
+  "sttUrl": "http://localhost:5003"
+}
