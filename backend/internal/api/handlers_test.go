@@ -15,11 +15,12 @@ import (
 )
 
 // testServer creates a Server backed by a MockProvider registry and a temp session map.
-func testServer(t *testing.T, opts ...agent.RegistryOption) (*api.Server, *agenttest.MockProvider) {
+func testServer(t *testing.T, opts ...agent.RegistryOption) (*api.Server, *agenttest.MockProvider, *sessionmap.Map) {
 	t.Helper()
 	p := agenttest.NewMockProvider()
 	pidDir := t.TempDir()
-	reg, err := agent.NewProviderRegistry(p, pidDir, opts...)
+	providers := map[string]agent.Provider{"mock": p}
+	reg, err := agent.NewProviderRegistry(providers, "mock", pidDir, opts...)
 	if err != nil {
 		t.Fatalf("NewProviderRegistry: %v", err)
 	}
@@ -31,14 +32,14 @@ func testServer(t *testing.T, opts ...agent.RegistryOption) (*api.Server, *agent
 		t.Fatalf("sessionmap.New: %v", err)
 	}
 
-	srv := api.NewServer(reg, nil, nil, nil, sesMap)
-	return srv, p
+	srv := api.NewServer(reg, nil, nil, nil, sesMap, nil)
+	return srv, p, sesMap
 }
 
 // --- resolveAdapterForWorktree pattern ---
 
 func TestHandleListSessions_RequiresWorktree(t *testing.T) {
-	srv, _ := testServer(t)
+	srv, _, _ := testServer(t)
 	ts := httptest.NewServer(srv)
 	defer ts.Close()
 
@@ -53,7 +54,7 @@ func TestHandleListSessions_RequiresWorktree(t *testing.T) {
 }
 
 func TestHandleListSessions_WithWorktree(t *testing.T) {
-	srv, p := testServer(t)
+	srv, p, sesMap := testServer(t)
 	ts := httptest.NewServer(srv)
 	defer ts.Close()
 
@@ -62,9 +63,14 @@ func TestHandleListSessions_WithWorktree(t *testing.T) {
 		a := agenttest.NewMockAdapter()
 		a.Sessions = []agent.Session{
 			{ID: "s1", Title: "test session"},
+			{ID: "s2", Title: "other worktree session"},
 		}
 		return a
 	}
+
+	// Map s1 to the requested worktree, s2 to a different one.
+	sesMap.SetEntry("s1", sessionmap.Entry{WorktreePath: "/worktree/a", Provider: "mock"})
+	sesMap.SetEntry("s2", sessionmap.Entry{WorktreePath: "/worktree/b", Provider: "mock"})
 
 	resp, err := http.Get(ts.URL + "/api/sessions?worktree=/worktree/a")
 	if err != nil {
@@ -83,7 +89,7 @@ func TestHandleListSessions_WithWorktree(t *testing.T) {
 }
 
 func TestHandleCreateSession_RequiresWorktreePath(t *testing.T) {
-	srv, _ := testServer(t)
+	srv, _, _ := testServer(t)
 	ts := httptest.NewServer(srv)
 	defer ts.Close()
 
@@ -99,7 +105,7 @@ func TestHandleCreateSession_RequiresWorktreePath(t *testing.T) {
 }
 
 func TestHandleCreateSession_Success(t *testing.T) {
-	srv, _ := testServer(t)
+	srv, _, _ := testServer(t)
 	ts := httptest.NewServer(srv)
 	defer ts.Close()
 
@@ -120,7 +126,7 @@ func TestHandleCreateSession_Success(t *testing.T) {
 // --- resolveAdapter pattern (session ID lookup) ---
 
 func TestHandleGetSession_UnknownSession(t *testing.T) {
-	srv, _ := testServer(t)
+	srv, _, _ := testServer(t)
 	ts := httptest.NewServer(srv)
 	defer ts.Close()
 
@@ -135,7 +141,7 @@ func TestHandleGetSession_UnknownSession(t *testing.T) {
 }
 
 func TestHandleGetSession_ValidSession(t *testing.T) {
-	srv, _ := testServer(t)
+	srv, _, _ := testServer(t)
 	ts := httptest.NewServer(srv)
 	defer ts.Close()
 
@@ -162,7 +168,7 @@ func TestHandleGetSession_ValidSession(t *testing.T) {
 }
 
 func TestHandleAbortSession_ValidSession(t *testing.T) {
-	srv, _ := testServer(t)
+	srv, _, _ := testServer(t)
 	ts := httptest.NewServer(srv)
 	defer ts.Close()
 
@@ -190,7 +196,7 @@ func TestHandleAbortSession_ValidSession(t *testing.T) {
 // --- anyAdapter pattern ---
 
 func TestHandleListAgents_NoInstances(t *testing.T) {
-	srv, _ := testServer(t)
+	srv, _, _ := testServer(t)
 	ts := httptest.NewServer(srv)
 	defer ts.Close()
 
@@ -205,7 +211,7 @@ func TestHandleListAgents_NoInstances(t *testing.T) {
 }
 
 func TestHandleListAgents_WithInstance(t *testing.T) {
-	srv, p := testServer(t)
+	srv, p, _ := testServer(t)
 	ts := httptest.NewServer(srv)
 	defer ts.Close()
 
@@ -239,7 +245,7 @@ func TestHandleListAgents_WithInstance(t *testing.T) {
 // --- Instance management ---
 
 func TestHandleListInstances(t *testing.T) {
-	srv, _ := testServer(t)
+	srv, _, _ := testServer(t)
 	ts := httptest.NewServer(srv)
 	defer ts.Close()
 
@@ -264,7 +270,7 @@ func TestHandleListInstances(t *testing.T) {
 }
 
 func TestHandleStopInstance(t *testing.T) {
-	srv, _ := testServer(t)
+	srv, _, _ := testServer(t)
 	ts := httptest.NewServer(srv)
 	defer ts.Close()
 
@@ -293,7 +299,7 @@ func TestHandleStopInstance(t *testing.T) {
 }
 
 func TestHandleStopInstance_NotFound(t *testing.T) {
-	srv, _ := testServer(t)
+	srv, _, _ := testServer(t)
 	ts := httptest.NewServer(srv)
 	defer ts.Close()
 

@@ -19,11 +19,12 @@ type Server struct {
 	sttProvider stt.Provider
 	scanner     *workspace.Scanner
 	sessionMap  *sessionmap.Map
+	wtDefaults  *agent.WorktreeDefaults
 }
 
 // NewServer creates a new API server with the given dependencies.
-// scanner and sessionMap may be nil when workspace mode is disabled.
-func NewServer(registry *agent.ProviderRegistry, ttsProvider tts.Provider, sttProvider stt.Provider, scanner *workspace.Scanner, sessionMap *sessionmap.Map) *Server {
+// scanner, sessionMap, and wtDefaults may be nil when workspace mode is disabled.
+func NewServer(registry *agent.ProviderRegistry, ttsProvider tts.Provider, sttProvider stt.Provider, scanner *workspace.Scanner, sessionMap *sessionmap.Map, wtDefaults *agent.WorktreeDefaults) *Server {
 	s := &Server{
 		router:      mux.NewRouter(),
 		registry:    registry,
@@ -31,6 +32,7 @@ func NewServer(registry *agent.ProviderRegistry, ttsProvider tts.Provider, sttPr
 		sttProvider: sttProvider,
 		scanner:     scanner,
 		sessionMap:  sessionMap,
+		wtDefaults:  wtDefaults,
 	}
 	s.registerRoutes()
 	return s
@@ -91,6 +93,13 @@ func (s *Server) registerRoutes() {
 	// Instance management
 	api.HandleFunc("/instances", s.handleListInstances).Methods("GET")
 	api.HandleFunc("/instances/stop", s.handleStopInstance).Methods("POST")
+
+	// Providers
+	api.HandleFunc("/providers", s.handleListProviders).Methods("GET")
+
+	// Worktree default provider
+	api.HandleFunc("/worktree-defaults", s.handleGetWorktreeDefault).Methods("GET")
+	api.HandleFunc("/worktree-defaults", s.handleSetWorktreeDefault).Methods("PUT")
 
 	// WebSocket endpoints
 	ws := s.router.PathPrefix("/ws").Subrouter()

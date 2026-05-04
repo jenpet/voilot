@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"log"
 	"net/http"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -14,6 +16,14 @@ import (
 	"github.com/jenpet/voilot/internal/stt"
 	"github.com/jenpet/voilot/internal/tts"
 )
+
+// evalSymlinks resolves symlinks, falling back to the original path on error.
+func evalSymlinks(p string) string {
+	if r, err := filepath.EvalSymlinks(p); err == nil {
+		return r
+	}
+	return p
+}
 
 // jsonResponse writes a JSON response with the given status code.
 func jsonResponse(w http.ResponseWriter, status int, data interface{}) {
@@ -175,7 +185,11 @@ func (s *Server) handleListSessions(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, http.StatusBadRequest, "worktree query parameter is required")
 		return
 	}
-	adapter, err := s.resolveAdapterForWorktree(r, worktreePath)
+	providerName := r.URL.Query().Get("provider")
+	if providerName == "" {
+		providerName = s.resolveProviderForWorktree(worktreePath)
+	}
+	adapter, err := s.resolveAdapterForWorktree(r, worktreePath, providerName)
 	if err != nil {
 		jsonError(w, http.StatusServiceUnavailable, "failed to get agent instance: "+err.Error())
 		return
@@ -186,6 +200,22 @@ func (s *Server) handleListSessions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sessions = agent.FilterTopLevel(sessions)
+
+	// Filter sessions to only those mapped to this worktree path.
+	// OpenCode may return sessions for the entire project (shared across
+	// git worktrees), so we use the session map as the source of truth.
+	resolvedWT := evalSymlinks(worktreePath)
+	if s.sessionMap != nil {
+		filtered := sessions[:0]
+		for i := range sessions {
+			entry := s.sessionMap.GetEntry(sessions[i].ID)
+			if entry.WorktreePath != "" && evalSymlinks(entry.WorktreePath) == resolvedWT {
+				filtered = append(filtered, sessions[i])
+			}
+		}
+		sessions = filtered
+	}
+
 	result := make([]sessionResponse, len(sessions))
 	for i := range sessions {
 		result[i] = s.applyTitleOverride(&sessions[i])
@@ -214,7 +244,12 @@ func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, http.StatusBadRequest, "worktreePath is required")
 		return
 	}
-	adapter, err := s.resolveAdapterForWorktree(r, opts.WorktreePath)
+	// Resolve provider: explicit > worktree default > global default
+	providerName := opts.Provider
+	if providerName == "" {
+		providerName = s.resolveProviderForWorktree(opts.WorktreePath)
+	}
+	adapter, err := s.resolveAdapterForWorktree(r, opts.WorktreePath, providerName)
 	if err != nil {
 		jsonError(w, http.StatusServiceUnavailable, "failed to get agent instance: "+err.Error())
 		return
@@ -233,11 +268,25 @@ func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 		}
 		if err := s.sessionMap.SetEntry(session.ID, sessionmap.Entry{
 			WorktreePath: opts.WorktreePath,
+			Provider:     providerName,
 			UpdatedAt:    ts,
 		}); err != nil {
 			jsonError(w, http.StatusInternalServerError, "session created but mapping failed: "+err.Error())
 			return
 		}
+	}
+
+	// Save worktree default provider (last-used pattern)
+	if providerName != "" && s.wtDefaults != nil {
+		if err := s.wtDefaults.Set(opts.WorktreePath, providerName); err != nil {
+			log.Printf("Warning: failed to save worktree default provider: %v", err)
+		}
+	}
+
+	// Initialize session with scoping prompt (fire-and-forget)
+	prompt := agent.ScopePrompt(opts.WorktreePath)
+	if err := adapter.InitializeSession(r.Context(), session.ID, prompt); err != nil {
+		log.Printf("Warning: session initialization failed for %s: %v", session.ID, err)
 	}
 
 	jsonResponse(w, http.StatusCreated, session)
@@ -511,6 +560,7 @@ func (s *Server) handleListInstances(w http.ResponseWriter, r *http.Request) {
 	instances := s.registry.ListInstances()
 	type instanceInfo struct {
 		WorkDir      string `json:"workDir"`
+		Provider     string `json:"provider"`
 		BaseURL      string `json:"baseURL"`
 		PID          int    `json:"pid"`
 		LastActivity string `json:"lastActivity"`
@@ -520,6 +570,7 @@ func (s *Server) handleListInstances(w http.ResponseWriter, r *http.Request) {
 	for i, inst := range instances {
 		out[i] = instanceInfo{
 			WorkDir:      inst.WorkDir,
+			Provider:     inst.ProviderName,
 			BaseURL:      inst.BaseURL,
 			PID:          inst.PID,
 			LastActivity: inst.LastActivity.Format(time.RFC3339),
@@ -529,10 +580,11 @@ func (s *Server) handleListInstances(w http.ResponseWriter, r *http.Request) {
 	jsonResponse(w, http.StatusOK, out)
 }
 
-// handleStopInstance stops a running agent instance by worktree path.
+// handleStopInstance stops a running agent instance by worktree path and provider.
 func (s *Server) handleStopInstance(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		WorkDir string `json:"workDir"`
+		WorkDir  string `json:"workDir"`
+		Provider string `json:"provider"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		jsonError(w, http.StatusBadRequest, "invalid request body")
@@ -542,9 +594,59 @@ func (s *Server) handleStopInstance(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, http.StatusBadRequest, "workDir is required")
 		return
 	}
-	if err := s.registry.StopInstance(req.WorkDir); err != nil {
+	if req.Provider == "" {
+		req.Provider = s.registry.DefaultProviderName()
+	}
+	if err := s.registry.StopInstance(req.WorkDir, req.Provider); err != nil {
 		jsonError(w, http.StatusNotFound, err.Error())
 		return
 	}
 	jsonResponse(w, http.StatusOK, map[string]string{"status": "stopped"})
+}
+
+// handleListProviders returns all configured provider names and the default.
+func (s *Server) handleListProviders(w http.ResponseWriter, r *http.Request) {
+	jsonResponse(w, http.StatusOK, map[string]interface{}{
+		"providers":       s.registry.ProviderNames(),
+		"defaultProvider": s.registry.DefaultProviderName(),
+	})
+}
+
+// handleGetWorktreeDefault returns the default provider for a worktree.
+func (s *Server) handleGetWorktreeDefault(w http.ResponseWriter, r *http.Request) {
+	worktreePath := r.URL.Query().Get("worktree")
+	if worktreePath == "" {
+		jsonError(w, http.StatusBadRequest, "worktree query parameter is required")
+		return
+	}
+	provider := s.resolveProviderForWorktree(worktreePath)
+	jsonResponse(w, http.StatusOK, map[string]string{"provider": provider})
+}
+
+// handleSetWorktreeDefault sets the default provider for a worktree.
+func (s *Server) handleSetWorktreeDefault(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		WorktreePath string `json:"worktreePath"`
+		Provider     string `json:"provider"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		jsonError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if req.WorktreePath == "" {
+		jsonError(w, http.StatusBadRequest, "worktreePath is required")
+		return
+	}
+	if s.wtDefaults == nil {
+		jsonError(w, http.StatusServiceUnavailable, "worktree defaults not configured")
+		return
+	}
+	if err := s.wtDefaults.Set(req.WorktreePath, req.Provider); err != nil {
+		jsonError(w, http.StatusInternalServerError, "failed to save worktree default: "+err.Error())
+		return
+	}
+	jsonResponse(w, http.StatusOK, map[string]string{
+		"worktreePath": req.WorktreePath,
+		"provider":     req.Provider,
+	})
 }
