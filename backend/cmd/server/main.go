@@ -5,11 +5,10 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	"os"
-	"strconv"
 
 	"github.com/jenpet/voilot/internal/agent"
 	"github.com/jenpet/voilot/internal/api"
+	"github.com/jenpet/voilot/internal/config"
 	"github.com/jenpet/voilot/internal/sessionmap"
 	"github.com/jenpet/voilot/internal/stt"
 	"github.com/jenpet/voilot/internal/tts"
@@ -19,78 +18,112 @@ import (
 
 func main() {
 	var (
-		port           = flag.Int("port", 8080, "HTTP server port")
-		hostname       = flag.String("hostname", "127.0.0.1", "Hostname to bind to")
-		opencodeBinary = flag.String("opencode-binary", "", "Path to opencode binary (default: resolve from PATH)")
-		ttsURL         = flag.String("tts-url", "", "TTS server URL (optional)")
-		sttURL         = flag.String("stt-url", "", "faster-whisper server URL (optional)")
-		workspaceDir   = flag.String("workspace-dir", "", "Workspace directory for project/worktree discovery (optional)")
-		dataDir        = flag.String("data-dir", "voilot-data", "Directory for persistent data (session map, PID files, etc.)")
-		allowOrigins   = flag.String("cors-origins", "*", "Allowed CORS origins (comma-separated)")
+		port         = flag.Int("port", 8080, "HTTP server port")
+		hostname     = flag.String("hostname", "127.0.0.1", "Hostname to bind to")
+		configPath   = flag.String("config", "", "Path to config file (default: ~/.config/voilot/config.json)")
+		dataDir      = flag.String("data-dir", "voilot-data", "Directory for persistent data (session map, PID files, etc.)")
+		allowOrigins = flag.String("cors-origins", "*", "Allowed CORS origins (comma-separated)")
+		// CLI overrides for deployment flexibility (Docker compose, etc.)
+		cliTTSUrl       = flag.String("tts-url", "", "Override TTS server URL from config")
+		cliSTTUrl       = flag.String("stt-url", "", "Override STT server URL from config")
+		cliWorkspaceDir = flag.String("workspace-dir", "", "Override workspace directory from config")
 	)
 	flag.Parse()
 
-	// Initialize provider registry (replaces single agentAdapter)
-	provider := agent.NewOpenCodeProvider(*opencodeBinary)
+	// Load config
+	cfgPath := *configPath
+	if cfgPath == "" {
+		cfgPath = config.DefaultPath()
+	}
+	cfg, err := config.Load(cfgPath)
+	if err != nil {
+		log.Fatalf("Configuration error: %v", err)
+	}
+	log.Printf("Config loaded from %s", cfgPath)
 
-	maxInstances := agent.DefaultMaxInstances
-	if v := os.Getenv("VOILOT_MAX_INSTANCES"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil && n > 0 {
-			maxInstances = n
+	// Apply CLI overrides
+	if *cliTTSUrl != "" {
+		cfg.TTSUrl = *cliTTSUrl
+	}
+	if *cliSTTUrl != "" {
+		cfg.STTUrl = *cliSTTUrl
+	}
+	if *cliWorkspaceDir != "" {
+		cfg.Workspace = *cliWorkspaceDir
+	}
+
+	// Build providers from config
+	providers := make(map[string]agent.Provider)
+	for name, pc := range cfg.Providers {
+		switch pc.Type {
+		case "opencode":
+			providers[name] = agent.NewOpenCodeProvider(pc.Binary)
+		default:
+			log.Printf("Warning: provider %q has unsupported type %q, skipping", name, pc.Type)
 		}
+	}
+	if len(providers) == 0 {
+		log.Fatalf("No supported providers configured")
 	}
 
 	pidDir := fmt.Sprintf("%s/pids", *dataDir)
-	registry, err := agent.NewProviderRegistry(provider, pidDir,
-		agent.WithMaxInstances(maxInstances),
+	registry, err := agent.NewProviderRegistry(providers, cfg.DefaultProvider, pidDir,
+		agent.WithMaxInstances(cfg.MaxInstances),
+		agent.WithIdleTimeout(cfg.IdleTimeoutDuration()),
 	)
 	if err != nil {
 		log.Fatalf("Failed to create provider registry: %v", err)
 	}
 	defer registry.Close()
-	log.Printf("Provider registry: max %d instances, PID dir %s", maxInstances, pidDir)
+	log.Printf("Provider registry: %d provider(s), max %d instances, PID dir %s", len(providers), cfg.MaxInstances, pidDir)
 
 	// Initialize TTS provider (optional)
 	var ttsProvider tts.Provider
-	if *ttsURL != "" {
-		ttsProvider = tts.NewKokoroProvider(*ttsURL)
-		log.Printf("TTS enabled: Kokoro at %s", *ttsURL)
+	if cfg.TTSUrl != "" {
+		ttsProvider = tts.NewKokoroProvider(cfg.TTSUrl)
+		log.Printf("TTS enabled: Kokoro at %s", cfg.TTSUrl)
 	} else {
-		log.Println("TTS disabled (no --tts-url provided)")
+		log.Println("TTS disabled (not configured)")
 	}
 
 	// Initialize STT provider (optional)
 	var sttProvider stt.Provider
-	if *sttURL != "" {
-		sttProvider = stt.NewWhisperProvider(*sttURL)
-		log.Printf("STT enabled: faster-whisper at %s", *sttURL)
+	if cfg.STTUrl != "" {
+		sttProvider = stt.NewWhisperProvider(cfg.STTUrl)
+		log.Printf("STT enabled: faster-whisper at %s", cfg.STTUrl)
 	} else {
-		log.Println("STT disabled (no --stt-url provided)")
+		log.Println("STT disabled (not configured)")
 	}
 
-	// Initialize workspace scanner (optional)
+	// Initialize workspace scanner
 	var scanner *workspace.Scanner
-	if *workspaceDir != "" {
-		scanner = workspace.NewScanner(*workspaceDir)
+	if cfg.Workspace != "" {
+		scanner = workspace.NewScanner(cfg.Workspace)
 		if _, err := scanner.Scan(); err != nil {
 			log.Fatalf("Failed to scan workspace: %v", err)
 		}
-		log.Printf("Workspace enabled: %s", *workspaceDir)
+		log.Printf("Workspace enabled: %s", cfg.Workspace)
 	} else {
-		log.Println("Workspace disabled (no --workspace-dir provided)")
+		log.Println("Workspace disabled (not configured)")
 	}
 
-	// Session map is always created for title persistence (and worktree mapping when workspace is enabled)
+	// Session map
 	sesMap, err := sessionmap.New(fmt.Sprintf("%s/session-map.json", *dataDir))
 	if err != nil {
 		log.Fatalf("Failed to load session map: %v", err)
 	}
 	log.Printf("Session map: %s/session-map.json", *dataDir)
 
-	// Create API server
-	server := api.NewServer(registry, ttsProvider, sttProvider, scanner, sesMap)
+	// Worktree defaults
+	wtDefaults, err := agent.NewWorktreeDefaults(fmt.Sprintf("%s/worktree-defaults.json", *dataDir))
+	if err != nil {
+		log.Fatalf("Failed to load worktree defaults: %v", err)
+	}
 
-	// CORS middleware (for development; in production nginx handles this)
+	// Create API server
+	server := api.NewServer(registry, ttsProvider, sttProvider, scanner, sesMap, wtDefaults)
+
+	// CORS middleware
 	handler := cors.New(cors.Options{
 		AllowedOrigins:   []string{*allowOrigins},
 		AllowedMethods:   []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
