@@ -22,6 +22,12 @@
     />
     <div class="flex items-center gap-2 mt-1 min-w-0">
       <span
+        v-if="session.provider"
+        class="inline-flex items-center px-2 py-0.5 text-xs rounded-full flex-shrink-0 bg-bg-elevated text-text-muted"
+      >
+        {{ session.provider }}
+      </span>
+      <span
         class="inline-flex items-center gap-1 px-2 py-0.5 text-xs rounded-full flex-shrink-0"
         :style="agentBadgeStyle"
       >

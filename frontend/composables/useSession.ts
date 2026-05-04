@@ -4,6 +4,7 @@ export interface Session {
   titleOverride?: boolean
   mode: 'plan' | 'implement'
   agent?: string
+  provider?: string
   model?: string
   lastUsedModel?: string
   projectId?: string
@@ -17,6 +18,7 @@ interface CreateSessionOptions {
   title?: string
   mode: 'plan' | 'implement'
   agent?: string
+  provider?: string
   worktreePath?: string
 }
 

@@ -15,12 +15,21 @@
           <p class="text-xs text-text-muted">{{ projectName }}</p>
         </div>
       </div>
-      <button
-        class="px-3 py-1.5 text-sm rounded-lg bg-bg-secondary hover:bg-bg-elevated transition-colors"
-        @click="createSessionForWorktree"
-      >
-        + New Session
-      </button>
+      <div class="flex items-center gap-1">
+        <select
+          v-if="availableProviders.length >= 1"
+          v-model="selectedProvider"
+          class="text-sm bg-bg-secondary border border-bg-elevated rounded-lg px-2 py-1.5 text-text-primary outline-none"
+        >
+          <option v-for="p in availableProviders" :key="p" :value="p">{{ p }}</option>
+        </select>
+        <button
+          class="px-3 py-1.5 text-sm rounded-lg bg-bg-secondary hover:bg-bg-elevated transition-colors"
+          @click="createSessionForWorktree"
+        >
+          + New Session
+        </button>
+      </div>
       </div>
     </header>
 
@@ -49,6 +58,7 @@ const router = useRouter();
 const route = useRoute();
 const { sessions, fetchSessions, createSession, deleteSession: doDeleteSession } = useSession();
 const { projects } = useWorkspace();
+const { providers, defaultProvider, getWorktreeDefault, setWorktreeDefault } = useProvider();
 
 const projectName = computed(() => route.params.name as string);
 const worktreeName = computed(() => decodeURIComponent(route.params.worktree as string));
@@ -58,6 +68,19 @@ const worktree = computed(() => {
   if (!project) return null;
   return project.worktrees.find(wt => wt.name === worktreeName.value) || null;
 });
+
+// Provider state
+const availableProviders = computed(() => providers.value);
+const selectedProvider = ref('');
+
+// Initialize provider selection from worktree default (last used)
+watch(worktree, async () => {
+  if (!worktree.value) return;
+  const wtDefault = await getWorktreeDefault(worktree.value.path);
+  if (!selectedProvider.value) {
+    selectedProvider.value = wtDefault || defaultProvider.value;
+  }
+}, { immediate: true });
 
 // Sessions are fetched directly for the worktree via ?worktree= param
 // Sort by last updated, most recent first
@@ -78,9 +101,14 @@ async function createSessionForWorktree() {
   const session = await createSession({
     mode: 'plan',
     agent: 'planitect',
+    provider: selectedProvider.value || undefined,
     worktreePath: worktree.value.path,
   });
   if (session) {
+    // Persist selected provider as worktree default for next time
+    if (selectedProvider.value) {
+      setWorktreeDefault(worktree.value.path, selectedProvider.value);
+    }
     // Refresh mapped sessions to include the new one
     await loadWorktreeSessions();
     router.push(`/session/${session.id}`);

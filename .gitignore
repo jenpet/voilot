@@ -17,3 +17,4 @@ frontend/dist
 # Environment
 .env
 .env.local
+backend/cmd/backfill/
