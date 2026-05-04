@@ -166,9 +166,9 @@ After creating a session, the handler sends a scoping/welcome prompt via `adapte
 - ✅ `components/SessionCard.vue` — provider badge
 
 ### Remaining Work
-- 🔄 **Symlink resolution** — Add `resolveWorktreePath` helper to registry, call in all public methods that accept `worktreePath`. Add test with temp dir symlink.
-- ⬜ **Sample config & docs** — `config.example.json` in repo root, update README.md, AGENTS.md
-- ⬜ **Final commit** — All Phase 2 changes on `plan/provider-registry` branch
+- ✅ **Symlink resolution** — `resolveWorktreePath` helper in registry, called in all public methods. 3 symlink tests added.
+- ✅ **Sample config & docs** — `config.example.json`, `docker/config.docker.json`, updated README.md, AGENTS.md, docker-compose.yml
+- ✅ **Final commit** — All changes committed on `plan/provider-registry` branch
 
 ## Files Changed (Phase 2)
 
@@ -215,5 +215,5 @@ None — all design decisions resolved.
 - [x] Frontend shows provider dropdown on session creation.
 - [x] Frontend shows provider badge on session cards.
 - [x] InitializeSession sends scoping prompt on session creation.
-- [ ] Symlink resolution in registry for consistent canonical paths.
-- [ ] `config.example.json` and updated docs in repo.
+- [x] Symlink resolution in registry for consistent canonical paths.
+- [x] `config.example.json` and updated docs in repo.
