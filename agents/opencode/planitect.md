@@ -5,10 +5,8 @@ color: "#8B5CF6"
 permission:
   edit:
     "*": deny
-    "**/plans/*.md": allow
-    "**/plans/**/*.md": allow
-  write:
-    "*": deny
+    "plans/*.md": allow
+    "plans/**/*.md": allow
     "**/plans/*.md": allow
     "**/plans/**/*.md": allow
   bash:
