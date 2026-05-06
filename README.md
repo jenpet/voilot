@@ -102,32 +102,67 @@ See `config.example.json` for all available fields. Key settings:
 
 ## Development
 
-### Backend (Go)
+### Prerequisites
+
+- Go 1.22+
+- Node 20+
+- Docker (for voice services)
+- [Task](https://taskfile.dev) (`brew install go-task`)
+- [OpenCode](https://opencode.ai) running via `opencode serve` in your target project
+
+### First-time setup
 
 ```bash
-cd voilot/backend
-go build ./cmd/server
-./server --data-dir ./voilot-data
+task install        # Go modules + npm packages + config file + data dir
+# Edit ~/.config/voilot/config.json — at minimum set your providers
+task dev            # Start everything
 ```
 
-Requires a config file at `~/.config/voilot/config.json`. The server will print a sample config and exit if none is found.
+### What `task dev` runs
 
-### Frontend (Nuxt 3)
+| Task | What runs | Where | Port |
+|------|-----------|-------|------|
+| `dev:frontend` | Nuxt 3 dev server (HMR) | Native (Node) | 3000 |
+| `dev:backend` | Go server via `go run` | Native (Go) | 8080 |
+| `dev:voice` | Kokoro TTS + faster-whisper STT | Docker (detached) | 8880, 5003 |
+| `dev:tunnel` | Tailscale HTTPS proxy | Native (auto-skips if unavailable) | 443 |
+
+The browser connects directly to the backend at `http://localhost:8080` (configured via `backendUrl` in `nuxt.config.ts`) — there is no proxy through the Nuxt dev server.
+
+Voice services are optional. If you only need text chat, run `task dev:frontend` and `task dev:backend` individually.
+
+If Tailscale is running, `task dev` automatically proxies HTTPS for mobile mic access. The tunnel is only needed for testing voice on a mobile device — desktop-only text dev works fine without it.
+
+### Taskfile variables
+
+Override with `VAR=value task dev:backend`:
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `WORKSPACE_DIR` | `~/tmp/voilot-wd` | Directory containing your project repos/worktrees that voilot manages agent instances for. Not the voilot repo itself. |
+| `DATA_DIR` | `~/tmp/voilot-wd/voilot-data` | Runtime state: session mappings, worktree provider defaults, PID tracking. Persists across restarts. |
+| `TTS_URL` | `http://localhost:8880` | TTS service URL |
+| `STT_URL` | `http://localhost:5003` | STT service URL |
+
+CLI flags (`--tts-url`, `--stt-url`, `--workspace-dir`) override config file values. The config file is still required for provider definitions.
+
+### Other useful tasks
+
+- `task dev:stop` — stop voice containers
+- `task build` — compile backend + generate frontend static build
+- `task check` — go vet + nuxt typecheck
+- `task test` — run Go tests
+
+### Manual (without Task)
 
 ```bash
-cd voilot/frontend
-npm install
+# Backend
+cd backend
+go run ./cmd/server --workspace-dir ~/tmp/voilot-wd --data-dir ~/tmp/voilot-wd/voilot-data
+
+# Frontend
+cd frontend
 npm run dev
-```
-
-Dev server runs at `http://localhost:3000` with auto-proxy to the Go backend at `:8080`.
-
-### Generate static build
-
-```bash
-cd voilot/frontend
-npx nuxt generate
-# Output: .output/public/
 ```
 
 ## Project Structure

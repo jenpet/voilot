@@ -282,10 +282,11 @@ tasks:
   # ── Utilities ───────────────────────────────────────────────────
 
   install:
-    desc: Install all dependencies (Go modules + npm packages)
+    desc: Install all dependencies and set up local dev environment
     cmds:
       - task: install:backend
       - task: install:frontend
+      - task: install:config
 
   install:backend:
     desc: Download Go modules
@@ -298,3 +299,21 @@ tasks:
     dir: frontend
     cmds:
       - npm install
+
+  install:config:
+    desc: Create config file and data directory if missing
+    cmds:
+      - |
+        CONFIG_DIR="$HOME/.config/voilot"
+        CONFIG_FILE="$CONFIG_DIR/config.json"
+        mkdir -p "$CONFIG_DIR"
+        if [ -f "$CONFIG_FILE" ]; then
+          echo "  ok   $CONFIG_FILE (already exists)"
+        else
+          cp config.example.json "$CONFIG_FILE"
+          echo "  new  $CONFIG_FILE (copied from config.example.json — edit providers before running)"
+        fi
+        DATA="{{.DATA_DIR}}"
+        DATA="${DATA/#\~/$HOME}"
+        mkdir -p "$DATA"
+        echo "  ok   $DATA"
