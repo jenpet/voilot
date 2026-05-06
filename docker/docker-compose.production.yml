@@ -1,0 +1,85 @@
+# docker-compose.production.yml — production overrides
+#
+# Usage:
+#   docker compose -f docker/docker-compose.yml -f docker/docker-compose.production.yml up -d
+#   docker compose -f docker/docker-compose.yml -f docker/docker-compose.production.yml --profile voice up -d
+#
+# This file adds:
+#   - Log rotation to prevent unbounded disk usage
+#   - Isolated network for voilot services
+#   - Commented resource limits as starting points
+#
+# Resource requirements (approximate):
+# ┌──────────┬────────┬────────┬─────────────────────────────────┐
+# │ Service  │ CPU    │ Memory │ Notes                           │
+# ├──────────┼────────┼────────┼─────────────────────────────────┤
+# │ frontend │ 0.1    │ 32 MB  │ Static nginx, minimal           │
+# │ backend  │ 0.2    │ 64 MB  │ Go binary, grows with sessions  │
+# │ tts      │ 1.0    │ 512 MB │ Kokoro 82M param model on CPU   │
+# │ stt      │ 1.0    │ 512 MB │ base model; large-v3 needs 2 GB │
+# └──────────┴────────┴────────┴─────────────────────────────────┘
+
+services:
+  frontend:
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks:
+      - voilot
+    # Uncomment to set resource limits:
+    # deploy:
+    #   resources:
+    #     limits:
+    #       cpus: "0.5"
+    #       memory: 64M
+
+  backend:
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+    networks:
+      - voilot
+    # Uncomment to set resource limits:
+    # deploy:
+    #   resources:
+    #     limits:
+    #       cpus: "0.5"
+    #       memory: 128M
+
+  tts:
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks:
+      - voilot
+    # Uncomment to set resource limits:
+    # deploy:
+    #   resources:
+    #     limits:
+    #       cpus: "2.0"
+    #       memory: 1G
+
+  stt:
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks:
+      - voilot
+    # Uncomment to set resource limits:
+    # deploy:
+    #   resources:
+    #     limits:
+    #       cpus: "2.0"
+    #       memory: 1G
+
+networks:
+  voilot:
+    driver: bridge

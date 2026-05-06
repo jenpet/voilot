@@ -166,7 +166,13 @@ func main() {
 	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
 
 	go func() {
-		slog.Info("voilot backend starting", "addr", addr)
+		slog.Info("voilot backend starting",
+			"addr", addr,
+			"providers", len(providers),
+			"tts", cfg.TTSUrl != "",
+			"stt", cfg.STTUrl != "",
+			"workspace", cfg.Workspace != "",
+		)
 		if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			slog.Error("Server failed", "error", err)
 			os.Exit(1)
