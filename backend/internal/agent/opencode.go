@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"math/rand/v2"
 	"net/http"
 	"sort"
 	"strings"
@@ -956,13 +957,41 @@ func (a *OpenCodeAdapter) broadcast(evt Event) {
 }
 
 // runSSEReader maintains a persistent SSE connection to OpenCode's /event endpoint.
-// It reconnects on failure and parses events into voilot Events.
+// It reconnects on failure with exponential backoff (1s → 30s) and jitter.
 func (a *OpenCodeAdapter) runSSEReader() {
+	const (
+		baseDelay = 1 * time.Second
+		maxDelay  = 30 * time.Second
+	)
+	delay := baseDelay
+
 	for {
 		err := a.readSSEStream()
 		if err != nil {
-			slog.Warn("SSE connection lost, reconnecting", "error", err, "delay", "2s")
+			// Add jitter: ±25% of current delay
+			jitter := time.Duration(float64(delay) * (0.75 + rand.Float64()*0.5))
+			slog.Warn("SSE connection lost, reconnecting", "error", err, "delay", jitter.Round(time.Millisecond))
+
+			a.mu.RLock()
+			subscriberCount := len(a.subscribers)
+			a.mu.RUnlock()
+
+			if subscriberCount == 0 {
+				a.mu.Lock()
+				a.sseRunning = false
+				a.mu.Unlock()
+				return
+			}
+
+			time.Sleep(jitter)
+
+			// Exponential backoff, capped
+			delay = min(delay*2, maxDelay)
+			continue
 		}
+
+		// Successful connection resets backoff
+		delay = baseDelay
 
 		a.mu.RLock()
 		subscriberCount := len(a.subscribers)
@@ -974,8 +1003,6 @@ func (a *OpenCodeAdapter) runSSEReader() {
 			a.mu.Unlock()
 			return
 		}
-
-		time.Sleep(2 * time.Second)
 	}
 }
 
