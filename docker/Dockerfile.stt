@@ -5,6 +5,7 @@ WORKDIR /app
 
 # System dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
     ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
@@ -16,14 +17,19 @@ RUN pip install --no-cache-dir \
     flask==3.1.0 \
     gunicorn==23.0.0
 
-# Create model cache directory
-RUN mkdir -p /app/models
+# Create non-root user and model cache directory
+RUN useradd -r -m -s /bin/false stt \
+    && mkdir -p /home/stt/.cache/huggingface \
+    && chown -R stt:stt /home/stt /app
 
-# Pre-download the base model (cached in image)
+ENV HF_HOME=/home/stt/.cache/huggingface
+
+# Pre-download the base model (cached in image) as stt user
+USER stt
 RUN python -c "from faster_whisper import WhisperModel; WhisperModel('base', device='cpu', compute_type='int8')"
 
 # Copy server script
-COPY docker/stt-server.py /app/server.py
+COPY --chown=stt:stt docker/stt-server.py /app/server.py
 
 ENV WHISPER_MODEL=base
 ENV WHISPER_DEVICE=cpu

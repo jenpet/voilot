@@ -407,6 +407,8 @@ func (s *Server) handleSetSessionMode(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleSendMessage(w http.ResponseWriter, r *http.Request) {
 	id := mux.Vars(r)["id"]
 
+	// Limit message body to 1MB
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 	var body struct {
 		Message string `json:"message"`
 	}

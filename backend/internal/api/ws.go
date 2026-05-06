@@ -49,6 +49,9 @@ func (s *Server) handleWSChat(w http.ResponseWriter, r *http.Request) {
 	}
 	defer conn.Close()
 
+	// Limit incoming WebSocket messages to 1MB
+	conn.SetReadLimit(1 << 20)
+
 	ctx := r.Context()
 
 	// Subscribe to aggregated SSE events from all agent instances
