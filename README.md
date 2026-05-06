@@ -1,6 +1,10 @@
 # voilot
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
 Voice-first, mobile-first PWA client for AI coding agents. Plan via voice conversations from your phone, implement later at your computer.
+
+> **Security warning:** voilot has no built-in authentication. If you expose it to the internet without a VPN, reverse proxy auth, or other access control, anyone can use your coding agent. See [docs/deployment.md](docs/deployment.md#security) for details.
 
 ## Architecture
 
@@ -188,5 +192,17 @@ voilot/
 - [x] Phase 5: TTS service integration
 - [x] Phase 6: Voice pipeline (mic → STT → agent → TTS → speaker)
 - [x] Phase 7: Plan/Implement mode switching
-- [ ] Phase 8: Browser end-to-end testing
-- [ ] Phase 9: Production deployment + Tailscale
+- [x] Phase 8: Production hardening (structured logging, health checks, security headers, non-root containers)
+- [ ] Phase 9: Browser end-to-end testing
+- [ ] Phase 10: CI/CD pipeline
+
+## Production Deployment
+
+For production/homelab deployment, see **[docs/deployment.md](docs/deployment.md)** covering:
+
+- TLS termination options (Caddy, Traefik, nginx+certbot, Tailscale)
+- Docker Compose production overrides with log rotation and resource limits
+- Firewall and security considerations
+- Persistent storage and updates
+
+For common issues, see **[docs/troubleshooting.md](docs/troubleshooting.md)**.
