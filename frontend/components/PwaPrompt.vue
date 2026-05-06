@@ -93,6 +93,6 @@
 const { promptType, triggerInstall, triggerUpdate, dismiss } = usePwaPrompt();
 
 const isDev = import.meta.dev;
-const appName = isDev ? 'Voilot Dev' : 'Voilot';
+const appName = isDev ? 'voilot dev' : 'voilot';
 const iconSrc = isDev ? '/icons/dev/icon-192x192.png' : '/icons/icon-192x192.png';
 </script>

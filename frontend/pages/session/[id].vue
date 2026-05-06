@@ -192,6 +192,16 @@ const {
   cleanup,
 } = useAgent(sessionId)
 
+// Dynamic page title: "<session title> | voilot"
+// TODO: include worktree name once worktree info is available on the session
+// object (e.g. "<session> | <worktree> | voilot")
+useHead({
+  title: computed(() => {
+    const title = session.value?.title || 'Untitled Session';
+    return `${title} | voilot`;
+  }),
+})
+
 const chatViewRef = ref<{ jumpToBottom: () => void }>()
 
 // Detect iOS virtual keyboard for footer padding adjustment
@@ -206,7 +216,6 @@ onMounted(() => {
     onUnmounted(() => window.visualViewport?.removeEventListener('resize', onResize))
   }
 })
-
 // Acoustic feedback: blip on recording start, double-blip on stop
 useRecordingFeedback()
 

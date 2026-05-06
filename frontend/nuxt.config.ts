@@ -1,7 +1,7 @@
 // https://nuxt.com/docs/api/configuration/nuxt-config
 
 const isDev = process.env.NODE_ENV !== 'production';
-const appName = isDev ? 'Voilot Dev' : 'Voilot';
+const appName = isDev ? 'voilot dev' : 'voilot';
 const iconPrefix = isDev ? '/icons/dev' : '/icons';
 
 export default defineNuxtConfig({
@@ -89,15 +89,20 @@ export default defineNuxtConfig({
   app: {
     head: {
       htmlAttrs: { lang: 'en' },
-      title: 'voilot',
+      title: appName,
       meta: [
         { name: 'viewport', content: 'width=device-width, initial-scale=1, viewport-fit=cover' },
-        { name: 'description', content: 'Voice-first AI coding agent client' },
+        { name: 'description', content: 'voilot — voice-first AI coding agent client' },
         { name: 'theme-color', content: '#1A1A1A' },
         { name: 'apple-mobile-web-app-capable', content: 'yes' },
         { name: 'apple-mobile-web-app-status-bar-style', content: 'black-translucent' },
+        { name: 'apple-mobile-web-app-title', content: appName },
+        { property: 'og:title', content: appName },
+        { property: 'og:description', content: 'voilot — voice-first AI coding agent client' },
+        { property: 'og:type', content: 'website' },
       ],
       link: [
+        { rel: 'icon', type: 'image/svg+xml', href: isDev ? '/favicon-dev.svg' : '/favicon.svg' },
         { rel: 'apple-touch-icon', href: `${iconPrefix}/apple-touch-icon.png` },
       ],
     },
