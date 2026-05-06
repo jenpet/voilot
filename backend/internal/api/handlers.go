@@ -46,14 +46,27 @@ type ServiceStatus struct {
 	Name      string `json:"name"`
 	Available bool   `json:"available"`
 	Error     string `json:"error,omitempty"`
-	Instances *int   `json:"instances,omitempty"` // only set for agent
+	Instances *int   `json:"instances,omitempty"` // only set for providers
+	Active    *int   `json:"active,omitempty"`    // only set for providers
+}
+
+// InstanceInfo describes a single running agent instance.
+type InstanceInfo struct {
+	Worktree     string `json:"worktree"`
+	Provider     string `json:"provider"`
+	PID          int    `json:"pid"`
+	BaseURL      string `json:"baseUrl"`
+	Active       bool   `json:"active"`
+	SpawnedAt    string `json:"spawnedAt"`
+	LastActivity string `json:"lastActivity"`
 }
 
 // DetailedHealth is the response for GET /api/health/detailed.
 type DetailedHealth struct {
 	// Overall is "green" (all ok), "yellow" (optional services down), or "red" (agent down).
-	Overall  string          `json:"overall"`
-	Services []ServiceStatus `json:"services"`
+	Overall   string          `json:"overall"`
+	Services  []ServiceStatus `json:"services"`
+	Instances []InstanceInfo  `json:"instances"`
 }
 
 func (s *Server) handleHealthDetailed(w http.ResponseWriter, r *http.Request) {
@@ -61,20 +74,36 @@ func (s *Server) handleHealthDetailed(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 
 	var services []ServiceStatus
+	allProvidersAvailable := true
 
-	// 1. Agent (OpenCode) — check binary availability + instance count.
-	// With the provider registry, zero running instances is normal (on-demand).
-	agentStatus := ServiceStatus{Name: "agent"}
-	instanceCount := s.registry.InstanceCount()
-	agentStatus.Instances = &instanceCount
+	// 1. Per-provider status rows.
+	instances := s.registry.ListInstances()
+	for _, providerName := range s.registry.ProviderNames() {
+		svc := ServiceStatus{Name: providerName}
 
-	if err := s.registry.Ready(ctx); err != nil {
-		agentStatus.Available = false
-		agentStatus.Error = err.Error()
-	} else {
-		agentStatus.Available = true
+		// Count instances and active sessions for this provider.
+		var total, active int
+		for _, inst := range instances {
+			if inst.ProviderName == providerName {
+				total++
+				if !inst.IsIdle() {
+					active++
+				}
+			}
+		}
+		svc.Instances = &total
+		svc.Active = &active
+
+		// Check provider readiness (binary exists, etc.).
+		if err := s.registry.ReadyProvider(ctx, providerName); err != nil {
+			svc.Available = false
+			svc.Error = err.Error()
+			allProvidersAvailable = false
+		} else {
+			svc.Available = true
+		}
+		services = append(services, svc)
 	}
-	services = append(services, agentStatus)
 
 	// 2. TTS — optional (voice feature)
 	ttsStatus := ServiceStatus{Name: "tts"}
@@ -110,13 +139,28 @@ func (s *Server) handleHealthDetailed(w http.ResponseWriter, r *http.Request) {
 	if !ttsStatus.Available || !sttStatus.Available {
 		overall = "yellow"
 	}
-	if !agentStatus.Available {
+	if !allProvidersAvailable {
 		overall = "red"
 	}
 
+	// Build instance info list
+	var instanceInfos []InstanceInfo
+	for _, inst := range instances {
+		instanceInfos = append(instanceInfos, InstanceInfo{
+			Worktree:     inst.WorkDir,
+			Provider:     inst.ProviderName,
+			PID:          inst.PID,
+			BaseURL:      inst.BaseURL,
+			Active:       !inst.IsIdle(),
+			SpawnedAt:    inst.SpawnedAt.Format(time.RFC3339),
+			LastActivity: inst.LastActivity.Format(time.RFC3339),
+		})
+	}
+
 	jsonResponse(w, http.StatusOK, DetailedHealth{
-		Overall:  overall,
-		Services: services,
+		Overall:   overall,
+		Services:  services,
+		Instances: instanceInfos,
 	})
 }
 

@@ -62,7 +62,6 @@ tasks:
     dir: backend
     cmds:
       - go run ./cmd/server
-          --opencode-binary {{.OPENCODE_BINARY}}
           --tts-url {{.TTS_URL}}
           --stt-url {{.STT_URL}}
           --workspace-dir {{.WORKSPACE_DIR}}

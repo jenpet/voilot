@@ -28,6 +28,7 @@ type Instance struct {
 	BaseURL      string
 	Adapter      Adapter
 	PID          int
+	SpawnedAt    time.Time
 	LastActivity time.Time
 	activeCount  int32 // atomic: number of sessions with active work
 }
@@ -192,6 +193,7 @@ func (r *ProviderRegistry) GetOrSpawn(ctx context.Context, worktreePath string, 
 		return nil, fmt.Errorf("spawn %s in %s: %w", providerName, worktreePath, err)
 	}
 
+	now := time.Now()
 	adapter := provider.NewAdapter(baseURL)
 	inst := &Instance{
 		WorkDir:      worktreePath,
@@ -199,7 +201,8 @@ func (r *ProviderRegistry) GetOrSpawn(ctx context.Context, worktreePath string, 
 		BaseURL:      baseURL,
 		Adapter:      adapter,
 		PID:          pid,
-		LastActivity: time.Now(),
+		SpawnedAt:    now,
+		LastActivity: now,
 	}
 	r.instances[key] = inst
 
@@ -298,6 +301,15 @@ func (r *ProviderRegistry) Ready(ctx context.Context) error {
 		}
 	}
 	return nil
+}
+
+// ReadyProvider checks whether a specific provider can spawn new instances.
+func (r *ProviderRegistry) ReadyProvider(ctx context.Context, name string) error {
+	p, ok := r.providers[name]
+	if !ok {
+		return fmt.Errorf("unknown provider %q", name)
+	}
+	return p.Ready(ctx)
 }
 
 // SubscribeEvents returns a channel that receives aggregated SSE events

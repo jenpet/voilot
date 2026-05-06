@@ -49,6 +49,12 @@
             </span>
           </li>
         </ul>
+        <button
+          class="mt-3 w-full text-xs text-text-secondary hover:text-text-primary text-center py-1 border-t border-bg-elevated"
+          @click="showDetail = true; open = false"
+        >
+          View details
+        </button>
       </div>
     </Transition>
 
@@ -58,18 +64,26 @@
       class="fixed inset-0 z-40"
       @click="open = false"
     />
+
+    <!-- Status detail modal -->
+    <FullscreenOverlay v-model="showDetail">
+      <StatusDetailPanel />
+    </FullscreenOverlay>
   </div>
 </template>
 
 <script setup lang="ts">
 const { health } = useHealth();
 const open = ref(false);
+const showDetail = ref(false);
 
-function statusLabel(svc: { available: boolean; error?: string; instances?: number }) {
+function statusLabel(svc: { available: boolean; error?: string; instances?: number; active?: number }) {
   if (!svc.available) return svc.error || 'down';
   if (svc.instances != null) {
     const n = svc.instances;
-    return n === 0 ? 'ready' : `ready (${n})`;
+    const a = svc.active ?? 0;
+    if (n === 0) return 'ready';
+    return a > 0 ? `${n} (${a} active)` : `${n} idle`;
   }
   return 'ok';
 }
