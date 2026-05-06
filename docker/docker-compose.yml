@@ -51,6 +51,7 @@ services:
       - --hostname=0.0.0.0
       - --config=/etc/voilot/config.json
       - --data-dir=/var/lib/voilot
+      - --cors-origins=${CORS_ORIGINS:-}
     volumes:
       - ./config.docker.json:/etc/voilot/config.json:ro
     # Not exposed to host directly; nginx proxies /api/* and /ws/*

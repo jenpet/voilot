@@ -149,6 +149,12 @@ tasks:
       - TTS_URL=http://tts:8880 STT_URL=http://stt:5003
         docker compose --profile voice up --build
 
+  docker:test:
+    desc: Validate Docker builds compile successfully (no run)
+    dir: docker
+    cmds:
+      - docker compose --profile voice build
+
   docker:down:
     desc: Stop and remove all Docker containers
     dir: docker
