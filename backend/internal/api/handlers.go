@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"io"
-	"log"
+	"log/slog"
 	"net/http"
 	"path/filepath"
 	"strings"
@@ -279,14 +279,14 @@ func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 	// Save worktree default provider (last-used pattern)
 	if providerName != "" && s.wtDefaults != nil {
 		if err := s.wtDefaults.Set(opts.WorktreePath, providerName); err != nil {
-			log.Printf("Warning: failed to save worktree default provider: %v", err)
+			slog.Warn("failed to save worktree default provider", "error", err)
 		}
 	}
 
 	// Initialize session with scoping prompt (fire-and-forget)
 	prompt := agent.ScopePrompt(opts.WorktreePath)
 	if err := adapter.InitializeSession(r.Context(), session.ID, prompt); err != nil {
-		log.Printf("Warning: session initialization failed for %s: %v", session.ID, err)
+		slog.Warn("session initialization failed", "sessionID", session.ID, "error", err)
 	}
 
 	jsonResponse(w, http.StatusCreated, session)

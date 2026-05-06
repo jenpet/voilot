@@ -1,10 +1,17 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"log"
+	"log/slog"
 	"net/http"
+	"os"
+	"os/signal"
+	"strings"
+	"syscall"
+	"time"
 
 	"github.com/jenpet/voilot/internal/agent"
 	"github.com/jenpet/voilot/internal/api"
@@ -22,13 +29,18 @@ func main() {
 		hostname     = flag.String("hostname", "127.0.0.1", "Hostname to bind to")
 		configPath   = flag.String("config", "", "Path to config file (default: ~/.config/voilot/config.json)")
 		dataDir      = flag.String("data-dir", "voilot-data", "Directory for persistent data (session map, PID files, etc.)")
-		allowOrigins = flag.String("cors-origins", "*", "Allowed CORS origins (comma-separated)")
+		allowOrigins = flag.String("cors-origins", "", "Allowed CORS origins (comma-separated, empty = deny cross-origin)")
 		// CLI overrides for deployment flexibility (Docker compose, etc.)
 		cliTTSUrl       = flag.String("tts-url", "", "Override TTS server URL from config")
 		cliSTTUrl       = flag.String("stt-url", "", "Override STT server URL from config")
 		cliWorkspaceDir = flag.String("workspace-dir", "", "Override workspace directory from config")
+		logLevel        = flag.String("log-level", "info", "Log level: debug, info, warn, error")
+		logFormat       = flag.String("log-format", "text", "Log format: text, json")
 	)
 	flag.Parse()
+
+	// Initialize structured logging
+	initLogging(*logLevel, *logFormat)
 
 	// Load config
 	cfgPath := *configPath
@@ -37,9 +49,10 @@ func main() {
 	}
 	cfg, err := config.Load(cfgPath)
 	if err != nil {
-		log.Fatalf("Configuration error: %v", err)
+		slog.Error("Configuration error", "error", err)
+		os.Exit(1)
 	}
-	log.Printf("Config loaded from %s", cfgPath)
+	slog.Info("Config loaded", "path", cfgPath)
 
 	// Apply CLI overrides
 	if *cliTTSUrl != "" {
@@ -59,11 +72,12 @@ func main() {
 		case "opencode":
 			providers[name] = agent.NewOpenCodeProvider(pc.Binary)
 		default:
-			log.Printf("Warning: provider %q has unsupported type %q, skipping", name, pc.Type)
+			slog.Warn("Unsupported provider type, skipping", "provider", name, "type", pc.Type)
 		}
 	}
 	if len(providers) == 0 {
-		log.Fatalf("No supported providers configured")
+		slog.Error("No supported providers configured")
+		os.Exit(1)
 	}
 
 	pidDir := fmt.Sprintf("%s/pids", *dataDir)
@@ -72,27 +86,28 @@ func main() {
 		agent.WithIdleTimeout(cfg.IdleTimeoutDuration()),
 	)
 	if err != nil {
-		log.Fatalf("Failed to create provider registry: %v", err)
+		slog.Error("Failed to create provider registry", "error", err)
+		os.Exit(1)
 	}
 	defer registry.Close()
-	log.Printf("Provider registry: %d provider(s), max %d instances, PID dir %s", len(providers), cfg.MaxInstances, pidDir)
+	slog.Info("Provider registry initialized", "providers", len(providers), "maxInstances", cfg.MaxInstances, "pidDir", pidDir)
 
 	// Initialize TTS provider (optional)
 	var ttsProvider tts.Provider
 	if cfg.TTSUrl != "" {
 		ttsProvider = tts.NewKokoroProvider(cfg.TTSUrl)
-		log.Printf("TTS enabled: Kokoro at %s", cfg.TTSUrl)
+		slog.Info("TTS enabled", "provider", "kokoro", "url", cfg.TTSUrl)
 	} else {
-		log.Println("TTS disabled (not configured)")
+		slog.Info("TTS disabled (not configured)")
 	}
 
 	// Initialize STT provider (optional)
 	var sttProvider stt.Provider
 	if cfg.STTUrl != "" {
 		sttProvider = stt.NewWhisperProvider(cfg.STTUrl)
-		log.Printf("STT enabled: faster-whisper at %s", cfg.STTUrl)
+		slog.Info("STT enabled", "provider", "faster-whisper", "url", cfg.STTUrl)
 	} else {
-		log.Println("STT disabled (not configured)")
+		slog.Info("STT disabled (not configured)")
 	}
 
 	// Initialize workspace scanner
@@ -100,40 +115,115 @@ func main() {
 	if cfg.Workspace != "" {
 		scanner = workspace.NewScanner(cfg.Workspace)
 		if _, err := scanner.Scan(); err != nil {
-			log.Fatalf("Failed to scan workspace: %v", err)
+			slog.Error("Failed to scan workspace", "error", err)
+			os.Exit(1)
 		}
-		log.Printf("Workspace enabled: %s", cfg.Workspace)
+		slog.Info("Workspace enabled", "path", cfg.Workspace)
 	} else {
-		log.Println("Workspace disabled (not configured)")
+		slog.Info("Workspace disabled (not configured)")
 	}
 
 	// Session map
 	sesMap, err := sessionmap.New(fmt.Sprintf("%s/session-map.json", *dataDir))
 	if err != nil {
-		log.Fatalf("Failed to load session map: %v", err)
+		slog.Error("Failed to load session map", "error", err)
+		os.Exit(1)
 	}
-	log.Printf("Session map: %s/session-map.json", *dataDir)
+	slog.Info("Session map loaded", "path", fmt.Sprintf("%s/session-map.json", *dataDir))
 
 	// Worktree defaults
 	wtDefaults, err := agent.NewWorktreeDefaults(fmt.Sprintf("%s/worktree-defaults.json", *dataDir))
 	if err != nil {
-		log.Fatalf("Failed to load worktree defaults: %v", err)
+		slog.Error("Failed to load worktree defaults", "error", err)
+		os.Exit(1)
 	}
 
 	// Create API server
 	server := api.NewServer(registry, ttsProvider, sttProvider, scanner, sesMap, wtDefaults)
 
 	// CORS middleware
+	origins := []string{}
+	if *allowOrigins != "" {
+		origins = strings.Split(*allowOrigins, ",")
+	}
 	handler := cors.New(cors.Options{
-		AllowedOrigins:   []string{*allowOrigins},
+		AllowedOrigins:   origins,
 		AllowedMethods:   []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
 		AllowedHeaders:   []string{"Content-Type", "Authorization"},
 		AllowCredentials: true,
 	}).Handler(server)
 
+	// Set up HTTP server with graceful shutdown
 	addr := fmt.Sprintf("%s:%d", *hostname, *port)
-	log.Printf("voilot backend starting on %s", addr)
-	if err := http.ListenAndServe(addr, handler); err != nil {
-		log.Fatalf("Server failed: %v", err)
+	httpServer := &http.Server{
+		Addr:              addr,
+		Handler:           handler,
+		ReadHeaderTimeout: 10 * time.Second,
 	}
+
+	// Listen for shutdown signals
+	stop := make(chan os.Signal, 1)
+	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
+
+	go func() {
+		slog.Info("voilot backend starting", "addr", addr)
+		if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			slog.Error("Server failed", "error", err)
+			os.Exit(1)
+		}
+	}()
+
+	// Block until shutdown signal
+	sig := <-stop
+	slog.Info("Shutdown signal received, draining connections...", "signal", sig.String())
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	if err := httpServer.Shutdown(ctx); err != nil {
+		slog.Error("Shutdown error, forcing exit", "error", err)
+		os.Exit(1)
+	}
+
+	slog.Info("Server stopped gracefully")
+}
+
+func initLogging(level, format string) {
+	var lvl slog.Level
+	switch strings.ToLower(level) {
+	case "debug":
+		lvl = slog.LevelDebug
+	case "warn":
+		lvl = slog.LevelWarn
+	case "error":
+		lvl = slog.LevelError
+	default:
+		lvl = slog.LevelInfo
+	}
+
+	opts := &slog.HandlerOptions{Level: lvl}
+	var handler slog.Handler
+	if strings.ToLower(format) == "json" {
+		handler = slog.NewJSONHandler(os.Stdout, opts)
+	} else {
+		handler = slog.NewTextHandler(os.Stdout, opts)
+	}
+
+	logger := slog.New(handler)
+	slog.SetDefault(logger)
+
+	// Bridge stdlib log to slog for third-party libraries
+	log.SetFlags(0)
+	log.SetOutput(&slogWriter{logger: logger})
+}
+
+// slogWriter bridges stdlib log.Printf calls to slog.
+type slogWriter struct {
+	logger *slog.Logger
+}
+
+func (w *slogWriter) Write(p []byte) (n int, err error) {
+	msg := strings.TrimRight(string(p), "\n")
+	w.logger.Info(msg, "source", "stdlib")
+	return len(p), nil
 }

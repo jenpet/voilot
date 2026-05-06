@@ -3,7 +3,7 @@ package api
 import (
 	"encoding/json"
 	"fmt"
-	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/exec"
@@ -35,7 +35,7 @@ func (s *Server) handleListProjects(w http.ResponseWriter, r *http.Request) {
 		for _, inst := range s.registry.ListInstances() {
 			sessions, err := inst.Adapter.ListSessions(r.Context())
 			if err != nil {
-				log.Printf("warning: could not fetch sessions from instance %s: %v", inst.WorkDir, err)
+				slog.Warn("could not fetch sessions from instance", "workdir", inst.WorkDir, "error", err)
 				continue
 			}
 			for _, sess := range agent.FilterTopLevel(sessions) {

@@ -7,7 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"net/http"
 	"sort"
 	"strings"
@@ -950,7 +950,7 @@ func (a *OpenCodeAdapter) broadcast(evt Event) {
 		case ch <- evt:
 		default:
 			// Drop if subscriber is too slow
-			log.Printf("Warning: dropping event for slow subscriber")
+			slog.Warn("dropping event for slow subscriber")
 		}
 	}
 }
@@ -961,7 +961,7 @@ func (a *OpenCodeAdapter) runSSEReader() {
 	for {
 		err := a.readSSEStream()
 		if err != nil {
-			log.Printf("SSE connection lost: %v — reconnecting in 2s", err)
+			slog.Warn("SSE connection lost, reconnecting", "error", err, "delay", "2s")
 		}
 
 		a.mu.RLock()
@@ -1065,7 +1065,7 @@ func (a *OpenCodeAdapter) parseSSEData(data string) []Event {
 		return a.parseMessageUpdated(raw.Properties)
 
 	case "server.connected":
-		log.Println("SSE: connected to OpenCode server")
+		slog.Info("SSE connected to OpenCode server")
 
 	case "permission.asked":
 		return a.parsePermissionAsked(raw.Properties)
@@ -1164,7 +1164,7 @@ func (a *OpenCodeAdapter) parsePartUpdate(props json.RawMessage) []Event {
 		// text content as a regular EventText so the frontend can display it and
 		// TTS can speak it.
 		if part.Text != "" {
-			log.Printf("SSE: forwarding unknown part type %q (id=%s) with %d chars of text", part.Type, part.ID, len(part.Text))
+			slog.Info("SSE forwarding unknown part type", "type", part.Type, "id", part.ID, "textLen", len(part.Text))
 			// Apply the same delta-dedup logic as the "text" case: if deltas
 			// already streamed this part's content, the final snapshot is redundant.
 			a.deltaPartMu.RLock()
@@ -1184,7 +1184,7 @@ func (a *OpenCodeAdapter) parsePartUpdate(props json.RawMessage) []Event {
 				Content:   part.Text,
 			}}
 		}
-		log.Printf("SSE: ignoring unknown part type %q (id=%s) with no text content", part.Type, part.ID)
+		slog.Debug("SSE ignoring unknown part type with no text", "type", part.Type, "id", part.ID)
 		return nil
 	}
 }
@@ -1469,7 +1469,7 @@ func (a *OpenCodeAdapter) parseSessionError(props json.RawMessage) []Event {
 func (a *OpenCodeAdapter) parsePermissionAsked(props json.RawMessage) []Event {
 	var perm OpenCodePermission
 	if err := json.Unmarshal(props, &perm); err != nil {
-		log.Printf("Failed to parse permission.asked: %v", err)
+		slog.Error("failed to parse permission.asked", "error", err)
 		return nil
 	}
 
@@ -1508,7 +1508,7 @@ func (a *OpenCodeAdapter) parsePermissionAsked(props json.RawMessage) []Event {
 func (a *OpenCodeAdapter) parsePermissionReplied(props json.RawMessage) []Event {
 	var reply OpenCodePermissionReply
 	if err := json.Unmarshal(props, &reply); err != nil {
-		log.Printf("Failed to parse permission.replied: %v", err)
+		slog.Error("failed to parse permission.replied", "error", err)
 		return nil
 	}
 
@@ -1553,7 +1553,7 @@ func (a *OpenCodeAdapter) RespondToPermission(ctx context.Context, sessionID, pe
 func (a *OpenCodeAdapter) parseQuestionAsked(props json.RawMessage) []Event {
 	var q OpenCodeQuestion
 	if err := json.Unmarshal(props, &q); err != nil {
-		log.Printf("SSE: failed to parse question.asked: %v", err)
+		slog.Error("SSE failed to parse question.asked", "error", err)
 		return nil
 	}
 
@@ -1601,7 +1601,7 @@ func (a *OpenCodeAdapter) parseQuestionAsked(props json.RawMessage) []Event {
 func (a *OpenCodeAdapter) parseQuestionReplied(props json.RawMessage) []Event {
 	var reply OpenCodeQuestionReply
 	if err := json.Unmarshal(props, &reply); err != nil {
-		log.Printf("SSE: failed to parse question.replied: %v", err)
+		slog.Error("SSE failed to parse question.replied", "error", err)
 		return nil
 	}
 
@@ -1630,7 +1630,7 @@ func (a *OpenCodeAdapter) parseQuestionReplied(props json.RawMessage) []Event {
 func (a *OpenCodeAdapter) parseQuestionRejected(props json.RawMessage) []Event {
 	var rejected OpenCodeQuestionRejected
 	if err := json.Unmarshal(props, &rejected); err != nil {
-		log.Printf("SSE: failed to parse question.rejected: %v", err)
+		slog.Error("SSE failed to parse question.rejected", "error", err)
 		return nil
 	}
 

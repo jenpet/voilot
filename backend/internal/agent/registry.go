@@ -5,7 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
-	"log"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"sort"
@@ -332,7 +332,7 @@ func (r *ProviderRegistry) Close() error {
 	var lastErr error
 	for path, inst := range r.instances {
 		if err := r.stopInstanceLocked(path, inst); err != nil {
-			log.Printf("Failed to stop instance %s: %v", path, err)
+			slog.Error("failed to stop instance", "path", path, "error", err)
 			lastErr = err
 		}
 	}
@@ -351,7 +351,7 @@ func (r *ProviderRegistry) stopInstanceLocked(key string, inst *Instance) error 
 	err := provider.Stop(inst.PID)
 	delete(r.instances, key)
 	r.removePIDFile(key)
-	log.Printf("Stopped instance for %s [%s] (pid=%d)", inst.WorkDir, inst.ProviderName, inst.PID)
+	slog.Info("stopped instance", "workdir", inst.WorkDir, "provider", inst.ProviderName, "pid", inst.PID)
 	return err
 }
 
@@ -372,7 +372,7 @@ func (r *ProviderRegistry) evictLRUIdle() error {
 		return fmt.Errorf("no idle instances to evict")
 	}
 
-	log.Printf("Evicting LRU idle instance: %s (last active %s)", oldestPath, oldest.LastActivity.Format(time.RFC3339))
+	slog.Info("evicting LRU idle instance", "path", oldestPath, "lastActive", oldest.LastActivity.Format(time.RFC3339))
 	return r.stopInstanceLocked(oldestPath, oldest)
 }
 
@@ -410,9 +410,9 @@ func (r *ProviderRegistry) ReapIdle() {
 
 	for _, path := range toStop {
 		inst := r.instances[path]
-		log.Printf("Reaping idle instance: %s (idle for %s)", path, now.Sub(inst.LastActivity).Round(time.Second))
+		slog.Info("reaping idle instance", "path", path, "idleFor", now.Sub(inst.LastActivity).Round(time.Second))
 		if err := r.stopInstanceLocked(path, inst); err != nil {
-			log.Printf("Failed to reap instance %s: %v", path, err)
+			slog.Error("failed to reap instance", "path", path, "error", err)
 		}
 	}
 }
@@ -426,7 +426,7 @@ func (r *ProviderRegistry) aggregateSSE(worktreePath string, adapter Adapter) {
 
 	eventCh, err := adapter.SubscribeEvents(ctx)
 	if err != nil {
-		log.Printf("Failed to subscribe to SSE for %s: %v", worktreePath, err)
+		slog.Error("failed to subscribe to SSE", "worktree", worktreePath, "error", err)
 		return
 	}
 
@@ -458,19 +458,19 @@ func (r *ProviderRegistry) writePIDFile(worktreePath string, inst *Instance) {
 	}
 	data, err := json.Marshal(entry)
 	if err != nil {
-		log.Printf("Failed to marshal PID file for %s: %v", worktreePath, err)
+		slog.Error("failed to marshal PID file", "worktree", worktreePath, "error", err)
 		return
 	}
 	path := r.pidFilePath(worktreePath)
 	if err := os.WriteFile(path, data, 0o644); err != nil {
-		log.Printf("Failed to write PID file %s: %v", path, err)
+		slog.Error("failed to write PID file", "path", path, "error", err)
 	}
 }
 
 func (r *ProviderRegistry) removePIDFile(worktreePath string) {
 	path := r.pidFilePath(worktreePath)
 	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
-		log.Printf("Failed to remove PID file %s: %v", path, err)
+		slog.Error("failed to remove PID file", "path", path, "error", err)
 	}
 }
 
@@ -478,7 +478,7 @@ func (r *ProviderRegistry) removePIDFile(worktreePath string) {
 func (r *ProviderRegistry) sweepOrphans() {
 	entries, err := os.ReadDir(r.pidDir)
 	if err != nil {
-		log.Printf("Failed to read PID directory %s: %v", r.pidDir, err)
+		slog.Error("failed to read PID directory", "dir", r.pidDir, "error", err)
 		return
 	}
 
@@ -493,14 +493,14 @@ func (r *ProviderRegistry) sweepOrphans() {
 		path := filepath.Join(r.pidDir, entry.Name())
 		data, err := os.ReadFile(path)
 		if err != nil {
-			log.Printf("Failed to read PID file %s: %v", path, err)
+			slog.Error("failed to read PID file", "path", path, "error", err)
 			_ = os.Remove(path)
 			continue
 		}
 
 		var pf pidFileEntry
 		if err := json.Unmarshal(data, &pf); err != nil {
-			log.Printf("Failed to parse PID file %s: %v", path, err)
+			slog.Error("failed to parse PID file", "path", path, "error", err)
 			_ = os.Remove(path)
 			continue
 		}
@@ -515,13 +515,13 @@ func (r *ProviderRegistry) sweepOrphans() {
 		// On Unix, FindProcess always succeeds. Use kill -0 to check.
 		if err := proc.Signal(syscall.Signal(0)); err != nil {
 			// Process is dead, clean up PID file
-			log.Printf("Cleaned up stale PID file: %s (pid %d, dir %s)", path, pf.PID, pf.WorkDir)
+			slog.Info("cleaned up stale PID file", "path", path, "pid", pf.PID, "workdir", pf.WorkDir)
 			_ = os.Remove(path)
 			continue
 		}
 
 		// Process is alive — kill it
-		log.Printf("Killing orphaned process: pid %d (dir %s)", pf.PID, pf.WorkDir)
+		slog.Warn("killing orphaned process", "pid", pf.PID, "workdir", pf.WorkDir)
 		_ = proc.Signal(syscall.SIGTERM)
 		_ = os.Remove(path)
 	}

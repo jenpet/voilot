@@ -4,7 +4,7 @@ import (
 	"bufio"
 	"context"
 	"fmt"
-	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/exec"
@@ -86,11 +86,11 @@ func (p *OpenCodeProvider) Spawn(ctx context.Context, workDir string) (string, i
 	// The registry manages the lifecycle via PID.
 	go func() {
 		if err := cmd.Wait(); err != nil {
-			log.Printf("opencode process (pid %d) exited: %v", pid, err)
+			slog.Warn("opencode process exited", "pid", pid, "error", err)
 		}
 	}()
 
-	log.Printf("OpenCode spawned: pid=%d url=%s dir=%s", pid, baseURL, workDir)
+	slog.Info("OpenCode spawned", "pid", pid, "url", baseURL, "workdir", workDir)
 	return baseURL, pid, nil
 }
 
@@ -122,7 +122,7 @@ func (p *OpenCodeProvider) Stop(pid int) error {
 		}
 		return fmt.Errorf("sigterm process %d: %w", pid, err)
 	}
-	log.Printf("Sent SIGTERM to OpenCode process %d", pid)
+	slog.Info("sent SIGTERM to OpenCode process", "pid", pid)
 	return nil
 }
 

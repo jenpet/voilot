@@ -1,7 +1,7 @@
 package api
 
 import (
-	"log"
+	"log/slog"
 	"net/http"
 	"sync"
 	"time"
@@ -44,7 +44,7 @@ type chatOutbound struct {
 func (s *Server) handleWSChat(w http.ResponseWriter, r *http.Request) {
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
-		log.Printf("WebSocket upgrade failed: %v", err)
+		slog.Error("WebSocket upgrade failed", "error", err)
 		return
 	}
 	defer conn.Close()
@@ -60,7 +60,7 @@ func (s *Server) handleWSChat(w http.ResponseWriter, r *http.Request) {
 		writeMu.Lock()
 		defer writeMu.Unlock()
 		if err := conn.WriteJSON(msg); err != nil {
-			log.Printf("WebSocket write error: %v", err)
+			slog.Error("WebSocket write error", "error", err)
 		}
 	}
 
@@ -80,7 +80,7 @@ func (s *Server) handleWSChat(w http.ResponseWriter, r *http.Request) {
 		var msg chatInbound
 		if err := conn.ReadJSON(&msg); err != nil {
 			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseNormalClosure) {
-				log.Printf("WebSocket read error: %v", err)
+				slog.Error("WebSocket read error", "error", err)
 			}
 			return
 		}
@@ -373,8 +373,7 @@ func (s *Server) handleWSChat(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleWSVoice(w http.ResponseWriter, r *http.Request) {
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
-		log.Printf("WebSocket upgrade failed: %v", err)
-		return
+		slog.Error("WebSocket upgrade failed", "error", err)
 	}
 	defer conn.Close()
 
@@ -386,7 +385,7 @@ func (s *Server) handleWSVoice(w http.ResponseWriter, r *http.Request) {
 	// 5. Synthesize filtered text via TTS provider
 	// 6. Send audio chunks back to client
 
-	log.Println("Voice WebSocket connected — pipeline not yet implemented")
+	slog.Info("voice WebSocket connected, pipeline not yet implemented")
 
 	conn.WriteJSON(map[string]string{
 		"type":    "error",
