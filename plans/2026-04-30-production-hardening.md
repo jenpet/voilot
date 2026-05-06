@@ -2,6 +2,7 @@
 
 **Status:** draft
 **Created:** 2026-04-30
+**Updated:** 2026-05-06
 **Author:** jenpet + planitect
 
 ## Goal
@@ -14,7 +15,7 @@ Voilot currently works well for local development but lacks several production e
 
 - **No graceful shutdown** — backend exits immediately, dropping active WebSocket connections
 - **No structured logging** — plain `log.Printf` throughout, no levels or JSON output
-- **No health checks in Docker Compose** — orchestrator can't detect unhealthy services
+- **No health checks in Docker Compose** — backend endpoints exist (`/api/health`, `/api/health/detailed`) but Docker Compose has no `healthcheck` directives, so the orchestrator can't detect unhealthy services
 - **CORS wide open** (`*` by default) — fine for dev, not for production
 - **No request size limits** — unbounded file uploads to STT, unbounded message bodies
 - **No `.env.example`** — users must read README to discover configuration
@@ -48,8 +49,8 @@ A single-node VPS or homelab server (1-4 cores, 2-8 GB RAM) running Docker Compo
 - Add a `--log-level` flag (default: `info`)
 
 #### 1.3 Health checks
-- Backend `/api/health` should only confirm the backend process is alive and accepting requests — NOT check downstream services (OpenCode, TTS, STT). Downstream status belongs on `/api/status` where the frontend reads it.
-- Add Docker Compose `healthcheck` for backend, stt, and frontend services
+- ~~Backend `/api/health`~~ — already exists (process liveness only). `/api/health/detailed` also exists for downstream status. No changes needed to the backend endpoints.
+- **Remaining:** Add Docker Compose `healthcheck` for backend, stt, and frontend services
 - Backend healthcheck: `curl -f http://localhost:8080/api/health`
 - STT healthcheck: `curl -f http://localhost:5003/health`
 - Frontend healthcheck: `curl -f http://localhost:80/`
@@ -57,6 +58,7 @@ A single-node VPS or homelab server (1-4 cores, 2-8 GB RAM) running Docker Compo
 
 #### 1.4 Reconnection resilience
 - Backend should handle OpenCode disconnections gracefully (SSE stream drops, connection refused)
+- **Current state:** `runSSEReader` reconnects on failure but uses a fixed 2-second sleep with no exponential backoff, no jitter, and no max-retry limit. Replace with exponential backoff (e.g. 1s, 2s, 4s, capped at 30s) with jitter.
 - Log reconnection attempts with backoff info
 - Surface connection state clearly on `/api/status` (connected, reconnecting, disconnected, error)
 - Frontend WebSocket composable should auto-reconnect with exponential backoff (verify current behavior)
@@ -69,7 +71,7 @@ A single-node VPS or homelab server (1-4 cores, 2-8 GB RAM) running Docker Compo
 - In Docker Compose, wire `CORS_ORIGINS` env var to backend command
 
 #### 2.2 Request limits
-- Add max request body size in nginx (`client_max_body_size 10m`)
+- Set `client_max_body_size` in nginx to allow STT uploads (e.g. `25m`). Note: nginx defaults to `1m` when unset, which silently blocks audio uploads >1MB at the proxy layer before they reach the backend.
 - Add Go-side request body limits for REST endpoints (e.g. 10MB for STT, 1MB for messages)
 - Set WebSocket message size limit (already default in gorilla/nhooyr, but verify and document)
 
@@ -80,7 +82,7 @@ A single-node VPS or homelab server (1-4 cores, 2-8 GB RAM) running Docker Compo
 
 #### 2.4 Secrets and configuration
 - Create `.env.example` with all supported variables, sensible defaults, and comments
-- Add `.env` to `.gitignore` (verify)
+- ~~Add `.env` to `.gitignore`~~ — already done (`.env` and `.env.local` present in `.gitignore`)
 - Document which variables are required vs optional
 - Avoid logging sensitive values (API keys, URLs with credentials)
 
@@ -113,6 +115,7 @@ Create `docs/deployment.md` covering:
 
 #### 3.3 Startup diagnostics
 - Backend should log a clear summary on startup: what's connected, what's missing, what's optional
+- **Current state:** Backend already logs individual service status (TTS, STT, workspace, session map) and bind address on startup, but not as a consolidated block. Consolidate into a single structured startup banner.
 - Health check endpoint surfaces downstream status so `docker compose ps` gives actionable info
 
 ### Track 4: Documentation
@@ -138,7 +141,7 @@ Create `docs/troubleshooting.md` covering common issues:
 #### 4.4 Security warning
 - Add a prominent warning in both README and deployment docs: "voilot has no built-in authentication. If you expose it to the internet without a VPN, reverse proxy auth, or other access control, anyone can use your coding agent."
 
-#### 4.4 .env.example
+#### 4.5 .env.example
 ```env
 # voilot configuration
 # Copy to .env and adjust as needed
