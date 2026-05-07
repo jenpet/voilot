@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -305,11 +306,12 @@ func (s *Server) handleRemoveWorktree(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Find the worktree to get its branch
-	var branch string
+	// Find the worktree to get its branch and path.
+	var branch, wtPath string
 	for _, wt := range proj.Worktrees {
 		if wt.Name == worktreeName {
 			branch = wt.Branch
+			wtPath = wt.Path
 			break
 		}
 	}
@@ -318,12 +320,40 @@ func (s *Server) handleRemoveWorktree(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Run wt remove from the main repo
-	cmd := exec.CommandContext(r.Context(), "wt", "remove", branch)
+	// Build wt remove command; honour ?force=true query param.
+	args := []string{"remove", branch}
+	if r.URL.Query().Get("force") == "true" {
+		args = []string{"remove", "--force", branch}
+	}
+	cmd := exec.CommandContext(r.Context(), "wt", args...)
 	cmd.Dir = proj.Path
 	if out, err := cmd.CombinedOutput(); err != nil {
-		jsonError(w, http.StatusInternalServerError, "wt remove failed: "+string(out))
+		msg := cleanWtMessage(string(out))
+		forceable := strings.Contains(msg, "uncommitted changes")
+
+		resp := map[string]interface{}{
+			"error":     msg,
+			"forceable": forceable,
+		}
+
+		// For forceable errors, include the list of dirty files.
+		if forceable && wtPath != "" {
+			if files := dirtyFiles(r.Context(), wtPath); len(files) > 0 {
+				resp["files"] = files
+			}
+		}
+
+		jsonResponse(w, http.StatusConflict, resp)
 		return
+	}
+
+	// Clean up session-map entries pointing to the removed worktree.
+	if s.sessionMap != nil && wtPath != "" {
+		for _, sid := range s.sessionMap.SessionsForWorktree(wtPath) {
+			if err := s.sessionMap.Delete(sid); err != nil {
+				slog.Warn("failed to delete session-map entry", "session", sid, "worktree", wtPath, "error", err)
+			}
+		}
 	}
 
 	// Re-scan
@@ -333,6 +363,63 @@ func (s *Server) handleRemoveWorktree(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// cleanWtMessage strips the wt CLI decorations (✗ prefix, ↳ hint lines) from
+// the output, returning only the primary error message.
+func cleanWtMessage(raw string) string {
+	var lines []string
+	for _, line := range strings.Split(strings.TrimSpace(raw), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "↳") {
+			continue
+		}
+		line = strings.TrimPrefix(line, "✗ ")
+		lines = append(lines, line)
+	}
+	if len(lines) == 0 {
+		return strings.TrimSpace(raw)
+	}
+	return strings.Join(lines, "; ")
+}
+
+// dirtyFiles runs git status --porcelain in the given directory and returns
+// a list of {path, status} maps for each dirty file.
+func dirtyFiles(ctx context.Context, dir string) []map[string]string {
+	cmd := exec.CommandContext(ctx, "git", "status", "--porcelain")
+	cmd.Dir = dir
+	out, err := cmd.Output()
+	if err != nil {
+		return nil
+	}
+	porcelainMap := map[string]string{
+		"M":  "modified",
+		"A":  "added",
+		"D":  "deleted",
+		"R":  "renamed",
+		"C":  "copied",
+		"??": "untracked",
+		"MM": "modified",
+		"AM": "modified",
+		"UU": "conflict",
+	}
+	var files []map[string]string
+	for _, line := range strings.Split(string(out), "\n") {
+		if len(line) < 4 {
+			continue
+		}
+		code := strings.TrimSpace(line[:2])
+		path := strings.TrimSpace(line[3:])
+		status := porcelainMap[code]
+		if status == "" {
+			status = "modified"
+		}
+		files = append(files, map[string]string{
+			"path":   path,
+			"status": status,
+		})
+	}
+	return files
 }
 
 func (s *Server) handleAddProject(w http.ResponseWriter, r *http.Request) {

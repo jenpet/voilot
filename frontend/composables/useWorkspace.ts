@@ -21,6 +21,17 @@ export interface BranchInfo {
   hasRemote: boolean;
 }
 
+export interface DirtyFile {
+  path: string;
+  status: string;
+}
+
+export interface RemoveError {
+  error: string;
+  forceable: boolean;
+  files?: DirtyFile[];
+}
+
 export function useWorkspace() {
   const projects = useState<Project[]>('workspace-projects', () => []);
   const loading = useState('workspace-loading', () => false);
@@ -55,16 +66,21 @@ export function useWorkspace() {
     }
   }
 
-  async function removeWorktree(projectName: string, worktreeName: string): Promise<boolean> {
+  async function removeWorktree(projectName: string, worktreeName: string, force = false): Promise<RemoveError | null> {
     try {
-      await $fetch(`${apiBase}/projects/${projectName}/worktrees/${worktreeName}`, {
+      const query = force ? '?force=true' : '';
+      await $fetch(`${apiBase}/projects/${projectName}/worktrees/${worktreeName}${query}`, {
         method: 'DELETE',
       });
       await fetchProjects();
-      return true;
-    } catch {
-      console.error('Failed to remove worktree');
-      return false;
+      return null;
+    } catch (e: unknown) {
+      const data = (e as { data?: RemoveError })?.data;
+      return {
+        error: data?.error || 'Failed to remove worktree',
+        forceable: data?.forceable ?? false,
+        files: data?.files,
+      };
     }
   }
 

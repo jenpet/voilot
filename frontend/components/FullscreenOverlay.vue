@@ -21,7 +21,7 @@
 
         <!-- Content panel -->
         <div
-          class="relative z-10 w-full h-full max-w-3xl max-h-[90vh] m-4 overflow-y-auto rounded-xl bg-bg-primary border border-bg-elevated shadow-2xl"
+          class="relative z-10 w-full h-full max-w-3xl max-h-[85vh] m-4 mt-[max(1rem,env(safe-area-inset-top))] overflow-y-auto rounded-xl bg-bg-primary border border-bg-elevated shadow-2xl"
         >
           <!-- Close button -->
           <button
@@ -34,7 +34,7 @@
           </button>
 
           <!-- Slot content -->
-          <div class="p-6">
+          <div class="p-6 h-full">
             <slot />
           </div>
         </div>

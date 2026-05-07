@@ -93,7 +93,7 @@
             {{ wt.branch }}
           </div>
           <template #actions>
-            <div class="flex items-center gap-1 flex-shrink-0 w-8">
+            <div class="flex items-center gap-1 flex-shrink-0">
               <template v-if="!wt.isRoot">
               <button
                 v-if="confirmingDelete !== wt.name"
@@ -122,11 +122,49 @@
         </ListCard>
       </div>
     </main>
+
+    <!-- Remove error modal -->
+    <FullscreenOverlay v-model="showRemoveError">
+      <div class="flex flex-col min-h-full">
+      <h2 class="text-lg font-semibold text-accent-warn mb-3">Failed to remove worktree</h2>
+      <p class="text-sm text-text-primary">{{ removeError?.error }}</p>
+
+      <div v-if="removeError?.files?.length" class="mt-4">
+        <h3 class="text-xs font-medium text-text-muted uppercase mb-2">Affected files</h3>
+        <ul class="space-y-1 text-sm font-mono">
+          <li
+            v-for="f in removeError.files"
+            :key="f.path"
+            class="flex items-center gap-2"
+          >
+            <span class="text-xs px-1.5 py-0.5 rounded bg-bg-elevated text-text-muted min-w-[80px] text-center flex-shrink-0">{{ f.status }}</span>
+            <span class="text-text-primary break-all">{{ f.path }}</span>
+          </li>
+        </ul>
+      </div>
+
+      <div class="flex flex-col sm:flex-row gap-2 mt-auto pt-6">
+        <button
+          v-if="removeError?.forceable"
+          class="w-full sm:w-auto px-3 py-2.5 sm:py-1.5 text-sm rounded-lg bg-accent-warn hover:bg-accent-warn/80 text-white transition-colors"
+          @click="doForceRemove"
+        >
+          Force Remove
+        </button>
+        <button
+          class="w-full sm:w-auto px-3 py-2.5 sm:py-1.5 text-sm rounded-lg bg-bg-elevated hover:bg-bg-secondary text-text-primary transition-colors"
+          @click="showRemoveError = false"
+        >
+          Close
+        </button>
+      </div>
+      </div>
+    </FullscreenOverlay>
   </div>
 </template>
 
 <script setup lang="ts">
-import type { Worktree, BranchInfo } from '~/composables/useWorkspace';
+import type { Worktree, BranchInfo, RemoveError } from '~/composables/useWorkspace';
 
 const router = useRouter();
 const route = useRoute();
@@ -142,6 +180,12 @@ const branches = ref<BranchInfo[]>([]);
 const branchesLoading = ref(false);
 const confirmingDelete = ref('');
 const createError = ref('');
+const removeError = ref<RemoveError | null>(null);
+const failedWorktree = ref('');
+const showRemoveError = computed({
+  get: () => removeError.value !== null,
+  set: (v: boolean) => { if (!v) removeError.value = null; },
+});
 
 const selectedBranchInfo = computed(() =>
   branches.value.find(b => b.name === selectedBranch.value) || null
@@ -188,7 +232,21 @@ function navigateToWorktree(wt: Worktree) {
 }
 
 async function doRemoveWorktree(worktreeName: string) {
-  await removeWorktree(projectName.value, worktreeName);
+  const err = await removeWorktree(projectName.value, worktreeName);
   confirmingDelete.value = '';
+  if (err) {
+    failedWorktree.value = worktreeName;
+    removeError.value = err;
+  }
+}
+
+async function doForceRemove() {
+  const err = await removeWorktree(projectName.value, failedWorktree.value, true);
+  if (err) {
+    removeError.value = err;
+  } else {
+    removeError.value = null;
+    failedWorktree.value = '';
+  }
 }
 </script>
