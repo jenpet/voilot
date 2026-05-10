@@ -574,3 +574,221 @@ func TestStopInstance_ViaSymlink(t *testing.T) {
 		t.Errorf("expected 0 instances after stop, got %d", reg.InstanceCount())
 	}
 }
+
+// --- ReloadProviders ---
+
+func TestReloadProviders_UnchangedProviderKeepsInstances(t *testing.T) {
+	p := agenttest.NewMockProvider()
+	reg := newTestRegistry(t, p)
+
+	// Spawn an instance
+	_, err := reg.GetOrSpawn(context.Background(), "/worktree/a", testProvider)
+	if err != nil {
+		t.Fatalf("GetOrSpawn: %v", err)
+	}
+	if reg.InstanceCount() != 1 {
+		t.Fatalf("expected 1 instance, got %d", reg.InstanceCount())
+	}
+
+	// Reload with the SAME provider object — instances should remain
+	reg.ReloadProviders(providerMap(p), testProvider)
+
+	if reg.InstanceCount() != 1 {
+		t.Errorf("expected 1 instance after reload with same provider, got %d", reg.InstanceCount())
+	}
+}
+
+func TestReloadProviders_ChangedProviderStopsInstances(t *testing.T) {
+	p1 := agenttest.NewMockProvider()
+	reg := newTestRegistry(t, p1)
+
+	// Spawn an instance
+	_, err := reg.GetOrSpawn(context.Background(), "/worktree/a", testProvider)
+	if err != nil {
+		t.Fatalf("GetOrSpawn: %v", err)
+	}
+
+	// Reload with a NEW provider object (simulates env change)
+	p2 := agenttest.NewMockProvider()
+	reg.ReloadProviders(map[string]agent.Provider{testProvider: p2}, testProvider)
+
+	// Instance should be stopped
+	if reg.InstanceCount() != 0 {
+		t.Errorf("expected 0 instances after reload with new provider, got %d", reg.InstanceCount())
+	}
+	// The old provider should have had Stop called
+	if p1.StoppedCount() != 1 {
+		t.Errorf("expected 1 stopped on old provider, got %d", p1.StoppedCount())
+	}
+}
+
+func TestReloadProviders_RemovedProviderStopsInstances(t *testing.T) {
+	p := agenttest.NewMockProvider()
+	reg := newTestRegistry(t, p)
+
+	// Spawn an instance
+	_, err := reg.GetOrSpawn(context.Background(), "/worktree/a", testProvider)
+	if err != nil {
+		t.Fatalf("GetOrSpawn: %v", err)
+	}
+
+	// Reload with a completely different provider name
+	otherProvider := agenttest.NewMockProvider()
+	reg.ReloadProviders(map[string]agent.Provider{"other": otherProvider}, "other")
+
+	if reg.InstanceCount() != 0 {
+		t.Errorf("expected 0 instances after provider removal, got %d", reg.InstanceCount())
+	}
+	if p.StoppedCount() != 1 {
+		t.Errorf("expected 1 stopped on removed provider, got %d", p.StoppedCount())
+	}
+}
+
+func TestReloadProviders_NewProviderAvailableImmediately(t *testing.T) {
+	p := agenttest.NewMockProvider()
+	reg := newTestRegistry(t, p)
+
+	// Add a second provider via reload
+	p2 := agenttest.NewMockProvider()
+	reg.ReloadProviders(map[string]agent.Provider{
+		testProvider: p,
+		"newprov":    p2,
+	}, testProvider)
+
+	// Should be able to spawn with the new provider
+	_, err := reg.GetOrSpawn(context.Background(), "/worktree/b", "newprov")
+	if err != nil {
+		t.Fatalf("GetOrSpawn with new provider: %v", err)
+	}
+	if reg.InstanceCount() != 1 {
+		t.Errorf("expected 1 instance after spawn with new provider, got %d", reg.InstanceCount())
+	}
+}
+
+func TestReloadProviders_UpdatesDefaultProvider(t *testing.T) {
+	p := agenttest.NewMockProvider()
+	reg := newTestRegistry(t, p)
+
+	if reg.DefaultProviderName() != testProvider {
+		t.Fatalf("expected default %q, got %q", testProvider, reg.DefaultProviderName())
+	}
+
+	p2 := agenttest.NewMockProvider()
+	reg.ReloadProviders(map[string]agent.Provider{
+		testProvider: p,
+		"second":     p2,
+	}, "second")
+
+	if reg.DefaultProviderName() != "second" {
+		t.Errorf("expected default 'second' after reload, got %q", reg.DefaultProviderName())
+	}
+}
+
+func TestReloadProviders_UpdatesMaxInstances(t *testing.T) {
+	p := agenttest.NewMockProvider()
+	reg := newTestRegistry(t, p, agent.WithMaxInstances(10))
+
+	// Reload with different maxInstances
+	reg.ReloadProviders(providerMap(p), testProvider, agent.WithMaxInstances(3))
+
+	// Verify by trying to spawn up to the new limit
+	for i := 0; i < 3; i++ {
+		_, err := reg.GetOrSpawn(context.Background(), fmt.Sprintf("/wt/%d", i), testProvider)
+		if err != nil {
+			t.Fatalf("GetOrSpawn %d: %v", i, err)
+		}
+	}
+	if reg.InstanceCount() != 3 {
+		t.Errorf("expected 3 instances, got %d", reg.InstanceCount())
+	}
+}
+
+// --- Integration test: real process SIGTERM ---
+
+func TestReloadProviders_Integration_KillsRealProcess(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+
+	// Create a provider that spawns a real `sleep` process
+	pidDir := t.TempDir()
+
+	realProvider := &realProcessProvider{}
+	providers := map[string]agent.Provider{testProvider: realProvider}
+
+	reg, err := agent.NewProviderRegistry(providers, testProvider, pidDir)
+	if err != nil {
+		t.Fatalf("NewProviderRegistry: %v", err)
+	}
+	defer reg.Close()
+
+	// Spawn an instance (starts sleep 3600)
+	_, err = reg.GetOrSpawn(context.Background(), "/worktree/integration", testProvider)
+	if err != nil {
+		t.Fatalf("GetOrSpawn: %v", err)
+	}
+
+	pid := realProvider.lastPID
+	if pid == 0 {
+		t.Fatal("expected non-zero PID")
+	}
+
+	// Verify the process is alive
+	proc, err := os.FindProcess(pid)
+	if err != nil {
+		t.Fatalf("FindProcess: %v", err)
+	}
+	if err := proc.Signal(syscall.Signal(0)); err != nil {
+		t.Fatalf("process should be alive, but signal(0) failed: %v", err)
+	}
+
+	// Reload with a new provider instance (simulates env change)
+	newProvider := &realProcessProvider{}
+	reg.ReloadProviders(map[string]agent.Provider{testProvider: newProvider}, testProvider)
+
+	// Wait for the process to die (SIGTERM should kill sleep quickly)
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		if err := proc.Signal(syscall.Signal(0)); err != nil {
+			// Process is dead — test passes
+			return
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	t.Errorf("process %d should be dead after reload, but it's still alive", pid)
+}
+
+// realProcessProvider spawns a real `sleep` process for integration testing.
+type realProcessProvider struct {
+	mu      sync.Mutex
+	lastPID int
+}
+
+func (p *realProcessProvider) Name() string                         { return "real-sleep" }
+func (p *realProcessProvider) Ready(_ context.Context) error        { return nil }
+func (p *realProcessProvider) Healthy(_ context.Context, _ string) bool { return true }
+func (p *realProcessProvider) NewAdapter(_ string) agent.Adapter {
+	return agenttest.NewMockAdapter()
+}
+
+func (p *realProcessProvider) Spawn(_ context.Context, _ string) (string, int, error) {
+	cmd := exec.Command("sleep", "3600")
+	if err := cmd.Start(); err != nil {
+		return "", 0, err
+	}
+	pid := cmd.Process.Pid
+	p.mu.Lock()
+	p.lastPID = pid
+	p.mu.Unlock()
+	// Don't wait — the registry will kill it
+	go cmd.Wait() //nolint:errcheck
+	return fmt.Sprintf("http://127.0.0.1:%d", 19000+pid%1000), pid, nil
+}
+
+func (p *realProcessProvider) Stop(pid int) error {
+	proc, err := os.FindProcess(pid)
+	if err != nil {
+		return err
+	}
+	return proc.Signal(syscall.SIGTERM)
+}

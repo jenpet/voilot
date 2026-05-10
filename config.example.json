@@ -4,7 +4,10 @@
   "providers": {
     "opencode": {
       "type": "opencode",
-      "binary": "opencode"
+      "binary": "opencode",
+      "env": {
+        "AWS_BEARER_TOKEN_BEDROCK": "${AWS_BEARER_TOKEN_BEDROCK}"
+      }
     }
   },
   "maxInstances": 5,

@@ -351,6 +351,60 @@ func (r *ProviderRegistry) Close() error {
 	return lastErr
 }
 
+// ReloadProviders replaces the provider set and default provider name.
+// Instances belonging to changed or removed providers are stopped (SIGTERM).
+// Unchanged providers and their instances remain untouched.
+// Hot-reloadable options (maxInstances, idleTimeout) can be updated via opts.
+func (r *ProviderRegistry) ReloadProviders(providers map[string]Provider, defaultProvider string, opts ...RegistryOption) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	// Determine which providers changed or were removed.
+	var toStop []string
+	for key, inst := range r.instances {
+		newProvider, exists := providers[inst.ProviderName]
+		if !exists {
+			// Provider removed — stop instance.
+			toStop = append(toStop, key)
+			continue
+		}
+		// Provider still exists — check if it changed by comparing identity.
+		oldProvider, hadOld := r.providers[inst.ProviderName]
+		if !hadOld || oldProvider != newProvider {
+			// Provider was replaced (new struct = new config) — stop instance.
+			toStop = append(toStop, key)
+		}
+	}
+
+	// Stop affected instances (fire-and-forget SIGTERM).
+	for _, key := range toStop {
+		inst, ok := r.instances[key]
+		if !ok {
+			continue
+		}
+		// Use the OLD provider's Stop method since it owns this process.
+		if oldProvider, ok := r.providers[inst.ProviderName]; ok {
+			if err := oldProvider.Stop(inst.PID); err != nil {
+				slog.Error("failed to stop instance during reload", "key", key, "pid", inst.PID, "error", err)
+			}
+		}
+		delete(r.instances, key)
+		r.removePIDFile(key)
+		slog.Info("stopped instance due to provider config change", "workdir", inst.WorkDir, "provider", inst.ProviderName, "pid", inst.PID)
+	}
+
+	// Replace providers and default.
+	r.providers = providers
+	r.defaultProvider = defaultProvider
+
+	// Apply option overrides (e.g. maxInstances, idleTimeout).
+	for _, opt := range opts {
+		opt(r)
+	}
+
+	slog.Info("providers reloaded", "providers", len(providers), "default", defaultProvider, "stopped", len(toStop))
+}
+
 // --- Internal methods ---
 
 // stopInstanceLocked stops an instance and removes it from the registry.

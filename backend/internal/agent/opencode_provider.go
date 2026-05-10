@@ -18,6 +18,9 @@ type OpenCodeProvider struct {
 	// binaryPath is the path to the opencode binary.
 	// If empty, "opencode" is resolved via PATH.
 	binaryPath string
+	// env holds additional environment variables passed to spawned instances.
+	// These are merged with the parent process env (provider values override).
+	env map[string]string
 }
 
 // Verify interface compliance.
@@ -25,11 +28,12 @@ var _ Provider = (*OpenCodeProvider)(nil)
 
 // NewOpenCodeProvider creates a new OpenCode provider.
 // binaryPath can be empty to use the default "opencode" from PATH.
-func NewOpenCodeProvider(binaryPath string) *OpenCodeProvider {
+// env specifies additional environment variables for spawned instances.
+func NewOpenCodeProvider(binaryPath string, env map[string]string) *OpenCodeProvider {
 	if binaryPath == "" {
 		binaryPath = "opencode"
 	}
-	return &OpenCodeProvider{binaryPath: binaryPath}
+	return &OpenCodeProvider{binaryPath: binaryPath, env: env}
 }
 
 func (p *OpenCodeProvider) Name() string { return "opencode" }
@@ -54,6 +58,11 @@ func (p *OpenCodeProvider) Spawn(ctx context.Context, workDir string) (string, i
 	cmd.Dir = workDir
 	// Set process group so we can kill child processes on shutdown
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+
+	// Merge parent environment with provider-specific env vars.
+	if len(p.env) > 0 {
+		cmd.Env = mergeEnv(os.Environ(), p.env)
+	}
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
@@ -188,4 +197,30 @@ func parseListenURL(ctx context.Context, r interface{ Read([]byte) (int, error) 
 	case res := <-ch:
 		return res.url, res.err
 	}
+}
+
+// mergeEnv merges parent environment variables with provider-specific overrides.
+// Provider values override same-named variables from the parent environment.
+func mergeEnv(parentEnv []string, providerEnv map[string]string) []string {
+	// Build a map from the parent env for override detection.
+	envMap := make(map[string]int, len(parentEnv))
+	for i, entry := range parentEnv {
+		if eqIdx := strings.IndexByte(entry, '='); eqIdx > 0 {
+			envMap[entry[:eqIdx]] = i
+		}
+	}
+
+	result := make([]string, len(parentEnv))
+	copy(result, parentEnv)
+
+	for key, val := range providerEnv {
+		entry := key + "=" + val
+		if idx, exists := envMap[key]; exists {
+			// Override existing entry in-place.
+			result[idx] = entry
+		} else {
+			result = append(result, entry)
+		}
+	}
+	return result
 }

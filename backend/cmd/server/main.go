@@ -66,15 +66,7 @@ func main() {
 	}
 
 	// Build providers from config
-	providers := make(map[string]agent.Provider)
-	for name, pc := range cfg.Providers {
-		switch pc.Type {
-		case "opencode":
-			providers[name] = agent.NewOpenCodeProvider(pc.Binary)
-		default:
-			slog.Warn("Unsupported provider type, skipping", "provider", name, "type", pc.Type)
-		}
-	}
+	providers := buildProviders(cfg)
 	if len(providers) == 0 {
 		slog.Error("No supported providers configured")
 		os.Exit(1)
@@ -91,6 +83,33 @@ func main() {
 	}
 	defer registry.Close()
 	slog.Info("Provider registry initialized", "providers", len(providers), "maxInstances", cfg.MaxInstances, "pidDir", pidDir)
+
+	// Start config file watcher for hot-reload
+	watchCtx, watchCancel := context.WithCancel(context.Background())
+	defer watchCancel()
+	watcher := config.NewWatcher(cfgPath, 2*time.Second)
+	go watcher.Start(watchCtx)
+	go func() {
+		for change := range watcher.Changes() {
+			// Check for non-reloadable field changes
+			if change.Old != nil && change.Old.Workspace != change.New.Workspace {
+				slog.Warn("workspace changed in config, will take effect after restart",
+					"old", change.Old.Workspace, "new", change.New.Workspace)
+			}
+			newProviders := buildProviders(change.New)
+			registry.ReloadProviders(newProviders, change.New.DefaultProvider,
+				agent.WithMaxInstances(change.New.MaxInstances),
+				agent.WithIdleTimeout(change.New.IdleTimeoutDuration()),
+			)
+			// Update TTS/STT URLs for next request (handled via server reference if needed)
+			if change.Old != nil && change.Old.TTSUrl != change.New.TTSUrl {
+				slog.Info("ttsUrl updated", "url", change.New.TTSUrl)
+			}
+			if change.Old != nil && change.Old.STTUrl != change.New.STTUrl {
+				slog.Info("sttUrl updated", "url", change.New.STTUrl)
+			}
+		}
+	}()
 
 	// Initialize TTS provider (optional)
 	var ttsProvider tts.Provider
@@ -232,4 +251,18 @@ func (w *slogWriter) Write(p []byte) (n int, err error) {
 	msg := strings.TrimRight(string(p), "\n")
 	w.logger.Info(msg, "source", "stdlib")
 	return len(p), nil
+}
+
+// buildProviders creates agent.Provider instances from the config's provider map.
+func buildProviders(cfg *config.Config) map[string]agent.Provider {
+	providers := make(map[string]agent.Provider)
+	for name, pc := range cfg.Providers {
+		switch pc.Type {
+		case "opencode":
+			providers[name] = agent.NewOpenCodeProvider(pc.Binary, pc.Env)
+		default:
+			slog.Warn("Unsupported provider type, skipping", "provider", name, "type", pc.Type)
+		}
+	}
+	return providers
 }

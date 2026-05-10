@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
+	"strings"
 	"time"
 )
 
@@ -22,8 +24,20 @@ func DefaultPath() string {
 
 // ProviderConfig describes a single agent provider.
 type ProviderConfig struct {
-	Type   string `json:"type"`             // provider type: "opencode", "claude-code", "pi"
-	Binary string `json:"binary,omitempty"` // path or name of the binary (defaults to type name)
+	Type   string            `json:"type"`             // provider type: "opencode", "claude-code", "pi"
+	Binary string            `json:"binary,omitempty"` // path or name of the binary (defaults to type name)
+	Env    map[string]string `json:"env,omitempty"`    // environment variables passed to spawned instances
+}
+
+// envKeyPattern validates environment variable key names.
+var envKeyPattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+
+// envRefPattern matches a single ${VAR_NAME} reference (the entire value).
+var envRefPattern = regexp.MustCompile(`^\$\{([A-Za-z_][A-Za-z0-9_]*)\}$`)
+
+// isEnvRef returns true if the value is a ${VAR_NAME} reference.
+func isEnvRef(val string) bool {
+	return strings.Contains(val, "${")
 }
 
 // Config is the top-level voilot configuration.
@@ -69,6 +83,10 @@ func Load(path string) (*Config, error) {
 		return nil, fmt.Errorf("invalid config %s: %w", path, err)
 	}
 
+	if err := cfg.resolveEnvRefs(); err != nil {
+		return nil, fmt.Errorf("invalid config %s: %w", path, err)
+	}
+
 	cfg.applyDefaults()
 	return &cfg, nil
 }
@@ -96,6 +114,20 @@ func (c *Config) Validate() error {
 		if !supportedTypes[p.Type] {
 			return fmt.Errorf("provider %q: unsupported type %q (supported: opencode)", name, p.Type)
 		}
+		for key, val := range p.Env {
+			if !envKeyPattern.MatchString(key) {
+				return fmt.Errorf("provider %q: env key %q is not a valid environment variable name", name, key)
+			}
+			if val == "" {
+				return fmt.Errorf("provider %q: env[%q] must not be empty", name, key)
+			}
+			// If it looks like a reference, validate the format.
+			if isEnvRef(val) {
+				if !envRefPattern.MatchString(val) {
+					return fmt.Errorf("provider %q: env[%q] has invalid reference format %q (must be exactly ${VAR_NAME})", name, key, val)
+				}
+			}
+		}
 	}
 
 	if c.MaxInstances < 0 {
@@ -121,6 +153,33 @@ func (c *Config) applyDefaults() {
 			c.Providers[name] = p
 		}
 	}
+}
+
+// resolveEnvRefs expands ${VAR_NAME} references in provider env values
+// from the process environment. Returns an error if any referenced variable
+// is not set or empty.
+func (c *Config) resolveEnvRefs() error {
+	for name, p := range c.Providers {
+		if len(p.Env) == 0 {
+			continue
+		}
+		resolved := make(map[string]string, len(p.Env))
+		for key, val := range p.Env {
+			if matches := envRefPattern.FindStringSubmatch(val); matches != nil {
+				varName := matches[1]
+				expanded := os.Getenv(varName)
+				if expanded == "" {
+					return fmt.Errorf("provider %q: env[%q] references ${%s} which is not set in the process environment", name, key, varName)
+				}
+				resolved[key] = expanded
+			} else {
+				resolved[key] = val
+			}
+		}
+		p.Env = resolved
+		c.Providers[name] = p
+	}
+	return nil
 }
 
 // SampleConfig returns a sample config JSON string for documentation.

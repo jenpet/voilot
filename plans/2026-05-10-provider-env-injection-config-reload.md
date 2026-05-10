@@ -19,7 +19,7 @@ Allow voilot to pass environment variables (API tokens, credentials) to spawned 
 
 ### 1. Add `env` field to provider config
 
-Add `Env map[string]string` to `ProviderConfig`. Values are literal strings stored directly in `~/.config/voilot/config.json`.
+Add `Env map[string]string` to `ProviderConfig`. Values can be either literal strings or `${VAR_NAME}` references that expand from the backend process's environment.
 
 ```json
 {
@@ -28,17 +28,25 @@ Add `Env map[string]string` to `ProviderConfig`. Values are literal strings stor
       "type": "opencode",
       "binary": "opencode",
       "env": {
-        "AWS_BEARER_TOKEN_BEDROCK": "adcf7bdb-7b8e-43ad-8f2a-521b81bcd4f0"
+        "AWS_BEARER_TOKEN_BEDROCK": "${AWS_BEARER_TOKEN_BEDROCK}",
+        "CUSTOM_FLAG": "some-literal-value"
       }
     }
   }
 }
 ```
 
-**Validation rules:**
+**Value formats (mutually exclusive per entry):**
+- **Literal string**: any value that does not contain `${` — stored and passed as-is
+- **Single `${VAR_NAME}` reference**: the entire value is exactly `${VAR_NAME}` — expanded from `os.Getenv("VAR_NAME")` at config load/reload time. This is a "keep secrets off disk" convenience; the backend's process env is frozen at startup, so these do NOT benefit from hot-reload.
+
+**Validation rules (applied at startup and on every hot-reload):**
 - Key names must match `^[A-Za-z_][A-Za-z0-9_]*$`
-- Values must be non-empty strings
-- Validation applied at startup and on every hot-reload
+- Values containing `${` must match exactly `^\$\{[A-Za-z_][A-Za-z0-9_]*\}$` (single reference, no mixing)
+- After expansion, all values must be non-empty
+- Consistent error messages:
+  - Literal empty: `provider "X": env["KEY"] must not be empty`
+  - `${VAR}` resolves to empty: `provider "X": env["KEY"] references ${VAR} which is not set in the process environment`
 
 ### 2. Pass env to spawned instances
 
@@ -125,7 +133,9 @@ go func() {
 
 | Decision | Choice | Rationale |
 |----------|--------|-----------|
-| Env value format | Literal values in config | No indirection needed; same security as any `~/.config` file |
+| Env value format | Literal values OR single `${VAR}` references | Literals for rotating tokens (hot-reloadable); `${VAR}` for stable tokens kept off disk (expanded from process env at load time) |
+| `${VAR}` expansion timing | At config load/reload | Process env is frozen; no benefit delaying. Fail fast if var is unset. |
+| `${VAR}` and hot-reload | References don't benefit from hot-reload | Process env doesn't change; only literal values in the config file benefit from file-based hot-reload |
 | File watching mechanism | `os.Stat` polling (2s) | No external deps; config changes are rare; mtime comparison is naturally idempotent (no debouncing needed) |
 | Effect on running instances | SIGTERM on provider change | Clean slate for new env; old instances would hit auth errors anyway |
 | SIGTERM delivery | Fire-and-forget | Don't wait for process exit; no port conflicts (`--port 0`) |
@@ -136,25 +146,29 @@ go func() {
 | Watcher interface | Channel-based (`<-chan ConfigChange`) | Idiomatic Go; testable; composable |
 | Registry locking during reload | Brief write lock | Milliseconds; acceptable latency |
 | Workspace change | Not hot-reloaded | Dangerous; log warning to restart |
+| `${VAR}` scope | `env` field only | Other config fields (paths, URLs) aren't sensitive and benefit from being explicit |
 
 ## Files to Change
 
 | File | Changes |
 |------|---------|
-| `backend/internal/config/config.go` | Add `Env map[string]string` to `ProviderConfig`; add env key/value validation in `Validate()` |
+| `backend/internal/config/config.go` | Add `Env map[string]string` to `ProviderConfig`; add env key/value validation in `Validate()`; add `${VAR}` reference detection, expansion via `os.Getenv`, and resolved-value validation; expand references during `Load()` before returning |
 | `backend/internal/config/watcher.go` | New: `Watcher` struct with `Start(ctx)`, `Changes() <-chan ConfigChange`, mtime polling loop |
 | `backend/internal/config/watcher_test.go` | New: polling detection, change emission, invalid file handling, deleted file handling |
-| `backend/internal/config/config_test.go` | Extend: env key format validation, empty value rejection |
+| `backend/internal/config/config_test.go` | Extend: env key format validation, empty value rejection, `${VAR}` format validation, expansion success/failure, error message format |
 | `backend/internal/agent/opencode_provider.go` | Add `env map[string]string` field; update constructor; merge env into `cmd.Env` in `Spawn()` |
 | `backend/internal/agent/registry.go` | Add `ReloadProviders(providers, defaultProvider)` method with deep-compare, SIGTERM, re-register |
 | `backend/internal/agent/registry_test.go` | Extend: reload logic tests, integration test spawning `sleep` process and verifying SIGTERM |
 | `backend/cmd/server/main.go` | Pass `pc.Env` to provider; wire watcher to registry reload loop |
-| `config.example.json` | Add `env` example with placeholder value |
+| `config.example.json` | Add `env` example showing both literal and `${VAR}` usage |
+| `README.md` | Add section documenting provider env vars (literal + `${VAR}` expansion), per-provider scoping, hot-reload behavior, and validation rules |
 
 ## Testing
 
 ### Unit Tests
-- Config validation: valid env keys, invalid env keys (digits-first, spaces, special chars), empty values rejected
+- Config validation: valid env keys, invalid env keys (digits-first, spaces, special chars), empty literal values rejected
+- `${VAR}` reference validation: valid reference format accepted, malformed references rejected (e.g. `${123BAD}`, `${VAR` without closing brace, `prefix${VAR}` mixed content)
+- `${VAR}` expansion: reference resolves to process env value, unset var produces specific error message, set-but-empty var produces specific error message
 - Config reload: changed file emits on channel, unchanged file does not, deleted file logged and ignored, malformed JSON rejected
 
 ### Integration Test (registry reload + process kill)
@@ -172,6 +186,11 @@ None remaining.
 ## Acceptance Criteria
 
 - [ ] Provider config accepts `env` map with literal key/value pairs
+- [ ] Provider config accepts `env` map with `${VAR}` references that expand from process env
+- [ ] `${VAR}` references must be the entire value (no mixed content like `prefix${VAR}`)
+- [ ] Malformed `${VAR}` references are rejected at config load with a clear error
+- [ ] Unset/empty `${VAR}` references are rejected at config load with a specific error naming the variable
+- [ ] Error messages are structurally consistent between literal and reference validation failures
 - [ ] Env validation rejects invalid key names and empty values at startup and reload
 - [ ] Spawned OpenCode instances receive merged environment (parent + provider env)
 - [ ] Config file changes detected within ~2 seconds via mtime polling
@@ -181,4 +200,5 @@ None remaining.
 - [ ] Deleted config file is ignored; running config preserved
 - [ ] `workspace` field change logs a "restart required" message
 - [ ] Integration test verifies process kill on provider reload
-- [ ] `config.example.json` updated with env example
+- [ ] `config.example.json` updated with env example showing both literal and `${VAR}` usage
+- [ ] `README.md` documents provider env var injection (literal + `${VAR}`), per-provider scoping, hot-reload behavior, and validation rules

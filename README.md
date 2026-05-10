@@ -91,6 +91,55 @@ See `config.example.json` for all available fields. Key settings:
 | `ttsUrl` | `"http://localhost:8880"` | Kokoro TTS server URL |
 | `sttUrl` | `"http://localhost:5003"` | faster-whisper STT server URL |
 
+### Provider Environment Variables
+
+Each provider can define environment variables passed to spawned agent instances. This is how you provide API tokens, credentials, or other secrets that the agent backend needs.
+
+```json
+{
+  "providers": {
+    "opencode-nexus": {
+      "type": "opencode",
+      "binary": "opencode",
+      "env": {
+        "AWS_BEARER_TOKEN_BEDROCK": "${AWS_BEARER_TOKEN_BEDROCK}"
+      }
+    },
+    "opencode-local": {
+      "type": "opencode",
+      "binary": "opencode",
+      "env": {
+        "ANTHROPIC_API_KEY": "sk-ant-your-key-here"
+      }
+    }
+  }
+}
+```
+
+**Value formats:**
+
+| Format | Example | Behavior |
+|--------|---------|----------|
+| Literal | `"sk-ant-abc123"` | Passed as-is to spawned instances |
+| `${VAR}` reference | `"${AWS_BEARER_TOKEN_BEDROCK}"` | Expanded from the backend process environment at config load time |
+
+- Each value must be either a pure literal OR a single `${VAR_NAME}` reference (no mixing).
+- Key names must be valid env var identifiers (`A-Z`, `a-z`, `0-9`, `_`, cannot start with a digit).
+- Empty values and unresolvable `${VAR}` references are rejected at startup.
+- `${VAR}` references expand from the backend's process environment (set in your shell profile). They keep secrets off disk but do not benefit from hot-reload since process env is frozen at startup.
+
+### Config Hot-Reload
+
+The backend watches the config file for changes (2-second polling). When the file is modified:
+
+- **Provider env or binary changed** — running instances for that provider are stopped (SIGTERM) and the next session creation spawns a fresh instance with the new config.
+- **New provider added** — available immediately for new sessions.
+- **Provider removed** — running instances are stopped, provider is deregistered.
+- **`maxInstances`, `idleTimeout`, `ttsUrl`, `sttUrl`, `defaultProvider`** — applied immediately.
+- **`workspace`** — requires a backend restart (logged as a warning).
+
+Invalid config changes (malformed JSON, validation errors) are rejected and the running config is preserved. All reload activity is logged to the console.
+
 **Docker-specific env vars** (set in `.env` or pass to `docker compose`):
 
 | Variable | Default | Description |
