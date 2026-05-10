@@ -19,6 +19,7 @@ export const INTERACTION_STATES = [
   'idle',
   'user_turn',
   'agent_turn',
+  'awaiting_input',
   'error',
 ] as const;
 
@@ -30,6 +31,8 @@ export const ACTION_NAMES = [
   'start_user_turn',
   'start_agent_turn',
   'complete_turn',
+  'await_input',
+  'answer_input',
   'error',
   'recover',
 ] as const;
@@ -44,11 +47,13 @@ interface ActionDef {
 }
 
 const ACTION_TABLE: Record<ActionName, ActionDef> = {
-  start_user_turn:  { from: ['idle'],                  to: 'user_turn' },
-  start_agent_turn: { from: ['user_turn', 'idle'],     to: 'agent_turn' },
-  complete_turn:    { from: ['agent_turn'],             to: 'idle' },
+  start_user_turn:  { from: ['idle', 'awaiting_input'], to: 'user_turn' },
+  start_agent_turn: { from: ['user_turn', 'idle'],      to: 'agent_turn' },
+  complete_turn:    { from: ['agent_turn'],              to: 'idle' },
+  await_input:      { from: ['agent_turn'],              to: 'awaiting_input' },
+  answer_input:     { from: ['awaiting_input'],          to: 'agent_turn' },
   error:            { from: INTERACTION_STATES.filter(s => s !== 'idle'), to: 'error' },
-  recover:          { from: ['error'],                  to: 'idle' },
+  recover:          { from: ['error'],                   to: 'idle' },
 };
 
 // ── Module-level singleton state ────────────────────────────────────

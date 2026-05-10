@@ -118,6 +118,13 @@ describe('scenarios', () => {
     expect(getState()).toBe('error');
   });
 
+  it('error from awaiting_input', () => {
+    _forceStateForTesting('awaiting_input');
+
+    expect(dispatch('error', 'ws_disconnected')).toBe(true);
+    expect(getState()).toBe('error');
+  });
+
   it('abort during agent_turn', () => {
     _forceStateForTesting('agent_turn');
     abort('user_abort');
@@ -126,6 +133,12 @@ describe('scenarios', () => {
 
   it('abort during user_turn', () => {
     _forceStateForTesting('user_turn');
+    abort('user_abort');
+    expect(getState()).toBe('idle');
+  });
+
+  it('abort during awaiting_input', () => {
+    _forceStateForTesting('awaiting_input');
     abort('user_abort');
     expect(getState()).toBe('idle');
   });
@@ -180,5 +193,106 @@ describe('scenarios', () => {
 
     _forceStateForTesting('agent_turn');
     expect(dispatch('recover', 'test')).toBe(false);
+
+    _forceStateForTesting('awaiting_input');
+    expect(dispatch('recover', 'test')).toBe(false);
+  });
+
+  // ── awaiting_input scenarios ──────────────────────────────────────
+
+  it('question flow: agent asks, user answers by voice', () => {
+    // Agent is processing
+    _forceStateForTesting('agent_turn');
+
+    // Agent sends question_request → await_input
+    expect(dispatch('await_input', 'question_request')).toBe(true);
+    expect(getState()).toBe('awaiting_input');
+
+    // TTS finishes, mic starts → start_user_turn from awaiting_input
+    expect(dispatch('start_user_turn', 'loop_recording_start')).toBe(true);
+    expect(getState()).toBe('user_turn');
+
+    // User speaks answer → start_agent_turn
+    expect(dispatch('start_agent_turn', 'question_answered')).toBe(true);
+    expect(getState()).toBe('agent_turn');
+
+    // Agent finishes
+    expect(dispatch('complete_turn', 'turn_complete')).toBe(true);
+    expect(getState()).toBe('idle');
+  });
+
+  it('permission flow: agent asks, user taps button', () => {
+    _forceStateForTesting('agent_turn');
+
+    // Agent sends permission_request → await_input
+    expect(dispatch('await_input', 'permission_request')).toBe(true);
+    expect(getState()).toBe('awaiting_input');
+
+    // User taps approve → answer_input
+    expect(dispatch('answer_input', 'permission_response')).toBe(true);
+    expect(getState()).toBe('agent_turn');
+
+    // Agent finishes
+    expect(dispatch('complete_turn', 'turn_complete')).toBe(true);
+    expect(getState()).toBe('idle');
+  });
+
+  it('multi-question batch: answer Q1, then Q2', () => {
+    _forceStateForTesting('agent_turn');
+
+    // First question arrives
+    expect(dispatch('await_input', 'question_request')).toBe(true);
+    expect(getState()).toBe('awaiting_input');
+
+    // User answers Q1 by voice
+    expect(dispatch('start_user_turn', 'loop_recording_start')).toBe(true);
+    expect(dispatch('start_agent_turn', 'question_answered')).toBe(true);
+    expect(getState()).toBe('agent_turn');
+
+    // Next question in batch
+    expect(dispatch('await_input', 'next_question')).toBe(true);
+    expect(getState()).toBe('awaiting_input');
+
+    // User answers Q2 by voice
+    expect(dispatch('start_user_turn', 'loop_recording_start')).toBe(true);
+    expect(dispatch('start_agent_turn', 'question_answered')).toBe(true);
+    expect(getState()).toBe('agent_turn');
+
+    // Agent finishes after all questions answered
+    expect(dispatch('complete_turn', 'turn_complete')).toBe(true);
+    expect(getState()).toBe('idle');
+  });
+
+  it('question answered by UI button (no voice)', () => {
+    _forceStateForTesting('agent_turn');
+
+    // Question arrives
+    expect(dispatch('await_input', 'question_request')).toBe(true);
+    expect(getState()).toBe('awaiting_input');
+
+    // User clicks an option button → answer_input (same as permission)
+    expect(dispatch('answer_input', 'question_answered')).toBe(true);
+    expect(getState()).toBe('agent_turn');
+
+    // Agent finishes
+    expect(dispatch('complete_turn', 'turn_complete')).toBe(true);
+    expect(getState()).toBe('idle');
+  });
+
+  it('cannot await_input from idle', () => {
+    expect(dispatch('await_input', 'test')).toBe(false);
+    expect(getState()).toBe('idle');
+  });
+
+  it('cannot answer_input from agent_turn', () => {
+    _forceStateForTesting('agent_turn');
+    expect(dispatch('answer_input', 'test')).toBe(false);
+    expect(getState()).toBe('agent_turn');
+  });
+
+  it('cannot await_input from awaiting_input (idempotent guard needed)', () => {
+    _forceStateForTesting('awaiting_input');
+    expect(dispatch('await_input', 'test')).toBe(false);
+    expect(getState()).toBe('awaiting_input');
   });
 });

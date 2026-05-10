@@ -45,6 +45,20 @@
         </div>
       </div>
 
+      <div class="flex items-center justify-between mb-4">
+        <label class="text-sm text-text-primary">Auto-voice new sessions</label>
+        <button
+          class="relative inline-flex h-5 w-9 rounded-full transition-colors"
+          :class="autoVoiceNewSessions ? 'bg-accent' : 'bg-bg-elevated'"
+          @click="setAutoVoiceNewSessions(!autoVoiceNewSessions)"
+        >
+          <span
+            class="inline-block h-4 w-4 rounded-full bg-white transform transition-transform mt-0.5"
+            :class="autoVoiceNewSessions ? 'translate-x-4 ml-0.5' : 'translate-x-0.5'"
+          />
+        </button>
+      </div>
+
       <!-- Display section -->
       <h3 class="text-xs font-semibold text-text-primary uppercase tracking-wide mb-3">Display</h3>
 
@@ -104,7 +118,7 @@ import { useSettings } from '~/composables/useSettings';
 import type { DebugLogExport } from '~/composables/useDebugLog';
 
 const { enable, disable, isEnabled, getRecordingSince, getEntryCount, exportLog } = useDebugLog();
-const { silenceDurationMs, setSilenceDuration, showRoundTripTimings, setShowRoundTripTimings } = useSettings();
+const { silenceDurationMs, setSilenceDuration, showRoundTripTimings, setShowRoundTripTimings, autoVoiceNewSessions, setAutoVoiceNewSessions } = useSettings();
 
 const isOpen = ref(false);
 const debugEnabled = ref(isEnabled());

@@ -4,7 +4,7 @@ This document describes the voilot interaction state machine, its action-gated d
 
 ## Architecture: Action-Gated Dispatch
 
-The state machine tracks **turn lifecycle** only — 4 states. Audio/media concerns (mic, TTS, STT) are tracked by reactive booleans in their respective composables (`useVoice`, `useTTS`), not as state machine states.
+The state machine tracks **turn lifecycle** only — 5 states. Audio/media concerns (mic, TTS, STT) are tracked by reactive booleans in their respective composables (`useVoice`, `useTTS`), not as state machine states.
 
 State transitions are driven by **named actions** via `dispatch(action, trigger) → boolean`. The state machine checks whether the action is valid in the current state and transitions if so. Side effects remain in the calling composables — the state machine is a pure gate with no dependencies.
 
@@ -14,22 +14,25 @@ State transitions are driven by **named actions** via `dispatch(action, trigger)
 
 Implementation: `frontend/composables/useStateMachine.ts`
 
-## Interaction States (4)
+## Interaction States (5)
 
 | State | Description |
 |---|---|
 | `idle` | Nothing active. Waiting for user input (mic tap, typed message, or voice loop restart). |
 | `user_turn` | User is providing input — mic recording, STT transcribing, or typing. |
-| `agent_turn` | Agent is processing — streaming response, TTS playing. Ends when both agent streaming and TTS playback are complete. |
+| `agent_turn` | Agent is processing — streaming response, using tools. Ends when streaming and TTS are complete. |
+| `awaiting_input` | Agent is blocked, waiting for user to answer a question or approve a permission before continuing. |
 | `error` | Something failed (mic denied, STT error, WS disconnect, etc.). Recoverable via `recover` action. |
 
-## Action Table (5 actions)
+## Action Table (7 actions)
 
 | Action | From states | To state | What triggers it |
 |---|---|---|---|
-| `start_user_turn` | `idle` | `user_turn` | User taps mic button; voice loop auto-restart |
-| `start_agent_turn` | `user_turn`, `idle` | `agent_turn` | STT result sent to agent; typed message sent; session busy on page load |
+| `start_user_turn` | `idle`, `awaiting_input` | `user_turn` | User taps mic button; voice loop auto-restart; voice answer to question |
+| `start_agent_turn` | `user_turn`, `idle` | `agent_turn` | STT result sent to agent; typed message sent; session busy on page load; question answered by voice |
 | `complete_turn` | `agent_turn` | `idle` | Agent done streaming AND TTS queue drained (or no TTS) |
+| `await_input` | `agent_turn` | `awaiting_input` | `question_request` or `permission_request` received from agent |
+| `answer_input` | `awaiting_input` | `agent_turn` | User answers question (UI button) or approves/rejects permission |
 | `error` | any except `idle` | `error` | Mic denied; STT failed; WS send failed |
 | `recover` | `error` | `idle` | User dismisses error; automatic retry path |
 
@@ -40,10 +43,18 @@ Implementation: `frontend/composables/useStateMachine.ts`
 ```
               start_user_turn              start_agent_turn
     idle ──────────────────► user_turn ──────────────────► agent_turn
-      ▲                                                       │
-      │                    start_agent_turn                    │
-      ├◄──────────────────────────────────────────────────────┘
-      │                   (idle → agent_turn for busy-on-load) complete_turn
+      ▲                         ▲                            │   │
+      │                         │                            │   │
+      │                         │  start_user_turn           │   │ await_input
+      │                         │                            │   │
+      │                         └─────────── awaiting_input ◄┘   │
+      │                                         │                │
+      │              answer_input                │                │
+      │              ┌──────────────────────────►│ ◄──────────────┘
+      │              │                  agent_turn (via answer_input)
+      │              │
+      │ complete_turn│
+      ◄──────────────┘
       │
       │  recover
     error ◄──── any state (except idle) via error action
@@ -53,9 +64,12 @@ Implementation: `frontend/composables/useStateMachine.ts`
 
 ### Key Design Decisions
 
-1. **`start_agent_turn` from `idle`**: Allows text-only messages (no mic/user_turn phase) and busy-on-load recovery (page reload while agent is processing).
-2. **Turn completion is dual-gated**: `tryCompleteTurn()` in `useAgent.ts` only dispatches `complete_turn` when both `agentDone` flag is true AND `onQueueDrained` callback fires. This prevents premature turn completion.
-3. **Voice loop restart**: After `complete_turn` returns to `idle`, `useAgent.ts` calls `startLoopRecording()` which dispatches `start_user_turn` — re-entering the cycle.
+1. **`start_user_turn` from `idle` AND `awaiting_input`**: From `idle`, it starts a new conversation turn. From `awaiting_input`, it starts mic recording so the user can answer a pending question by voice.
+2. **`start_agent_turn` from `idle`**: Allows text-only messages (no mic/user_turn phase) and busy-on-load recovery (page reload while agent is processing).
+3. **Turn completion is dual-gated**: `tryCompleteTurn()` in `useAgent.ts` dispatches `complete_turn` first (agent_turn → idle), then attempts `startLoopRecording()` (idle → user_turn). This ensures clean state ordering.
+4. **Voice loop restart**: After `complete_turn` returns to `idle`, `useAgent.ts` calls `startLoopRecording()` which dispatches `start_user_turn` — re-entering the cycle.
+5. **Question/permission flow**: Agent sends request → `await_input` (agent_turn → awaiting_input). After TTS announces the question and queue drains, mic auto-starts for voice answer (`start_user_turn`). For permissions, user taps a button → `answer_input` (awaiting_input → agent_turn).
+6. **Multi-question batches**: After answering one question, if more remain: `start_agent_turn` (user_turn → agent_turn) then `await_input` (agent_turn → awaiting_input). The cycle repeats until all questions are answered.
 
 ## Audio/Media State (Orthogonal)
 
@@ -65,8 +79,9 @@ These are **not** state machine states. They are reactive booleans in their resp
 |---|---|---|
 | `isRecording` | `useVoice` | MediaRecorder actively capturing audio |
 | `isTTSPlaying` | `useTTS` | TTS audio currently playing |
-| `voiceEnabled` | `useVoice` | Mic stream is open and available |
+| `voiceEnabled` | `useAgent` | Voice mode on/off |
 | `isStreaming` | `useAgent` | Agent is sending response events |
+| `voiceInitiatedTurn` | `useAgent` | Current turn was started by voice (controls loop restart) |
 
 This separation enables future **voice barge-in** (mic can be open during agent_turn) and eliminates the class of bugs caused by conflating turn lifecycle with audio state.
 
@@ -137,9 +152,20 @@ Debug log entries include a `component` field identifying the source subsystem:
 Look for:
 - `loop` / `loop_started` — should fire after TTS finishes and agent is done
 - `state` / `action_dispatched` with `action: complete_turn` — confirms turn ended
+- `state` / `action_dispatched` with `action: start_user_turn` — confirms loop restarted
 - `tts` / `queue_drained` — confirms TTS finished all items
 - `agent` / `finish_streaming` — confirms agent done streaming
-- Check that `agentDone` flag and `onQueueDrained` callback both fired — turn completion requires both
+- `loop` / `loop_guard_blocked` — shows which guard prevented restart
+- `loop` / `loop_dispatch_rejected` — state machine rejected the transition (wrong state)
+
+### Question/permission voice flow not working
+
+Look for:
+- `state` / `action_dispatched` with `action: await_input` — confirms transition to awaiting_input
+- `tts` / `queue_drained` while in `awaiting_input` — should trigger mic start
+- `state` / `action_dispatched` with `action: start_user_turn, from: awaiting_input` — mic started for answer
+- `state` / `action_dispatched` with `action: answer_input` — UI button answered
+- Missing `await_input` → question arrived but state wasn't `agent_turn` (guard blocked it)
 
 ### Mic not picking up sound
 

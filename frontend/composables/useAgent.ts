@@ -9,6 +9,7 @@ import { useDebugLog } from './useDebugLog'
 import {
   dispatch,
   abort,
+  getState,
 } from './useStateMachine'
 import {
   playHandoff,
@@ -108,6 +109,11 @@ export function useAgent(sessionId: string) {
   // When false (text-typed input), the mic auto-loop does NOT re-activate.
   const voiceInitiatedTurn = ref(false)
 
+  // Auto-voice for new sessions: when enabled, treat the initial agent
+  // response as voice-initiated so the mic auto-starts after the greeting.
+  const { autoVoiceNewSessions } = useSettings()
+  let autoVoiceArmed = autoVoiceNewSessions.value
+
   // Derived: true when any permission_request message is unresolved
   const hasPendingPermission = computed(() =>
     messages.value.some(m => m.type === 'permission_request' && m.meta?.resolved !== true),
@@ -173,9 +179,15 @@ export function useAgent(sessionId: string) {
     // When a question is pending, allow recording (user answers by voice).
     // Otherwise, block if the agent is still streaming.
     if (!hasPendingQuestion.value && isStreaming.value) return false
+
+    const accepted = dispatch('start_user_turn', 'loop_recording_start')
+    if (!accepted) {
+      log('warn', 'loop', 'loop_dispatch_rejected', { state: getState() })
+      return false
+    }
+
     loopStartPending = true
     loopRecordingActive.value = true
-    dispatch('start_user_turn', 'loop_recording_start')
     log('info', 'loop', 'loop_started')
     // Subtle tick so the user knows the mic is hot
     playLoopListeningTick()
@@ -207,7 +219,17 @@ export function useAgent(sessionId: string) {
 
   // When TTS finishes and the agent is done, complete the turn and
   // optionally restart the voice loop.
+  // Also handles awaiting_input: after question TTS finishes, start mic.
   onQueueDrained(() => {
+    const currentState = getState()
+
+    // In awaiting_input with a pending question: start mic for voice answer
+    if (currentState === 'awaiting_input' && hasPendingQuestion.value
+        && voiceInitiatedTurn.value && voiceEnabled.value) {
+      startLoopRecording() // awaiting_input → user_turn
+      return
+    }
+
     if (!agentDone) return // Agent still streaming — wait for finishStreaming
     tryCompleteTurn()
   })
@@ -240,6 +262,10 @@ export function useAgent(sessionId: string) {
       log('info', 'ws', 'reconnected_agent')
       playReconnectChime()
       enqueueTTS('Reconnected.')
+      // Re-fetch session state after reconnect — the backend may have
+      // restarted, which means session data / busy status could have changed.
+      fetchSession()
+      fetchMessages({ force: true })
     }
   })
 
@@ -270,7 +296,7 @@ export function useAgent(sessionId: string) {
   }
 
   // Fetch existing message history from the backend
-  async function fetchMessages() {
+  async function fetchMessages(options?: { force?: boolean }) {
     try {
       isLoading.value = true
       interface HistoryMessage {
@@ -284,7 +310,8 @@ export function useAgent(sessionId: string) {
       const data = await $fetch<HistoryMessage[]>(`${apiBase}/sessions/${sessionId}/messages`)
       if (data && data.length > 0) {
         // Only load history if we don't already have messages (avoid duplicates on reconnect)
-        if (messages.value.length === 0) {
+        // Unless force is set (e.g., after backend restart)
+        if (messages.value.length === 0 || options?.force) {
           messages.value = data
             .filter(m => !m.meta?.hidden)
             .map(m => ({
@@ -448,6 +475,15 @@ export function useAgent(sessionId: string) {
   function handleTextEvent(event: AgentEvent) {
     isStreaming.value = true
 
+    // Auto-voice for new sessions: on the first streaming event, if we're
+    // in idle with auto-voice enabled, treat this as a voice-initiated turn
+    // so the mic auto-starts after the greeting TTS finishes.
+    if (autoVoiceArmed && getState() === 'idle') {
+      autoVoiceArmed = false
+      voiceInitiatedTurn.value = true
+      dispatch('start_agent_turn', 'auto_voice_initial')
+    }
+
     // Flush any pending tool-use batch before speaking text
     if (voiceEnabled.value) {
       ttsToolBatcher.flush()
@@ -569,11 +605,9 @@ export function useAgent(sessionId: string) {
 
   // Complete the turn: dispatch state transition, optionally restart voice loop.
   function tryCompleteTurn() {
-    const loopStarted = startLoopRecording()
-    if (!loopStarted) {
-      dispatch('complete_turn', 'turn_complete')
-    }
+    dispatch('complete_turn', 'turn_complete') // agent_turn → idle
     agentDone = false
+    startLoopRecording() // idle → user_turn (if guards pass)
   }
 
   // Send a message via WebSocket
@@ -581,6 +615,7 @@ export function useAgent(sessionId: string) {
     log('info', 'agent', 'send_message', { origin: options?.origin, length: text.length, hasPendingQuestion: hasPendingQuestion.value })
     suppressInitialTools = false
     abortedTurn = false
+    autoVoiceArmed = false // User sent a message — no longer first response
     // If there's a pending question, intercept the input as a custom answer
     if (hasPendingQuestion.value && tryAnswerPendingQuestion(text)) {
       // Preserve voice-initiated state so the mic loop continues for
@@ -775,6 +810,11 @@ export function useAgent(sessionId: string) {
         enqueueTTS(`Permission needed: ${title}`)
       })
     }
+
+    // Transition to awaiting_input — user must tap approve/reject
+    if (getState() === 'agent_turn') {
+      dispatch('await_input', 'permission_request')
+    }
   }
 
   function handlePermissionReplied(event: AgentEvent) {
@@ -818,6 +858,10 @@ export function useAgent(sessionId: string) {
       if (msg && msg.meta) {
         msg.meta.resolved = true
         msg.meta.resolvedResponse = response
+      }
+      // Transition back to agent_turn — agent resumes after permission response
+      if (getState() === 'awaiting_input') {
+        dispatch('answer_input', 'permission_response')
       }
     } else {
       appendSystemMessage('Failed to respond to permission: not connected to backend')
@@ -899,6 +943,14 @@ export function useAgent(sessionId: string) {
         }
         announceQuestion(event.content || header, options)
       })
+    }
+
+    // Transition to awaiting_input so the voice loop can restart
+    // after TTS finishes announcing the question.
+    // Guard: only dispatch from agent_turn (multi-question bursts
+    // arrive in rapid succession — only the first triggers the transition).
+    if (getState() === 'agent_turn') {
+      dispatch('await_input', 'question_request')
     }
   }
 
@@ -985,6 +1037,18 @@ export function useAgent(sessionId: string) {
         announceQuestion(nextMsg.content, opts)
       }
     }
+
+    // State transitions: move back to agent_turn after answering
+    const currentState = getState()
+    if (currentState === 'awaiting_input') {
+      dispatch('answer_input', 'question_answered')
+    } else if (currentState === 'user_turn') {
+      dispatch('start_agent_turn', 'question_answered')
+    }
+    // If more questions remain, go back to awaiting_input for next question
+    if (hasPendingQuestion.value && getState() === 'agent_turn') {
+      dispatch('await_input', 'next_question')
+    }
   }
 
   function rejectQuestion(questionId: string) {
@@ -1006,6 +1070,13 @@ export function useAgent(sessionId: string) {
           }
         })
       pendingQuestionAnswers.delete(questionId)
+
+      // Transition back to agent_turn — agent resumes after rejection
+      if (getState() === 'awaiting_input') {
+        dispatch('answer_input', 'question_rejected')
+      } else if (getState() === 'user_turn') {
+        dispatch('start_agent_turn', 'question_rejected')
+      }
     } else {
       appendSystemMessage('Failed to reject question: not connected to backend')
     }
