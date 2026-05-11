@@ -12,10 +12,14 @@
       <div class="flex-1 min-w-0">
         <div class="flex items-center gap-2">
           <h1
-            v-if="!editingTitle"
+            v-if="!editingTitle && session"
             class="text-sm font-medium truncate cursor-pointer hover:text-accent transition-colors"
             @click="startEditTitle"
-          >{{ session?.title || 'Untitled Session' }}</h1>
+          >{{ session.title || 'Untitled Session' }}</h1>
+          <span
+            v-else-if="!editingTitle && !session"
+            class="inline-block w-full h-4 bg-bg-elevated rounded animate-pulse"
+          />
           <input
             v-else
             ref="titleInputRef"

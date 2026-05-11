@@ -30,8 +30,9 @@ export function useSession() {
     try {
       const data = await $fetch<Session[]>(`${apiBase}/sessions?worktree=${encodeURIComponent(worktreePath)}`)
       sessions.value = data || []
-    } catch {
+    } catch (err) {
       console.error('Failed to fetch sessions')
+      throw err
     }
   }
 
@@ -78,9 +79,14 @@ export function useSession() {
     }
   }
 
+  function clearSessions() {
+    sessions.value = []
+  }
+
   return {
     sessions: readonly(sessions),
     fetchSessions,
+    clearSessions,
     createSession,
     deleteSession,
     renameSession,

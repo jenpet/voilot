@@ -24,14 +24,14 @@
     <!-- New worktree input -->
     <div v-if="showNewWorktree" class="bg-bg-secondary border-b border-bg-elevated">
       <div class="px-4 py-3 max-w-[1200px] mx-auto">
-      <form class="flex flex-col gap-2" @submit.prevent="doCreateWorktree">
+      <form class="flex flex-col gap-2" :class="{ 'opacity-50 pointer-events-none': creatingWorktree }" @submit.prevent="doCreateWorktree">
         <!-- Branch selector -->
         <div>
           <label class="block text-xs text-text-muted mb-1">Base branch</label>
           <select
             v-model="selectedBranch"
             class="w-full px-3 py-1.5 text-sm rounded-lg bg-bg-primary border border-bg-elevated text-text-primary focus:outline-none focus:border-accent"
-            :disabled="branchesLoading"
+            :disabled="branchesLoading || creatingWorktree"
           >
             <option v-if="branchesLoading" value="">Loading branches...</option>
             <option v-for="b in branches" :key="b.name" :value="b.name">
@@ -49,14 +49,16 @@
           />
           <button
             type="submit"
-            class="px-3 py-1.5 text-sm rounded-lg bg-accent hover:bg-accent text-white transition-colors"
-            :disabled="!newDescription.trim() || branchesLoading"
+            class="px-3 py-1.5 text-sm rounded-lg bg-accent hover:bg-accent text-white transition-colors flex items-center gap-1.5"
+            :disabled="!newDescription.trim() || branchesLoading || creatingWorktree"
           >
-            Create
+            <SpinnerIcon v-if="creatingWorktree" class="w-4 h-4" />
+            <template v-else>Create</template>
           </button>
           <button
             type="button"
             class="px-3 py-1.5 text-sm rounded-lg bg-bg-secondary hover:bg-bg-elevated transition-colors"
+            :disabled="creatingWorktree"
             @click="showNewWorktree = false; newDescription = ''"
           >
             Cancel
@@ -104,10 +106,13 @@
               </button>
               <template v-else>
                 <button
-                  class="px-2 py-1 text-xs rounded-lg bg-accent-warn hover:bg-accent-warn text-white transition-colors"
+                  class="px-2 py-1 text-xs rounded-lg bg-accent-warn hover:bg-accent-warn text-white transition-colors flex items-center gap-1"
+                  :disabled="removingWorktree === wt.name"
+                  :class="{ 'opacity-50 pointer-events-none': removingWorktree === wt.name }"
                   @click.stop="doRemoveWorktree(wt.name)"
                 >
-                  Remove
+                  <SpinnerIcon v-if="removingWorktree === wt.name" class="w-3 h-3" />
+                  <template v-else>Remove</template>
                 </button>
                 <button
                   class="px-2 py-1 text-xs rounded-lg bg-bg-secondary hover:bg-bg-elevated transition-colors"
@@ -146,10 +151,13 @@
       <div class="flex flex-col sm:flex-row gap-2 mt-auto pt-6">
         <button
           v-if="removeError?.forceable"
-          class="w-full sm:w-auto px-3 py-2.5 sm:py-1.5 text-sm rounded-lg bg-accent-warn hover:bg-accent-warn/80 text-white transition-colors"
+          class="w-full sm:w-auto px-3 py-2.5 sm:py-1.5 text-sm rounded-lg bg-accent-warn hover:bg-accent-warn/80 text-white transition-colors flex items-center justify-center gap-1.5"
+          :disabled="forceRemoving"
+          :class="{ 'opacity-50 pointer-events-none': forceRemoving }"
           @click="doForceRemove"
         >
-          Force Remove
+          <SpinnerIcon v-if="forceRemoving" class="w-4 h-4" />
+          <template v-else>Force Remove</template>
         </button>
         <button
           class="w-full sm:w-auto px-3 py-2.5 sm:py-1.5 text-sm rounded-lg bg-bg-elevated hover:bg-bg-secondary text-text-primary transition-colors"
@@ -179,6 +187,9 @@ const selectedBranch = ref('');
 const branches = ref<BranchInfo[]>([]);
 const branchesLoading = ref(false);
 const confirmingDelete = ref('');
+const creatingWorktree = ref(false);
+const removingWorktree = ref('');
+const forceRemoving = ref(false);
 const createError = ref('');
 const removeError = ref<RemoveError | null>(null);
 const failedWorktree = ref('');
@@ -215,16 +226,21 @@ watch(showNewWorktree, async (visible) => {
 
 async function doCreateWorktree() {
   const desc = newDescription.value.trim();
-  if (!desc) return;
+  if (!desc || creatingWorktree.value) return;
   createError.value = '';
-  const base = selectedBranch.value || undefined;
-  const { error } = await createWorktree(projectName.value, desc, base);
-  if (error) {
-    createError.value = error;
-    return;
+  creatingWorktree.value = true;
+  try {
+    const base = selectedBranch.value || undefined;
+    const { error } = await createWorktree(projectName.value, desc, base);
+    if (error) {
+      createError.value = error;
+      return;
+    }
+    newDescription.value = '';
+    showNewWorktree.value = false;
+  } finally {
+    creatingWorktree.value = false;
   }
-  newDescription.value = '';
-  showNewWorktree.value = false;
 }
 
 function navigateToWorktree(wt: Worktree) {
@@ -232,21 +248,31 @@ function navigateToWorktree(wt: Worktree) {
 }
 
 async function doRemoveWorktree(worktreeName: string) {
-  const err = await removeWorktree(projectName.value, worktreeName);
-  confirmingDelete.value = '';
-  if (err) {
-    failedWorktree.value = worktreeName;
-    removeError.value = err;
+  removingWorktree.value = worktreeName;
+  try {
+    const err = await removeWorktree(projectName.value, worktreeName);
+    confirmingDelete.value = '';
+    if (err) {
+      failedWorktree.value = worktreeName;
+      removeError.value = err;
+    }
+  } finally {
+    removingWorktree.value = '';
   }
 }
 
 async function doForceRemove() {
-  const err = await removeWorktree(projectName.value, failedWorktree.value, true);
-  if (err) {
-    removeError.value = err;
-  } else {
-    removeError.value = null;
-    failedWorktree.value = '';
+  forceRemoving.value = true;
+  try {
+    const err = await removeWorktree(projectName.value, failedWorktree.value, true);
+    if (err) {
+      removeError.value = err;
+    } else {
+      removeError.value = null;
+      failedWorktree.value = '';
+    }
+  } finally {
+    forceRemoving.value = false;
   }
 }
 </script>

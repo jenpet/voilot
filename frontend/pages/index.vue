@@ -66,13 +66,15 @@
           class="flex-1 px-3 py-1.5 text-sm rounded-lg bg-bg-primary border border-bg-elevated text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent"
           autofocus
         />
-        <button
-          type="submit"
-          class="px-3 py-1.5 text-sm rounded-lg bg-accent hover:bg-accent text-white transition-colors"
-          :disabled="!projectInput.trim() || addLoading"
-        >
-          {{ addLoading ? '...' : addMode === 'import' ? 'Import' : addMode === 'clone' ? 'Clone' : 'Create' }}
-        </button>
+          <button
+            type="submit"
+            class="px-3 py-1.5 text-sm rounded-lg bg-accent hover:bg-accent text-white transition-colors flex items-center gap-1.5"
+            :disabled="!projectInput.trim() || addLoading"
+            :class="{ 'opacity-50 pointer-events-none': addLoading }"
+          >
+            <SpinnerIcon v-if="addLoading" class="w-4 h-4" />
+            <template v-else>{{ addMode === 'import' ? 'Import' : addMode === 'clone' ? 'Clone' : 'Create' }}</template>
+          </button>
         <button
           type="button"
           class="px-3 py-1.5 text-sm rounded-lg bg-bg-secondary hover:bg-bg-elevated transition-colors"

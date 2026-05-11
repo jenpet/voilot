@@ -4,10 +4,6 @@
       <div v-if="showLoading" class="flex items-center justify-center">
         <LoadingLogo ref="loadingLogoRef" />
       </div>
-      <div v-else-if="messages.length === 0" class="flex items-center justify-center h-full text-text-muted">
-        <p>Start a conversation...</p>
-      </div>
-
       <template v-for="(item, idx) in groupedMessages" :key="item.key">
         <!-- Tool group: collapsible block for consecutive tool_use / tool_result -->
         <ToolGroup

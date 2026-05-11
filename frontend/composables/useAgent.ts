@@ -298,7 +298,6 @@ export function useAgent(sessionId: string) {
   // Fetch existing message history from the backend
   async function fetchMessages(options?: { force?: boolean }) {
     try {
-      isLoading.value = true
       interface HistoryMessage {
         id: string
         role: 'user' | 'assistant'
@@ -330,8 +329,6 @@ export function useAgent(sessionId: string) {
       }
     } catch {
       console.error('Failed to fetch message history')
-    } finally {
-      isLoading.value = false
     }
   }
 
@@ -1174,9 +1171,12 @@ export function useAgent(sessionId: string) {
     unsubscribe()
   }
 
-  // Initialize
-  fetchSession()
-  fetchMessages()
+  // Initialize — isLoading stays true until both session metadata and message
+  // history are loaded. If fetchSession detects busy, isStreaming is set before
+  // isLoading clears, so the loader stays continuous.
+  Promise.all([fetchSession(), fetchMessages()]).finally(() => {
+    isLoading.value = false
+  })
 
   // Cleanup on scope dispose (component unmount without explicit cleanup)
   onScopeDispose(() => {
