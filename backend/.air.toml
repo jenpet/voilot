@@ -1,0 +1,25 @@
+# Air configuration for voilot backend hot reload
+#
+# NOTE: Restarting the backend kills all running OpenCode instances.
+# They respawn automatically on the next request.
+
+root = "."
+tmp_dir = "tmp"
+
+[build]
+  cmd = "go build -o ./tmp/server ./cmd/server"
+  bin = "tmp/server"
+  include_ext = ["go"]
+  include_dir = ["cmd", "internal"]
+  exclude_dir = ["tmp", "voilot-data", "vendor"]
+  delay = 1000
+  send_interrupt = true
+  kill_delay = "3s"
+  stop_on_error = true
+  log = "build-errors.log"
+
+[log]
+  time = false
+
+[misc]
+  clean_on_exit = true

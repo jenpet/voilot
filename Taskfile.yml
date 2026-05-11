@@ -60,10 +60,10 @@ tasks:
       - npm run dev
 
   dev:backend:
-    desc: Go backend with live flags (port 8080)
+    desc: Go backend with hot reload (port 8080)
     dir: backend
     cmds:
-      - go run ./cmd/server
+      - $(go env GOPATH)/bin/air --
           --tts-url {{.TTS_URL}}
           --stt-url {{.STT_URL}}
           --workspace-dir {{.WORKSPACE_DIR}}
@@ -291,10 +291,11 @@ tasks:
       - task: install:config
 
   install:backend:
-    desc: Download Go modules
+    desc: Download Go modules and install dev tools
     dir: backend
     cmds:
       - go mod download
+      - go install github.com/air-verse/air@latest
 
   install:frontend:
     desc: Install npm packages

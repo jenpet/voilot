@@ -106,11 +106,13 @@ go test ./internal/agent -run TestName  # Run specific test
 
 ```bash
 cp .env.example .env     # then edit API keys and paths
-task install             # installs deps + creates ~/.config/voilot/config.json
+task install             # installs deps, dev tools (air), creates ~/.config/voilot/config.json
 task dev                 # starts everything (frontend, backend, voice, tunnel)
 ```
 
 The `.env` file provides: `ANTHROPIC_API_KEY`, `WORKSPACE_DIR`, `DATA_DIR`, `TTS_URL`, `STT_URL`. The Taskfile loads `.env` automatically via `dotenv` and passes these as CLI flags to the backend.
+
+The backend uses [air](https://github.com/air-verse/air) for hot reload — saving a `.go` file triggers automatic rebuild and restart. Note that restarts kill all running OpenCode instances; they respawn on the next request.
 
 **Backend CLI flags** (handled by `.env` + Taskfile for local dev):
 
