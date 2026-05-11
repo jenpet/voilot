@@ -97,6 +97,12 @@ func (s *Scanner) Scan() ([]Project, error) {
 		isMain := absGitDir == absCommonDir
 
 		branch, _ := gitOutput(resolved, "rev-parse", "--abbrev-ref", "HEAD")
+		if branch == "" {
+			// Empty repo (no commits): rev-parse fails, fall back to symbolic-ref.
+			if ref, err := gitOutput(resolved, "symbolic-ref", "HEAD"); err == nil {
+				branch = strings.TrimPrefix(ref, "refs/heads/")
+			}
+		}
 
 		dirs = append(dirs, dirInfo{
 			path:      dirPath,
@@ -166,10 +172,7 @@ func (s *Scanner) Scan() ([]Project, error) {
 	// Collect results and resolve default branches.
 	var projects []Project
 	for _, p := range projectMap {
-		// Determine default branch from remote HEAD.
-		if ref, err := gitOutput(p.Path, "symbolic-ref", "refs/remotes/origin/HEAD"); err == nil {
-			p.DefaultBranch = strings.TrimPrefix(ref, "refs/remotes/origin/")
-		}
+		p.DefaultBranch = ResolveDefaultBranch(p.Path)
 		projects = append(projects, *p)
 	}
 
@@ -203,6 +206,19 @@ func (s *Scanner) FindProject(name string) *Project {
 }
 
 // gitOutput runs a git command in the given directory and returns trimmed stdout.
+// ResolveDefaultBranch returns the default branch for a repository.
+// It prefers the remote HEAD (e.g. origin/main) and falls back to the
+// local HEAD branch (useful for repos without a remote).
+func ResolveDefaultBranch(repoPath string) string {
+	if ref, err := gitOutput(repoPath, "symbolic-ref", "refs/remotes/origin/HEAD"); err == nil {
+		return strings.TrimPrefix(ref, "refs/remotes/origin/")
+	}
+	if ref, err := gitOutput(repoPath, "symbolic-ref", "HEAD"); err == nil {
+		return strings.TrimPrefix(ref, "refs/heads/")
+	}
+	return ""
+}
+
 func gitOutput(dir string, args ...string) (string, error) {
 	cmd := exec.Command("git", args...)
 	cmd.Dir = dir

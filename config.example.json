@@ -6,7 +6,8 @@
       "type": "opencode",
       "binary": "opencode",
       "env": {
-        "AWS_BEARER_TOKEN_BEDROCK": "${AWS_BEARER_TOKEN_BEDROCK}"
+        "ANTHROPIC_API_KEY": "${ANTHROPIC_API_KEY}",
+        "OPENROUTER_API_KEY": "sk-or-v1-your-key-here"
       }
     }
   },

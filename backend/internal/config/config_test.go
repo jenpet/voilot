@@ -148,7 +148,7 @@ func TestLoad_ValidEnv(t *testing.T) {
 				"type": "opencode",
 				"binary": "opencode",
 				"env": {
-					"AWS_BEARER_TOKEN_BEDROCK": "my-token-value",
+					"ANTHROPIC_API_KEY": "my-token-value",
 					"ANOTHER_VAR": "another-value"
 				}
 			}
@@ -164,8 +164,8 @@ func TestLoad_ValidEnv(t *testing.T) {
 	}
 
 	env := cfg.Providers["opencode"].Env
-	if env["AWS_BEARER_TOKEN_BEDROCK"] != "my-token-value" {
-		t.Errorf("expected env AWS_BEARER_TOKEN_BEDROCK = 'my-token-value', got %q", env["AWS_BEARER_TOKEN_BEDROCK"])
+	if env["ANTHROPIC_API_KEY"] != "my-token-value" {
+		t.Errorf("expected env ANTHROPIC_API_KEY = 'my-token-value', got %q", env["ANTHROPIC_API_KEY"])
 	}
 	if env["ANOTHER_VAR"] != "another-value" {
 		t.Errorf("expected env ANOTHER_VAR = 'another-value', got %q", env["ANOTHER_VAR"])

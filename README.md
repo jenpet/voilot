@@ -98,18 +98,18 @@ Each provider can define environment variables passed to spawned agent instances
 ```json
 {
   "providers": {
-    "opencode-nexus": {
+    "opencode-anthropic": {
       "type": "opencode",
       "binary": "opencode",
       "env": {
-        "AWS_BEARER_TOKEN_BEDROCK": "${AWS_BEARER_TOKEN_BEDROCK}"
+        "ANTHROPIC_API_KEY": "${ANTHROPIC_API_KEY}"
       }
     },
-    "opencode-local": {
+    "opencode-openrouter": {
       "type": "opencode",
       "binary": "opencode",
       "env": {
-        "ANTHROPIC_API_KEY": "sk-ant-your-key-here"
+        "OPENROUTER_API_KEY": "sk-or-v1-your-key-here"
       }
     }
   }
@@ -121,7 +121,7 @@ Each provider can define environment variables passed to spawned agent instances
 | Format | Example | Behavior |
 |--------|---------|----------|
 | Literal | `"sk-ant-abc123"` | Passed as-is to spawned instances |
-| `${VAR}` reference | `"${AWS_BEARER_TOKEN_BEDROCK}"` | Expanded from the backend process environment at config load time |
+| `${VAR}` reference | `"${ANTHROPIC_API_KEY}"` | Expanded from the backend process environment at config load time |
 
 - Each value must be either a pure literal OR a single `${VAR_NAME}` reference (no mixing).
 - Key names must be valid env var identifiers (`A-Z`, `a-z`, `0-9`, `_`, cannot start with a digit).

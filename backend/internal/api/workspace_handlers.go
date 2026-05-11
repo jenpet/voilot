@@ -15,6 +15,7 @@ import (
 
 	"github.com/gorilla/mux"
 	"github.com/jenpet/voilot/internal/agent"
+	"github.com/jenpet/voilot/internal/workspace"
 )
 
 func (s *Server) handleListProjects(w http.ResponseWriter, r *http.Request) {
@@ -150,15 +151,7 @@ func (s *Server) handleListBranches(w http.ResponseWriter, r *http.Request) {
 	fetchCmd.Dir = proj.Path
 	_ = fetchCmd.Run() // best-effort; ignore errors (e.g. no remote)
 
-	// Determine the default branch via the remote HEAD symref.
-	defaultBranch := ""
-	defCmd := exec.CommandContext(r.Context(), "git", "symbolic-ref", "refs/remotes/origin/HEAD")
-	defCmd.Dir = proj.Path
-	if out, err := defCmd.Output(); err == nil {
-		// Output is like "refs/remotes/origin/main\n"
-		ref := strings.TrimSpace(string(out))
-		defaultBranch = strings.TrimPrefix(ref, "refs/remotes/origin/")
-	}
+	defaultBranch := workspace.ResolveDefaultBranch(proj.Path)
 
 	// List local branches with upstream tracking info.
 	// Format: refname:short | upstream:short | upstream:track
@@ -589,6 +582,11 @@ func (s *Server) handleInitProject(w http.ResponseWriter, r *http.Request) {
 	}
 	if body.Name == "" {
 		jsonError(w, http.StatusBadRequest, "name is required")
+		return
+	}
+	body.Name = slugify(body.Name)
+	if body.Name == "" {
+		jsonError(w, http.StatusBadRequest, "name results in an empty slug")
 		return
 	}
 

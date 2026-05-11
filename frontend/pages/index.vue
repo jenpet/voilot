@@ -63,7 +63,8 @@
           v-model="projectInput"
           type="text"
           :placeholder="addMode === 'plain' ? 'Name for your scratch space (e.g. my-idea)' : addMode === 'import' ? 'Path to existing repo (e.g. ~/dev/myproject)' : 'Git URL (e.g. https://github.com/user/repo)'"
-          class="flex-1 px-3 py-1.5 text-sm rounded-lg bg-bg-primary border border-bg-elevated text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent"
+          class="flex-1 px-3 py-1.5 text-sm rounded-lg bg-bg-primary border border-bg-elevated text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent disabled:opacity-50"
+          :disabled="addLoading"
           autofocus
         />
           <button
@@ -78,6 +79,8 @@
         <button
           type="button"
           class="px-3 py-1.5 text-sm rounded-lg bg-bg-secondary hover:bg-bg-elevated transition-colors"
+          :disabled="addLoading"
+          :class="{ 'opacity-50 pointer-events-none': addLoading }"
           @click="showAddProject = false; projectInput = ''"
         >
           Cancel

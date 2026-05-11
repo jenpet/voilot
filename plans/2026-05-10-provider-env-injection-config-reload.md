@@ -6,11 +6,11 @@
 
 ## Goal
 
-Allow voilot to pass environment variables (API tokens, credentials) to spawned OpenCode instances via provider config, and hot-reload config changes without restarting the backend. Solves the immediate problem where spawned OpenCode instances fail to authenticate because the backend process lacks required env vars like `AWS_BEARER_TOKEN_BEDROCK`.
+Allow voilot to pass environment variables (API tokens, credentials) to spawned OpenCode instances via provider config, and hot-reload config changes without restarting the backend. Solves the immediate problem where spawned OpenCode instances fail to authenticate because the backend process lacks required env vars like `ANTHROPIC_API_KEY`.
 
 ## Context
 
-- OpenCode providers (e.g. GenAI Nexus via `@ai-sdk/amazon-bedrock`) require authentication tokens passed as environment variables.
+- OpenCode providers (e.g. Anthropic via `@ai-sdk/anthropic`, OpenRouter via `@ai-sdk/openrouter`) require API keys passed as environment variables.
 - The voilot backend spawns OpenCode via `exec.Command`, which inherits the parent process's env. If the backend wasn't started with the required vars, spawned instances fail with auth errors.
 - Tokens may rotate, requiring updates without restarting the server.
 - Users want multiple provider configurations (same binary, different env) and the ability to iterate on provider setup without restarts.
@@ -28,8 +28,8 @@ Add `Env map[string]string` to `ProviderConfig`. Values can be either literal st
       "type": "opencode",
       "binary": "opencode",
       "env": {
-        "AWS_BEARER_TOKEN_BEDROCK": "${AWS_BEARER_TOKEN_BEDROCK}",
-        "CUSTOM_FLAG": "some-literal-value"
+        "ANTHROPIC_API_KEY": "${ANTHROPIC_API_KEY}",
+        "OPENROUTER_API_KEY": "sk-or-v1-your-key-here"
       }
     }
   }
