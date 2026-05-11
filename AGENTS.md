@@ -100,17 +100,31 @@ go build ./...           # Verify compilation
 go build ./cmd/server    # Build server binary
 go test ./...            # Run all tests
 go test ./internal/agent -run TestName  # Run specific test
+```
 
-# Run locally (requires config file, see config.example.json):
-# cp config.example.json ~/.config/voilot/config.json  # then edit paths
-./server --data-dir ./voilot-data
+**Local dev setup:**
 
-# CLI flags (deployment-specific only):
-#   --config <path>       Config file (default: ~/.config/voilot/config.json)
-#   --data-dir <path>     Runtime data directory (session map, PID files)
-#   --port <n>            Listen port (default: 8080)
-#   --hostname <addr>     Listen address (default: 127.0.0.1)
-#   --cors-origins <csv>  Allowed CORS origins
+```bash
+cp .env.example .env     # then edit API keys and paths
+task install             # installs deps + creates ~/.config/voilot/config.json
+task dev                 # starts everything (frontend, backend, voice, tunnel)
+```
+
+The `.env` file provides: `ANTHROPIC_API_KEY`, `WORKSPACE_DIR`, `DATA_DIR`, `TTS_URL`, `STT_URL`. The Taskfile loads `.env` automatically via `dotenv` and passes these as CLI flags to the backend.
+
+**Backend CLI flags** (handled by `.env` + Taskfile for local dev):
+
+```
+--config <path>           Config file (default: ~/.config/voilot/config.json)
+--data-dir <path>         Runtime data directory (session map, PID files)
+--tts-url <url>           TTS server URL
+--stt-url <url>           STT server URL
+--workspace-dir <path>    Workspace directory
+--port <n>                Listen port (default: 8080)
+--hostname <addr>         Listen address (default: 127.0.0.1)
+--cors-origins <csv>      Allowed CORS origins
+--log-level <level>       debug, info, warn, error (default: info)
+--log-format <fmt>        text, json (default: text)
 ```
 
 ### Nuxt Frontend

@@ -22,6 +22,8 @@
 
 version: "3"
 
+dotenv: ['.env']
+
 vars:
   OPENCODE_BINARY: '{{.OPENCODE_BINARY | default "opencode"}}'
   TTS_URL: '{{.TTS_URL | default "http://localhost:8880"}}'
