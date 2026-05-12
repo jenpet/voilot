@@ -31,16 +31,10 @@ import {
   setTTSEnqueue,
   stopAll as stopAllAudioFeedback,
 } from './useAudioFeedback'
+import { useAgentMessages, type ChatMessage } from './useAgentMessages'
 
-export interface Message {
-  id: string
-  role: 'user' | 'assistant' | 'system'
-  content: string
-  timestamp: number
-  type?: AgentEvent['type']
-  meta?: Record<string, unknown>
-  display?: 'default' | 'visual' | 'hidden'
-}
+// Re-export ChatMessage as Message for backwards compatibility
+export type Message = ChatMessage
 
 // Injection key for respondToPermission — allows ChatMessage to call it without prop drilling.
 export const RespondToPermissionKey: InjectionKey<
@@ -60,11 +54,6 @@ export const RejectQuestionKey: InjectionKey<
 // Injection key for the currently active (first unanswered) question identifier.
 // Format: "questionId:questionIndex" or null if no question is pending.
 export const ActiveQuestionKey: InjectionKey<Ref<string | null>> = Symbol('activeQuestion')
-
-let messageIdCounter = 0
-function nextMessageId(): string {
-  return `msg-${Date.now()}-${++messageIdCounter}`
-}
 
 export function useAgent(sessionId: string) {
   const apiBase = `${resolveBackendUrl()}/api`
@@ -87,7 +76,8 @@ export function useAgent(sessionId: string) {
   } = useVoice()
 
   const session = ref<Session | null>(null)
-  const messages = ref<Message[]>([])
+  const msgBuilder = useAgentMessages()
+  const messages = msgBuilder.mutableMessages
   const isStreaming = ref(false)
   const isLoading = ref(true)
   const voiceEnabled = ref(true)
@@ -125,10 +115,6 @@ export function useAgent(sessionId: string) {
   // Track partial answers for multi-question batches.
   // Key: questionId, Value: { totalQuestions, answers: Map<index, string[]> }
   const pendingQuestionAnswers = new Map<string, { totalQuestions: number; answers: Map<number, string[]> }>()
-  // Track the current assistant message being streamed
-  let currentAssistantId: string | null = null
-  // Track which partId maps to which text so far (for delta accumulation)
-  const partContents = new Map<string, string>()
   // Track tool_use start times by partId so we can compute duration when tool_result arrives
   const toolStartTimes = new Map<string, number>()
   // Incremental TTS chunker: streams sentence-sized chunks to TTS as they arrive
@@ -311,7 +297,7 @@ export function useAgent(sessionId: string) {
         // Only load history if we don't already have messages (avoid duplicates on reconnect)
         // Unless force is set (e.g., after backend restart)
         if (messages.value.length === 0 || options?.force) {
-          messages.value = data
+          msgBuilder.setMessages(data
             .filter(m => !m.meta?.hidden)
             .map(m => ({
               id: m.id,
@@ -320,7 +306,7 @@ export function useAgent(sessionId: string) {
               timestamp: m.timestamp,
               type: m.type as AgentEvent['type'] | undefined,
               meta: m.meta,
-            }))
+            })))
           // If history has any user messages, initial tools phase is over
           if (data.some(m => m.role === 'user' && !m.meta?.hidden)) {
             suppressInitialTools = false
@@ -490,66 +476,36 @@ export function useAgent(sessionId: string) {
     const partId = event.partId || 'default'
 
     // Mark first text token arrival (agent TTFT) — only during voice round-trips
-    if (!currentAssistantId && isTimerActive()) {
+    if (!msgBuilder.hasActiveAssistant() && isTimerActive()) {
       mark('agent_ttft', 'end')
       log('info', 'agent', 'first_text_token', { partId })
     }
 
     if (event.delta) {
-      // Accumulate delta into part content
-      const existing = partContents.get(partId) || ''
-      const updated = existing + event.delta
-      partContents.set(partId, updated)
+      // Accumulate delta into the message builder
+      msgBuilder.addTextDelta(partId, event.delta, event.display)
       // Feed delta to TTS chunker — it will enqueue sentence-sized chunks as they complete
       if (voiceEnabled.value && (event.display || 'default') === 'default') {
         ttsChunker.push(event.delta)
       }
     } else if (event.content) {
       // Full content replacement (final snapshot from OpenCode)
-      partContents.set(partId, event.content)
+      msgBuilder.setTextContent(partId, event.content, event.display)
       // Don't re-send to TTS — deltas already covered this content
-    }
-
-    // Rebuild the full assistant message from all parts
-    const fullContent = Array.from(partContents.values()).join('')
-
-    if (!currentAssistantId) {
-      // Create new assistant message
-      currentAssistantId = nextMessageId()
-      messages.value.push({
-        id: currentAssistantId,
-        role: 'assistant',
-        content: fullContent,
-        timestamp: Date.now(),
-        display: event.display || 'default',
-      })
-    } else {
-      // Update existing assistant message
-      const msg = messages.value.find(m => m.id === currentAssistantId)
-      if (msg) {
-        msg.content = fullContent
-      }
     }
   }
 
   function appendAssistantMeta(content: string, type: AgentEvent['type'], meta?: Record<string, unknown>) {
-    messages.value.push({
-      id: nextMessageId(),
-      role: 'assistant',
-      content: content || '',
-      timestamp: Date.now(),
-      type,
-      meta,
-    })
+    const didSplit = msgBuilder.appendMeta(content, type, meta)
+    // If a text bubble was split, flush the TTS chunker so the pre-tool
+    // text is spoken before any tool summary.
+    if (didSplit && voiceEnabled.value) {
+      ttsChunker.flush()
+    }
   }
 
   function appendSystemMessage(content: string) {
-    messages.value.push({
-      id: nextMessageId(),
-      role: 'system',
-      content,
-      timestamp: Date.now(),
-    })
+    msgBuilder.addSystemMessage(content)
   }
 
   function finishStreaming() {
@@ -589,8 +545,7 @@ export function useAgent(sessionId: string) {
     ttsToolBatcher.reset()
     ttsCondenser.reset()
     isStreaming.value = false
-    currentAssistantId = null
-    partContents.clear()
+    msgBuilder.reset()
     toolStartTimes.clear()
 
     // If TTS has nothing left to play, complete the turn immediately.
@@ -622,12 +577,7 @@ export function useAgent(sessionId: string) {
         voiceInitiatedTurn.value = true
       }
       // Show the custom answer as a user message in the chat
-      messages.value.push({
-        id: nextMessageId(),
-        role: 'user',
-        content: text,
-        timestamp: Date.now(),
-      })
+      msgBuilder.addUserMessage(text)
       return
     }
 
@@ -655,12 +605,7 @@ export function useAgent(sessionId: string) {
     }
 
     // Add user message immediately
-    messages.value.push({
-      id: nextMessageId(),
-      role: 'user',
-      content: text,
-      timestamp: Date.now(),
-    })
+    msgBuilder.addUserMessage(text)
 
     // Transition to agent_turn — the state machine tracks that
     // we've handed the message to the agent and are waiting for a response.
@@ -784,19 +729,12 @@ export function useAgent(sessionId: string) {
     log('info', 'permission', 'request_received', { permissionId, title })
 
     // Add permission request as a special message in the chat
-    messages.value.push({
-      id: nextMessageId(),
-      role: 'system',
-      content: title,
-      timestamp: Date.now(),
-      type: 'permission_request',
-      meta: {
-        permissionId,
-        permissionType: event.meta?.permissionType,
-        pattern: event.meta?.pattern,
-        title,
-        resolved: false,
-      },
+    msgBuilder.addSystemMessage(title, 'permission_request', {
+      permissionId,
+      permissionType: event.meta?.permissionType,
+      pattern: event.meta?.pattern,
+      title,
+      resolved: false,
     })
 
     // Announce via TTS with permission chime
@@ -896,8 +834,7 @@ export function useAgent(sessionId: string) {
 
     // Break the current assistant message so that any text the agent sends
     // after the question is answered appears as a new chat bubble.
-    currentAssistantId = null
-    partContents.clear()
+    // (addSystemMessage splits automatically)
 
     // Initialize answer tracking for this question batch
     if (questionId && !pendingQuestionAnswers.has(questionId)) {
@@ -908,21 +845,14 @@ export function useAgent(sessionId: string) {
     }
 
     // Add question as a special message in the chat
-    messages.value.push({
-      id: nextMessageId(),
-      role: 'system',
-      content: event.content || header || 'Question',
-      timestamp: Date.now(),
-      type: 'question_request',
-      meta: {
-        questionId,
-        questionIndex,
-        totalQuestions,
-        header,
-        options,
-        multiple,
-        resolved: false,
-      },
+    msgBuilder.addSystemMessage(event.content || header || 'Question', 'question_request', {
+      questionId,
+      questionIndex,
+      totalQuestions,
+      header,
+      options,
+      multiple,
+      resolved: false,
     })
 
     // TTS: Flush any buffered text from the agent's preamble so it
@@ -1149,8 +1079,7 @@ export function useAgent(sessionId: string) {
     isStreaming.value = false
     agentDone = false
     abortedTurn = false
-    currentAssistantId = null
-    partContents.clear()
+    msgBuilder.reset()
     toolStartTimes.clear()
 
     // Force state machine back to idle
