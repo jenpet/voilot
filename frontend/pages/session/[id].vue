@@ -1,5 +1,5 @@
 <template>
-   <div class="fixed inset-0 flex flex-col safe-top safe-bottom">
+   <div class="fixed inset-0 flex flex-col safe-top">
     <!-- Header -->
     <header class="bg-bg-secondary border-b border-bg-elevated">
       <div class="flex items-center gap-3 px-4 py-5 max-w-[1200px] mx-auto">
@@ -24,7 +24,7 @@
             v-else
             ref="titleInputRef"
             v-model="editTitleText"
-            class="text-sm font-medium bg-bg-primary border border-accent rounded px-1.5 py-0.5 outline-none w-full max-w-[300px]"
+            class="text-base font-medium bg-bg-primary border border-accent rounded px-1.5 py-0.5 outline-none w-full max-w-[300px]"
             maxlength="80"
             @keydown.enter.prevent="saveTitle"
             @keydown.escape.prevent="cancelEditTitle"
@@ -84,7 +84,7 @@
 
     <!-- Input Area -->
     <div class="border-t border-bg-elevated bg-bg-secondary">
-      <div class="px-4 pt-4 max-w-[1200px] mx-auto" :class="keyboardVisible ? 'pb-4' : 'pb-8'">
+      <div class="px-4 pt-4 pb-4 max-w-[1200px] mx-auto" :style="!keyboardVisible ? 'padding-bottom: max(1rem, env(safe-area-inset-bottom))' : undefined">
       <!-- Custom answer hint when a question is pending -->
       <p v-if="hasPendingQuestion" class="text-xs text-accent/70 mb-2 text-center">
         Type or speak a custom answer, or select an option above
@@ -106,7 +106,7 @@
           <textarea
             ref="inputRef"
             v-model="inputText"
-            class="flex-1 bg-bg-secondary border border-bg-elevated rounded-xl px-4 py-3 text-sm resize-none outline-none focus:border-accent focus:ring-1 focus:ring-accent/50 placeholder-text-muted"
+            class="flex-1 bg-bg-secondary border border-bg-elevated rounded-xl px-4 py-3 text-base resize-none outline-none focus:border-accent focus:ring-1 focus:ring-accent/50 placeholder-text-muted"
             style="max-height: 6rem; overflow-y: auto;"
             :rows="1"
             placeholder="Message..."
