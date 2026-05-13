@@ -1,7 +1,5 @@
 interface TTSQueueItem {
   text: string
-  // Web Audio API source node for the currently playing item
-  sourceNode?: AudioBufferSourceNode
 }
 
 // ─── Debug logging ──────────────────────────────────────────────────
@@ -18,20 +16,23 @@ function _log(level: DebugLogLevel, event: string, data?: Record<string, unknown
   }
 }
 
-// ─── Persistent AudioContext for iOS Safari ──────────────────────
+// ─── iOS Safari audio unlock ────────────────────────────────────────
 //
-// iOS Safari requires that an AudioContext is created/resumed inside
-// a user-gesture handler (tap/click).  Once resumed, it stays
-// "running" and can play audio programmatically at any later time.
+// iOS Safari requires two things for reliable programmatic audio:
 //
-// We expose `unlockAudio()` which must be called synchronously
-// inside the mic-button tap or the "Voice ON" toggle.  It creates
-// (or resumes) a single global AudioContext and plays a tiny silent
-// buffer so the OS audio session is fully activated.
+// 1. An AudioContext created/resumed inside a user-gesture handler.
+//    Once resumed it stays "running" and grants persistent autoplay
+//    permission to the page's audio session.
 //
-// All subsequent TTS playback goes through this same AudioContext
-// via `decodeAudioData()` + `AudioBufferSourceNode`, which is
-// always allowed because the context is already in "running" state.
+// 2. An HTMLAudioElement played at non-zero volume during the gesture
+//    to promote the audio session to "playback" category, which
+//    overrides the hardware mute/silent switch.
+//
+// For TTS playback we use a **single pre-created HTMLAudioElement**
+// that is warmed up during `unlockAudio()`.  iOS Safari allows
+// `.play()` on a previously-played element even outside the gesture
+// window, unlike freshly-created `new Audio()` instances which are
+// subject to the autoplay gate each time.
 
 let _audioCtx: AudioContext | null = null
 
@@ -43,13 +44,26 @@ function getOrCreateAudioContext(): AudioContext {
 }
 
 // A tiny WAV file (44 bytes header + 2 bytes of audio = 1 sample at near-zero amplitude).
-// This is NOT silent — it's a single sample at amplitude 1/32768 which is inaudible
-// but enough to convince iOS that this page plays "media" audio, promoting the
-// web audio session to "playback" category that overrides the mute/silent switch.
-//
-// Without this, AudioContext output is suppressed when the physical mute switch is on.
+// NOT silent — amplitude 1/32768 is inaudible but enough to convince iOS that this page
+// plays "media" audio, promoting the session to "playback" category (mute switch override).
 const TINY_WAV_B64 =
   'UklGRi4AAABXQVZFZm10IBAAAAABAAEARKwAAESsAAABAAgAZGF0YQoAAACA'
+
+// ─── Pre-created reusable HTMLAudioElement for TTS playback ─────────
+//
+// Created once during unlockAudio() and reused for every TTS chunk.
+// iOS Safari allows .play() on a previously-played element without
+// requiring a fresh user gesture, unlike new Audio() instances.
+let _ttsAudioEl: HTMLAudioElement | null = null
+
+/** Get or create the shared TTS playback element. */
+function getTTSAudioEl(): HTMLAudioElement {
+  if (!_ttsAudioEl) {
+    _ttsAudioEl = new Audio()
+    _ttsAudioEl.volume = 1.0
+  }
+  return _ttsAudioEl
+}
 
 /**
  * Unlock iOS Safari's audio playback restriction AND override the mute switch.
@@ -57,16 +71,15 @@ const TINY_WAV_B64 =
  * MUST be called synchronously inside a user-gesture handler
  * (tap / click) — e.g. the mic button or "Voice ON" toggle.
  *
- * Two things happen:
+ * Three things happen:
  * 1. The shared AudioContext is created/resumed and a silent buffer
- *    is played through it — this "unlocks" programmatic audio.
+ *    is played through it — this grants persistent autoplay permission.
  * 2. An HTMLAudioElement plays a near-silent WAV at full volume —
  *    this promotes the page's audio session to "playback" mode,
- *    which overrides the iOS hardware mute/silent switch.
- *
- * This function is intentionally synchronous so it can be
- * called before the first `await` in a click handler without
- * breaking the user-activation chain.
+ *    overriding the iOS hardware mute/silent switch.
+ * 3. The shared TTS HTMLAudioElement is warmed up by playing the
+ *    same tiny WAV — this "unlocks" it so subsequent .play() calls
+ *    with blob URLs work outside the gesture window.
  */
 export function unlockAudio(): void {
   const ctx = getOrCreateAudioContext()
@@ -87,19 +100,27 @@ export function unlockAudio(): void {
     // best effort
   }
 
-  // 2. Play a near-silent WAV via HTMLAudioElement to promote to "playback" category.
-  //    This overrides the iOS mute switch for all subsequent audio on this page.
+  // 2. Play a near-silent WAV via a throwaway HTMLAudioElement to promote
+  //    the audio session to "playback" category (mute switch override).
   try {
     const audio = new Audio(`data:audio/wav;base64,${TINY_WAV_B64}`)
-    audio.volume = 1.0 // must NOT be 0 — iOS ignores zero-volume for session promotion
+    audio.volume = 1.0
     audio.play().catch(() => {})
   } catch {
     // best effort
   }
 
-  console.log('[TTS] unlockAudio: ctx.state =', ctx.state)
+  // 3. Warm up the shared TTS element by playing the same tiny WAV.
+  //    This grants it autoplay permission that persists beyond the gesture.
+  try {
+    const ttsEl = getTTSAudioEl()
+    ttsEl.src = `data:audio/wav;base64,${TINY_WAV_B64}`
+    ttsEl.play().catch(() => {})
+  } catch {
+    // best effort
+  }
 
-  // 3. Pre-warm recording blip HTMLAudioElements so Bluetooth codec
+  // 4. Pre-warm recording blip HTMLAudioElements so Bluetooth codec
   //    is negotiated before the first real playStartBlip() call.
   warmUpBlips();
 }
@@ -118,7 +139,7 @@ export function useTTS() {
   let _onQueueDrained: (() => void) | null = null
 
   // Abort controller — cancelled by stop() to interrupt in-flight fetches
-  // and pending decodes/playback.
+  // and pending playback.
   let _abortCtrl: AbortController | null = null
 
   // Process the queue sequentially
@@ -141,7 +162,6 @@ export function useTTS() {
         firstSynthMarked = true
       }
 
-      console.log('[TTS] Fetching audio for:', item.text.substring(0, 60) + '...')
       _log('debug', 'synth_start', { text: item.text.substring(0, 60) })
 
       // Fetch audio from TTS service
@@ -158,86 +178,71 @@ export function useTTS() {
         throw new Error(`TTS synthesis failed: ${response.status} ${errBody}`)
       }
 
-      // Check abort after fetch completes (response may have arrived
-      // just before abort was signalled)
       if (signal.aborted) throw new DOMException('Aborted', 'AbortError')
 
-      const contentType = response.headers.get('Content-Type') || 'unknown'
-      console.log('[TTS] Got audio response, Content-Type:', contentType)
-
       const audioBlob = await response.blob()
-      console.log('[TTS] Blob size:', audioBlob.size, 'type:', audioBlob.type)
 
       if (shouldMark && isFirstItem) mark('tts_synth', 'end')
       _log('debug', 'synth_complete', { blobSize: audioBlob.size })
 
       if (signal.aborted) throw new DOMException('Aborted', 'AbortError')
 
-      // ── Web Audio API playback (works on iOS Safari) ──
-      const ctx = getOrCreateAudioContext()
-      console.log('[TTS] AudioContext state:', ctx.state)
-
-      // Ensure context is running
-      if (ctx.state === 'suspended') {
-        console.log('[TTS] Resuming suspended AudioContext...')
-        await ctx.resume()
-        console.log('[TTS] AudioContext state after resume:', ctx.state)
-      }
-
-      // Decode the audio data
-      const arrayBuffer = await audioBlob.arrayBuffer()
-      console.log('[TTS] ArrayBuffer size:', arrayBuffer.byteLength)
-
-      if (signal.aborted) throw new DOMException('Aborted', 'AbortError')
-
-      const audioBuffer = await ctx.decodeAudioData(arrayBuffer)
-      console.log('[TTS] Decoded audio buffer: duration=', audioBuffer.duration, 'sampleRate=', audioBuffer.sampleRate)
-
-      if (signal.aborted) throw new DOMException('Aborted', 'AbortError')
+      // ── HTMLAudioElement playback via pre-created reusable element ──
+      const blobUrl = URL.createObjectURL(audioBlob)
 
       // Mark TTS playback start on first item
       if (shouldMark && isFirstItem) mark('tts_play', 'start')
 
-      // Play using AudioBufferSourceNode
-      await new Promise<void>((resolve, reject) => {
-        const source = ctx.createBufferSource()
-        source.buffer = audioBuffer
-        source.connect(ctx.destination)
-
-        // Store source on queue item so stop() can cancel it
-        item.sourceNode = source
+      await new Promise<void>((resolve) => {
+        const audio = getTTSAudioEl()
 
         // Listen for abort to stop playback mid-stream
+        const cleanup = () => {
+          signal.removeEventListener('abort', onAbort)
+          audio.onended = null
+          audio.onerror = null
+          URL.revokeObjectURL(blobUrl)
+        }
+
         const onAbort = () => {
-          try { source.stop() } catch { /* may already be stopped */ }
+          audio.pause()
+          // Reset src to empty data URI (not '') to keep the element in a
+          // "has played" state for iOS autoplay purposes.
+          audio.removeAttribute('src')
+          audio.load()
+          cleanup()
           resolve()
         }
         signal.addEventListener('abort', onAbort, { once: true })
 
-        source.onended = () => {
-          signal.removeEventListener('abort', onAbort)
-          console.log('[TTS] Playback ended for item')
+        audio.onended = () => {
+          cleanup()
           resolve()
         }
 
-        try {
-          source.start(0)
-          _log('debug', 'playback_started', { duration: audioBuffer.duration })
-          console.log('[TTS] Playback started')
-        } catch (err) {
-          signal.removeEventListener('abort', onAbort)
-          console.error('[TTS] source.start() failed:', err)
-          reject(err)
+        audio.onerror = () => {
+          cleanup()
+          _log('error', 'playback_error', { error: 'HTMLAudioElement error' })
+          resolve() // resolve (not reject) to advance the queue
         }
+
+        audio.src = blobUrl
+        audio.play()
+          .then(() => {
+            _log('debug', 'playback_started', { duration: audio.duration, blobSize: audioBlob.size })
+          })
+          .catch((err) => {
+            cleanup()
+            _log('error', 'playback_error', { error: err instanceof Error ? err.message : String(err) })
+            resolve() // resolve to advance the queue
+          })
       })
     } catch (err) {
       // Silently ignore abort errors — they're expected from stop()
       if (err instanceof DOMException && err.name === 'AbortError') {
         _log('debug', 'playback_aborted')
-        console.log('[TTS] Playback aborted')
       } else {
         _log('error', 'playback_error', { error: err instanceof Error ? err.message : String(err) })
-        console.error('[TTS] Playback error:', err)
         // Mark synth end on error if it was the first item and synth start was marked
         if (shouldMark && isFirstItem && firstSynthMarked) {
           mark('tts_synth', 'end')
@@ -269,7 +274,6 @@ export function useTTS() {
   // Add text to the TTS queue
   function enqueue(text: string) {
     _log('debug', 'enqueue', { text: text.substring(0, 80), queueLength: queue.value.length })
-    console.log('[TTS] Enqueue:', text.substring(0, 80) + (text.length > 80 ? '...' : ''))
     queue.value.push({ text })
     processQueue()
   }
@@ -282,22 +286,20 @@ export function useTTS() {
   // Stop current playback and clear queue
   function stop() {
     _log('info', 'stop', { queueLength: queue.value.length })
-    console.log('[TTS] Stop requested, queue length:', queue.value.length)
 
-    // Abort any in-flight fetch, decode, or playback
+    // Abort any in-flight fetch or playback
     if (_abortCtrl) {
       _abortCtrl.abort()
       _abortCtrl = null
     }
 
-    const current = queue.value[0]
-    if (current?.sourceNode) {
-      try {
-        current.sourceNode.stop()
-      } catch {
-        // may already be stopped
-      }
+    // Stop currently playing audio element
+    if (_ttsAudioEl) {
+      _ttsAudioEl.pause()
+      _ttsAudioEl.removeAttribute('src')
+      _ttsAudioEl.load()
     }
+
     queue.value = []
     isPlaying.value = false
     firstSynthMarked = false
