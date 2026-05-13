@@ -221,7 +221,12 @@ export function useAudioOrchestrator(options: AudioOrchestratorOptions) {
   });
 
   // Connection state changes
+  let _hadConnection = false;
   const unwatchConnection = watch(connectionState, (newState: string, oldState: string) => {
+    if (newState === 'connected' && !_hadConnection) {
+      _hadConnection = true;
+      return;
+    }
     if (newState === 'disconnected' && oldState !== 'disconnected') {
       playWarningTone();
       tts.enqueue('Connection lost.');

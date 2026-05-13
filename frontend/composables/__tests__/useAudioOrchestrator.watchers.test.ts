@@ -220,11 +220,35 @@ describe('watcher: connection state', () => {
     orch.cleanup();
   });
 
-  it('connection restored → reconnect chime + "Reconnected." announcement', async () => {
+  it('initial connection → no reconnect chime (silent)', async () => {
     const connectionState = ref('disconnected');
     const orch = createOrchestrator({ connectionState });
     resetAllMocks();
 
+    connectionState.value = 'connected';
+    await nextTick();
+
+    expect(mockPlayReconnectChime).not.toHaveBeenCalled();
+    expect(mockTTSEnqueue).not.toHaveBeenCalled();
+
+    orch.cleanup();
+  });
+
+  it('connection restored after disconnect → reconnect chime + "Reconnected."', async () => {
+    const connectionState = ref('disconnected');
+    const orch = createOrchestrator({ connectionState });
+
+    // Initial connection (silent)
+    connectionState.value = 'connected';
+    await nextTick();
+    resetAllMocks();
+
+    // Disconnect
+    connectionState.value = 'disconnected';
+    await nextTick();
+    resetAllMocks();
+
+    // Reconnect
     connectionState.value = 'connected';
     await nextTick();
 
