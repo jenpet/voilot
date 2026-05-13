@@ -17,11 +17,13 @@ import {
   dispatch,
   abort,
   getState,
+  onTransition,
   _forceStateForTesting,
   ACTION_TABLE,
   INTERACTION_STATES,
   type ActionName,
   type InteractionState,
+  type TransitionInfo,
 } from '../useStateMachine';
 
 beforeEach(() => {
@@ -294,5 +296,97 @@ describe('scenarios', () => {
     _forceStateForTesting('awaiting_input');
     expect(dispatch('await_input', 'test')).toBe(false);
     expect(getState()).toBe('awaiting_input');
+  });
+});
+
+// ── onTransition listener ───────────────────────────────────────────
+
+describe('onTransition', () => {
+  it('fires on successful dispatch with correct info', () => {
+    const received: TransitionInfo[] = [];
+    onTransition((info) => received.push(info));
+
+    dispatch('start_agent_turn', 'test_trigger');
+
+    expect(received).toHaveLength(1);
+    expect(received[0]).toEqual({
+      from: 'idle',
+      to: 'agent_turn',
+      action: 'start_agent_turn',
+      trigger: 'test_trigger',
+    });
+  });
+
+  it('does NOT fire on rejected dispatch', () => {
+    const received: TransitionInfo[] = [];
+    onTransition((info) => received.push(info));
+
+    // idle → complete_turn is invalid
+    dispatch('complete_turn', 'test');
+
+    expect(received).toHaveLength(0);
+  });
+
+  it('fires on abort with action="abort"', () => {
+    _forceStateForTesting('agent_turn');
+    const received: TransitionInfo[] = [];
+    onTransition((info) => received.push(info));
+
+    abort('user_abort');
+
+    expect(received).toHaveLength(1);
+    expect(received[0]).toEqual({
+      from: 'agent_turn',
+      to: 'idle',
+      action: 'abort',
+      trigger: 'user_abort',
+    });
+  });
+
+  it('unsubscribe stops notifications', () => {
+    const received: TransitionInfo[] = [];
+    const unsub = onTransition((info) => received.push(info));
+
+    dispatch('start_agent_turn', 'first');
+    expect(received).toHaveLength(1);
+
+    unsub();
+
+    _forceStateForTesting('idle');
+    dispatch('start_agent_turn', 'second');
+    expect(received).toHaveLength(1); // still 1
+  });
+
+  it('multiple listeners all fire', () => {
+    let countA = 0;
+    let countB = 0;
+    onTransition(() => countA++);
+    onTransition(() => countB++);
+
+    dispatch('start_agent_turn', 'test');
+
+    expect(countA).toBe(1);
+    expect(countB).toBe(1);
+  });
+
+  it('listener error does not break state machine', () => {
+    onTransition(() => { throw new Error('boom'); });
+    const received: TransitionInfo[] = [];
+    onTransition((info) => received.push(info));
+
+    dispatch('start_agent_turn', 'test');
+
+    expect(getState()).toBe('agent_turn');
+    expect(received).toHaveLength(1);
+  });
+
+  it('listeners are cleared by _forceStateForTesting', () => {
+    const received: TransitionInfo[] = [];
+    onTransition((info) => received.push(info));
+
+    _forceStateForTesting('idle');
+    dispatch('start_agent_turn', 'test');
+
+    expect(received).toHaveLength(0);
   });
 });

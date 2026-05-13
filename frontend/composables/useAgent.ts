@@ -12,25 +12,16 @@ import {
   getState,
 } from './useStateMachine'
 import {
-  playHandoff,
-  startWorkingHum,
   stopWorkingHum,
-  playSuccessChime,
-  playQuestionChime,
-  playPermissionChime,
   playErrorTone,
-  playCancelTone,
-  playLoopListeningTick,
   playSTTFailureTone,
-  playWarningTone,
-  playReconnectChime,
   playModeSignature,
   notifyToolActivity,
-  startWatchdog,
   cancelWatchdog,
   setTTSEnqueue,
   stopAll as stopAllAudioFeedback,
 } from './useAudioFeedback'
+import { useAudioOrchestrator } from './useAudioOrchestrator'
 import { useAgentMessages, type ChatMessage } from './useAgentMessages'
 
 // Re-export ChatMessage as Message for backwards compatibility
@@ -82,10 +73,31 @@ export function useAgent(sessionId: string) {
   const isLoading = ref(true)
   const voiceEnabled = ref(true)
 
+  // Derived: true when any permission_request message is unresolved
+  const hasPendingPermission = computed(() =>
+    messages.value.some(m => m.type === 'permission_request' && m.meta?.resolved !== true),
+  )
+  // Derived: true when any question_request message is unresolved
+  const hasPendingQuestion = computed(() =>
+    messages.value.some(m => m.type === 'question_request' && m.meta?.resolved !== true),
+  )
+
+  // ── Audio orchestrator: handles transition-driven audio cues ────
+  const orchestrator = useAudioOrchestrator({
+    sessionId,
+    sendMessage: (text: string) => sendMessage(text),
+    hasPendingQuestion,
+    hasPendingPermission,
+    connectionState,
+    voiceEnabled,
+    tts: { enqueue: enqueueTTS, stop: stopTTS, isPlaying: isTTSPlaying },
+  })
+
   // Suppress tool events during the initial welcome response (before the
   // user has sent any message). Once the first text event arrives or the
   // user sends a message, this flag is cleared permanently.
-  let suppressInitialTools = true
+  // Shared via useSessionState so the orchestrator can read it directly.
+  const { suppressInitialTools, _setSuppressInitialTools } = useSuppressInitialTools()
 
   // Track whether the current turn was aborted by the user.
   // Prevents finishStreaming() from playing a success chime after abort.
@@ -104,14 +116,6 @@ export function useAgent(sessionId: string) {
   const { autoVoiceNewSessions } = useSettings()
   let autoVoiceArmed = autoVoiceNewSessions.value
 
-  // Derived: true when any permission_request message is unresolved
-  const hasPendingPermission = computed(() =>
-    messages.value.some(m => m.type === 'permission_request' && m.meta?.resolved !== true),
-  )
-  // Derived: true when any question_request message is unresolved
-  const hasPendingQuestion = computed(() =>
-    messages.value.some(m => m.type === 'question_request' && m.meta?.resolved !== true),
-  )
   // Track partial answers for multi-question batches.
   // Key: questionId, Value: { totalQuestions, answers: Map<index, string[]> }
   const pendingQuestionAnswers = new Map<string, { totalQuestions: number; answers: Map<number, string[]> }>()
@@ -175,8 +179,7 @@ export function useAgent(sessionId: string) {
     loopStartPending = true
     loopRecordingActive.value = true
     log('info', 'loop', 'loop_started')
-    // Subtle tick so the user knows the mic is hot
-    playLoopListeningTick()
+    // Loop listening tick is played by the orchestrator via onTransition
     startRecording() // reuses existing mic stream via ensureMicAndAnalyser()
     return true
   }
@@ -227,29 +230,18 @@ export function useAgent(sessionId: string) {
     }
   })
 
-  // ─── WebSocket disconnect/reconnect audio (Phase 5a) ────────────
-  // Track whether we've seen a successful connection. The initial
-  // page-load connection (disconnected → connected) is silent — only
-  // a real drop (connected → disconnected → connected) plays audio.
+  // ─── WebSocket disconnect/reconnect ──────────────────────────────
+  // Audio cues (warning tone, reconnect chime, TTS announcements) are
+  // handled by the orchestrator's connection state watcher.
+  // Here we only re-fetch session/messages on reconnect.
   let hadConnection = false
   watch(connectionState, (newState, oldState) => {
     if (newState === 'connected' && !hadConnection) {
       hadConnection = true
-      return // Initial connection on page load — silent
+      return
     }
-    if (!voiceEnabled.value) return
-    if (newState === 'disconnected' && oldState === 'connected') {
-      log('warn', 'ws', 'connection_lost_agent')
-      stopWorkingHum().then(() => {
-        playWarningTone()
-        enqueueTTS('Connection lost.')
-      })
-    } else if (newState === 'connected' && oldState !== 'connected' && hadConnection) {
+    if (newState === 'connected' && oldState !== 'connected' && hadConnection) {
       log('info', 'ws', 'reconnected_agent')
-      playReconnectChime()
-      enqueueTTS('Reconnected.')
-      // Re-fetch session state after reconnect — the backend may have
-      // restarted, which means session data / busy status could have changed.
       fetchSession()
       fetchMessages({ force: true })
     }
@@ -272,9 +264,7 @@ export function useAgent(sessionId: string) {
         log('info', 'agent', 'session_busy_on_load', { sessionId })
         isStreaming.value = true
         dispatch('start_agent_turn', 'session_busy_on_load')
-        if (voiceEnabled.value) {
-          startWorkingHum()
-        }
+        // Working hum is started by the orchestrator via onTransition
       }
     } catch {
       console.error('Failed to fetch session')
@@ -309,7 +299,7 @@ export function useAgent(sessionId: string) {
             })))
           // If history has any user messages, initial tools phase is over
           if (data.some(m => m.role === 'user' && !m.meta?.hidden)) {
-            suppressInitialTools = false
+            _setSuppressInitialTools(false)
           }
         }
       }
@@ -352,7 +342,7 @@ export function useAgent(sessionId: string) {
     // Exclude permission events, question events, control events, and
     // error events during aborted turns from the batcher.
     if (voiceEnabled.value
-      && !suppressInitialTools
+      && !suppressInitialTools.value
       && eventDisplay === 'default'
       && event.type !== 'text'
       && event.type !== 'done'
@@ -367,12 +357,12 @@ export function useAgent(sessionId: string) {
 
     switch (event.type) {
       case 'text':
-        suppressInitialTools = false
+        _setSuppressInitialTools(false)
         handleTextEvent(event)
         break
       case 'tool_use':
         // Suppress tool events during the initial welcome response
-        if (suppressInitialTools) break
+        if (suppressInitialTools.value) break
         // Record start time for duration tracking
         if (event.partId) {
           toolStartTimes.set(event.partId, Date.now())
@@ -383,7 +373,7 @@ export function useAgent(sessionId: string) {
         break
       case 'tool_result': {
         // Suppress tool events during the initial welcome response
-        if (suppressInitialTools) break
+        if (suppressInitialTools.value) break
         // Compute duration from matching tool_use event
         const resultMeta = { ...event.meta }
         if (event.partId && toolStartTimes.has(event.partId)) {
@@ -522,15 +512,11 @@ export function useAgent(sessionId: string) {
       mark('agent_full', 'end')
     }
 
-    // Stop working hum and play success chime when agent finishes.
-    // Skip the chime if this turn was aborted — abortSession() already
-    // played the cancel tone, so a success chime would be confusing.
-    if (voiceEnabled.value) {
-      if (abortedTurn) {
-        stopWorkingHum()
-      } else {
-        stopWorkingHum().then(() => playSuccessChime())
-      }
+    // Audio cues (stop hum, success chime) are fired by the orchestrator
+    // when dispatch('complete_turn') transitions agent_turn → idle.
+    // The orchestrator reads suppressInitialTools directly from useSessionState.
+    if (abortedTurn) {
+      _setSuppressInitialTools(true)
     }
     abortedTurn = false
 
@@ -565,7 +551,7 @@ export function useAgent(sessionId: string) {
   // Send a message via WebSocket
   function sendMessage(text: string, options?: { origin?: 'voice' | 'text' }) {
     log('info', 'agent', 'send_message', { origin: options?.origin, length: text.length, hasPendingQuestion: hasPendingQuestion.value })
-    suppressInitialTools = false
+    _setSuppressInitialTools(false)
     abortedTurn = false
     autoVoiceArmed = false // User sent a message — no longer first response
     // If there's a pending question, intercept the input as a custom answer
@@ -591,18 +577,13 @@ export function useAgent(sessionId: string) {
       mark('agent_full', 'start')
     }
 
-    // Play handoff tone + start working hum so the user knows
-    // the agent received the message and is working.
     // Suppress stop blip for voice-originated messages to prevent
     // double-beep (stop blip + handoff tone overlap).
-    if (voiceEnabled.value) {
-      if (options?.origin === 'voice') {
-        suppressNextStopBlip()
-      }
-      playHandoff()
-      startWorkingHum()
-      startWatchdog(undefined, () => abort('watchdog_timeout'))
+    if (voiceEnabled.value && options?.origin === 'voice') {
+      suppressNextStopBlip()
     }
+    // Audio cues (handoff, hum, watchdog) are fired by the orchestrator
+    // when dispatch('start_agent_turn', 'send_message') transitions.
 
     // Add user message immediately
     msgBuilder.addUserMessage(text)
@@ -635,19 +616,14 @@ export function useAgent(sessionId: string) {
     abortedTurn = true
     agentDone = false
     abort('abort_session')
-    stopTTS() // Stop any ongoing TTS playback
+    // Audio feedback (stop hum, cancel tone, TTS "Stopped.") is handled
+    // by the orchestrator's abort transition handler.
+    // stopTTS is also called by the orchestrator — it stops current playback
+    // then enqueues "Stopped." announcement.
     stopMonitoring() // Stop mic monitoring if active
     ttsChunker.reset()
     ttsCondenser.reset()
     ttsToolBatcher.reset()
-
-    // Audio feedback: stop hum, play cancel tone, announce "Stopped."
-    if (voiceEnabled.value) {
-      stopWorkingHum().then(() => {
-        playCancelTone()
-        enqueueTTS('Stopped.')
-      })
-    }
 
     send({
       type: 'abort',
@@ -668,7 +644,7 @@ export function useAgent(sessionId: string) {
   function toggleVoice() {
     voiceEnabled.value = !voiceEnabled.value
     if (!voiceEnabled.value) {
-      stopTTS()
+      // TTS stop is handled by orchestrator's voiceEnabled watcher
       stopMonitoring()
     }
   }
@@ -737,13 +713,10 @@ export function useAgent(sessionId: string) {
       resolved: false,
     })
 
-    // Announce via TTS with permission chime
+    // Announce via TTS (chime + hum stop handled by orchestrator on await_input transition)
     if (voiceEnabled.value) {
       ttsToolBatcher.flush()
-      stopWorkingHum().then(() => {
-        playPermissionChime()
-        enqueueTTS(`Permission needed: ${title}`)
-      })
+      enqueueTTS(`Permission needed: ${title}`)
     }
 
     // Transition to awaiting_input — user must tap approve/reject
@@ -857,19 +830,14 @@ export function useAgent(sessionId: string) {
 
     // TTS: Flush any buffered text from the agent's preamble so it
     // speaks in correct order before the question announcement.
-    // For multi-question batches, announce overview + first question only.
-    // Subsequent questions are announced after the previous one is answered
-    // (see respondToQuestion).
+    // TTS announcement (chime + hum stop handled by orchestrator on await_input transition)
     if (voiceEnabled.value && questionIndex === 0) {
       ttsToolBatcher.flush()
       ttsChunker.flush()
-      stopWorkingHum().then(() => {
-        playQuestionChime()
-        if (totalQuestions > 1) {
-          enqueueTTS(`I have ${totalQuestions} questions for you.`)
-        }
-        announceQuestion(event.content || header, options)
-      })
+      if (totalQuestions > 1) {
+        enqueueTTS(`I have ${totalQuestions} questions for you.`)
+      }
+      announceQuestion(event.content || header, options)
     }
 
     // Transition to awaiting_input so the voice loop can restart
@@ -1081,6 +1049,10 @@ export function useAgent(sessionId: string) {
     abortedTurn = false
     msgBuilder.reset()
     toolStartTimes.clear()
+
+    // Clean up orchestrator BEFORE abort to prevent it from playing
+    // cancel tone / "Stopped." during session leave cleanup.
+    orchestrator.cleanup()
 
     // Force state machine back to idle
     abort('session_leave')

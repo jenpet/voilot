@@ -56,6 +56,34 @@ const ACTION_TABLE: Record<ActionName, ActionDef> = {
   recover:          { from: ['error'],                   to: 'idle' },
 };
 
+// ── Transition listener ─────────────────────────────────────────────
+
+export interface TransitionInfo {
+  from: InteractionState;
+  to: InteractionState;
+  action: ActionName | 'abort';
+  trigger?: string;
+}
+
+export type TransitionListener = (info: TransitionInfo) => void;
+
+const _listeners = new Set<TransitionListener>();
+
+/**
+ * Register a listener that fires after every successful dispatch or abort.
+ * Returns an unsubscribe function.
+ */
+export function onTransition(cb: TransitionListener): () => void {
+  _listeners.add(cb);
+  return () => { _listeners.delete(cb); };
+}
+
+function _notifyListeners(info: TransitionInfo): void {
+  for (const cb of _listeners) {
+    try { cb(info); } catch { /* listener errors must not break the SM */ }
+  }
+}
+
 // ── Module-level singleton state ────────────────────────────────────
 
 let _state: Ref<InteractionState> | null = null;
@@ -99,6 +127,7 @@ export function dispatch(action: ActionName, trigger?: string): boolean {
 
   state.value = def.to;
   _log('info', 'action_dispatched', { action, from, to: def.to, trigger });
+  _notifyListeners({ from, to: def.to, action, trigger });
   return true;
 }
 
@@ -110,6 +139,7 @@ export function abort(trigger: string): void {
   const from = state.value;
   state.value = 'idle';
   _log('info', 'abort', { from, trigger });
+  _notifyListeners({ from, to: 'idle', action: 'abort', trigger });
 }
 
 /**
@@ -142,6 +172,7 @@ export function useStateMachine() {
     dispatch,
     abort,
     getState,
+    onTransition,
   };
 }
 
@@ -149,6 +180,7 @@ export function useStateMachine() {
 
 export function _forceStateForTesting(state: InteractionState): void {
   _ensureState().value = state;
+  _listeners.clear();
 }
 
 export { ACTION_TABLE };
