@@ -301,7 +301,10 @@ export function useTTS() {
     queue.value = []
     isPlaying.value = false
     firstSynthMarked = false
-    _onQueueDrained = null
+    // NOTE: _onQueueDrained is intentionally preserved — it is registered
+    // once during useAgent() setup and must survive stop/abort cycles.
+    // The guards in the callback (agentDone, voiceEnabled, etc.) already
+    // prevent premature turn completion.
   }
 
   return {
