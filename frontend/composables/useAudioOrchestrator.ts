@@ -227,7 +227,7 @@ export function useAudioOrchestrator(options: AudioOrchestratorOptions) {
       _hadConnection = true;
       return;
     }
-    if (newState === 'disconnected' && oldState !== 'disconnected') {
+    if (newState === 'disconnected' && oldState === 'connected') {
       playWarningTone();
       tts.enqueue('Connection lost.');
     } else if (newState === 'connected' && oldState !== 'connected') {
