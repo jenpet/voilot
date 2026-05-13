@@ -466,13 +466,17 @@ export function useAgent(sessionId: string) {
   function handleTextEvent(event: AgentEvent) {
     isStreaming.value = true
 
-    // Auto-voice for new sessions: on the first streaming event, if we're
-    // in idle with auto-voice enabled, treat this as a voice-initiated turn
-    // so the mic auto-starts after the greeting TTS finishes.
-    if (autoVoiceArmed && getState() === 'idle') {
+    // Auto-voice for new sessions: on the first streaming event, if we have
+    // auto-voice enabled, treat this as a voice-initiated turn so the mic
+    // auto-starts after the greeting TTS finishes. The state may already be
+    // agent_turn (from session_busy_on_load or initial_tools), so only
+    // dispatch start_agent_turn when still in idle.
+    if (autoVoiceArmed) {
       autoVoiceArmed = false
       voiceInitiatedTurn.value = true
-      dispatch('start_agent_turn', 'auto_voice_initial')
+      if (getState() === 'idle') {
+        dispatch('start_agent_turn', 'auto_voice_initial')
+      }
     }
 
     // Flush any pending tool-use batch before speaking text
