@@ -210,6 +210,30 @@ describe('transition → audio: entering agent_turn', () => {
     orch.cleanup();
   });
 
+  it('initial_tools → hum only (no handoff, no watchdog)', () => {
+    const orch = createOrchestrator();
+
+    dispatch('start_agent_turn', 'initial_tools');
+
+    expect(mockStartWorkingHum).toHaveBeenCalledTimes(1);
+    expect(mockPlayHandoff).not.toHaveBeenCalled();
+    expect(mockStartWatchdog).not.toHaveBeenCalled();
+
+    orch.cleanup();
+  });
+
+  it('auto_voice_initial → hum only (no handoff, no watchdog)', () => {
+    const orch = createOrchestrator();
+
+    dispatch('start_agent_turn', 'auto_voice_initial');
+
+    expect(mockStartWorkingHum).toHaveBeenCalledTimes(1);
+    expect(mockPlayHandoff).not.toHaveBeenCalled();
+    expect(mockStartWatchdog).not.toHaveBeenCalled();
+
+    orch.cleanup();
+  });
+
   it('permission_response → no audio (returning from input)', () => {
     const orch = createOrchestrator();
 

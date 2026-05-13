@@ -70,6 +70,8 @@ const FRESH_TURN_TRIGGERS = new Set([
   'session_busy_on_load',
   'auto_voice_start',
   'auto_voice_resume',
+  'auto_voice_initial',
+  'initial_tools',
 ]);
 
 const RETURNING_FROM_INPUT_TRIGGERS = new Set([
@@ -206,8 +208,9 @@ export function useAudioOrchestrator(options: AudioOrchestratorOptions) {
 
   // ── Section 2: Reactive watchers ──────────────────────────────
 
-  // TTS playing → stop hum
+  // TTS playing state changes
   const unwatchTTS = watch(tts.isPlaying, (playing: boolean) => {
+    // TTS started → stop hum to avoid overlap
     if (playing && isHumActive()) {
       stopWorkingHum();
     }
@@ -217,6 +220,11 @@ export function useAudioOrchestrator(options: AudioOrchestratorOptions) {
       if (getState() === 'agent_turn') {
         dispatch('complete_turn', 'tts_drain_complete');
       }
+    }
+
+    // TTS stopped but agent still working → resume hum
+    if (!playing && !_agentDone && getState() === 'agent_turn') {
+      startWorkingHum();
     }
   });
 

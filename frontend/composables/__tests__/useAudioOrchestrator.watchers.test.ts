@@ -38,6 +38,7 @@ vi.mock('../useDebugLog', () => ({
 // ── Mock useAudioFeedback ───────────────────────────────────────────
 
 const mockStopWorkingHum = vi.fn().mockResolvedValue(undefined);
+const mockStartWorkingHum = vi.fn();
 const mockPlayWarningTone = vi.fn();
 const mockPlayReconnectChime = vi.fn();
 const mockIsHumActive = vi.fn().mockReturnValue(false);
@@ -45,7 +46,7 @@ const mockCancelWatchdog = vi.fn();
 
 vi.mock('../useAudioFeedback', () => ({
   playHandoff: vi.fn(),
-  startWorkingHum: vi.fn(),
+  startWorkingHum: (...args: any[]) => mockStartWorkingHum(...args),
   stopWorkingHum: (...args: any[]) => mockStopWorkingHum(...args),
   playSuccessChime: vi.fn(),
   playQuestionChime: vi.fn(),
@@ -119,6 +120,7 @@ import { useAudioOrchestrator } from '../useAudioOrchestrator';
 // ── Helpers ─────────────────────────────────────────────────────────
 
 function resetAllMocks() {
+  mockStartWorkingHum.mockClear();
   mockStopWorkingHum.mockClear();
   mockPlayWarningTone.mockClear();
   mockPlayReconnectChime.mockClear();
@@ -200,6 +202,29 @@ describe('watcher: TTS playing → hum control', () => {
 
     // Should still be in agent_turn
     expect(getState()).toBe('agent_turn');
+
+    orch.cleanup();
+  });
+
+  it('TTS stops while agent still working → hum resumes', async () => {
+    const orch = createOrchestrator();
+
+    dispatch('start_agent_turn', 'send_message');
+    resetAllMocks();
+
+    // TTS starts → hum stops (hum is active)
+    mockIsHumActive.mockReturnValue(true);
+    mockTTSIsPlaying.value = true;
+    await nextTick();
+
+    expect(mockStopWorkingHum).toHaveBeenCalledTimes(1);
+    resetAllMocks();
+
+    // TTS stops → hum resumes (agent not done)
+    mockTTSIsPlaying.value = false;
+    await nextTick();
+
+    expect(mockStartWorkingHum).toHaveBeenCalledTimes(1);
 
     orch.cleanup();
   });

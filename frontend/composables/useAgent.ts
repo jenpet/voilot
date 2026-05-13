@@ -289,6 +289,7 @@ export function useAgent(sessionId: string) {
         if (messages.value.length === 0 || options?.force) {
           msgBuilder.setMessages(data
             .filter(m => !m.meta?.hidden)
+            .filter(m => !suppressInitialTools.value || (m.type !== 'tool_use' && m.type !== 'tool_result'))
             .map(m => ({
               id: m.id,
               role: m.role,
@@ -362,7 +363,13 @@ export function useAgent(sessionId: string) {
         break
       case 'tool_use':
         // Suppress tool events during the initial welcome response
-        if (suppressInitialTools.value) break
+        if (suppressInitialTools.value) {
+          // Agent is working (initial tools) — enter agent_turn for hum
+          if (getState() === 'idle') {
+            dispatch('start_agent_turn', 'initial_tools')
+          }
+          break
+        }
         // Record start time for duration tracking
         if (event.partId) {
           toolStartTimes.set(event.partId, Date.now())
@@ -404,6 +411,13 @@ export function useAgent(sessionId: string) {
       case 'done':
       case 'status':
         if (event.type === 'done' || event.content === 'idle') {
+          // During the initial tools phase, ignore idle status events —
+          // OpenCode sends them between tool executions before any text.
+          // The turn will properly end after text arrives and the real
+          // done/idle follows.
+          if (suppressInitialTools.value && event.type === 'status') {
+            break
+          }
           finishStreaming()
         } else if (event.content === 'busy') {
           isStreaming.value = true
