@@ -98,6 +98,10 @@ export function useAgent(sessionId: string) {
   // user sends a message, this flag is cleared permanently.
   // Shared via useSessionState so the orchestrator can read it directly.
   const { suppressInitialTools, _setSuppressInitialTools } = useSuppressInitialTools()
+  // Explicitly reset on each session init — Nuxt's useState only runs the
+  // default factory on first access, so navigating between sessions would
+  // inherit the stale `false` from the previous session without this.
+  _setSuppressInitialTools(true)
 
   // Track whether the current turn was aborted by the user.
   // Prevents finishStreaming() from playing a success chime after abort.
