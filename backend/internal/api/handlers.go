@@ -245,10 +245,36 @@ func (s *Server) handleListSessions(w http.ResponseWriter, r *http.Request) {
 	}
 	sessions = agent.FilterTopLevel(sessions)
 
+	// Adopt unrecognized sessions: any session from this OpenCode instance
+	// that isn't in the session map belongs to this worktree (since each
+	// instance is scoped to one worktree). Register it so it appears in the UI.
+	resolvedWT := evalSymlinks(worktreePath)
+	if s.sessionMap != nil {
+		for i := range sessions {
+			entry := s.sessionMap.GetEntry(sessions[i].ID)
+			if entry.WorktreePath == "" {
+				var ts int64
+				if sessions[i].Time != nil && sessions[i].Time.Updated > 0 {
+					ts = sessions[i].Time.Updated
+				} else if sessions[i].Time != nil {
+					ts = sessions[i].Time.Created
+				}
+				if err := s.sessionMap.SetEntry(sessions[i].ID, sessionmap.Entry{
+					WorktreePath: worktreePath,
+					Provider:     providerName,
+					UpdatedAt:    ts,
+				}); err != nil {
+					slog.Warn("failed to adopt session", "sessionID", sessions[i].ID, "error", err)
+				} else {
+					slog.Info("adopted CLI-created session", "sessionID", sessions[i].ID, "worktree", worktreePath)
+				}
+			}
+		}
+	}
+
 	// Filter sessions to only those mapped to this worktree path.
 	// OpenCode may return sessions for the entire project (shared across
 	// git worktrees), so we use the session map as the source of truth.
-	resolvedWT := evalSymlinks(worktreePath)
 	if s.sessionMap != nil {
 		filtered := sessions[:0]
 		for i := range sessions {
@@ -273,16 +299,8 @@ func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
-	if opts.Mode == "" {
-		opts.Mode = agent.ModePlan
-	}
-	// Default agent based on mode if not explicitly set
 	if opts.Agent == "" {
-		if opts.Mode == agent.ModePlan {
-			opts.Agent = "planitect"
-		} else {
-			opts.Agent = "build"
-		}
+		opts.Agent = "planitect"
 	}
 	if opts.WorktreePath == "" {
 		jsonError(w, http.StatusBadRequest, "worktreePath is required")
@@ -420,32 +438,6 @@ func (s *Server) handleSetSessionTitle(w http.ResponseWriter, r *http.Request) {
 		"title":         body.Title,
 		"titleOverride": body.Title != "",
 	})
-}
-
-func (s *Server) handleSetSessionMode(w http.ResponseWriter, r *http.Request) {
-	id := mux.Vars(r)["id"]
-
-	var body struct {
-		Mode string `json:"mode"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		jsonError(w, http.StatusBadRequest, "invalid request body")
-		return
-	}
-
-	mode := agent.SessionMode(body.Mode)
-	if mode != agent.ModePlan && mode != agent.ModeImplement {
-		jsonError(w, http.StatusBadRequest, "invalid mode: must be 'plan' or 'implement'")
-		return
-	}
-
-	adapter, err := s.resolveAdapter(r, id)
-	if err != nil {
-		jsonError(w, http.StatusNotFound, "session not found: "+err.Error())
-		return
-	}
-	adapter.SetSessionMode(id, mode)
-	jsonResponse(w, http.StatusOK, map[string]string{"mode": string(mode)})
 }
 
 func (s *Server) handleSendMessage(w http.ResponseWriter, r *http.Request) {

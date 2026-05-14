@@ -40,12 +40,10 @@ type MockAdapter struct {
 	RejectCalled     []string
 	CreateCalled     []agent.SessionOptions
 	InitializeCalled []initializeCall
-	SetModeCalled    []setModeCall
 	SetAgentCalled   []setAgentCall
 	SetModelCalled   []setModelCall
 
 	// Per-session state
-	sessionModes  map[string]agent.SessionMode
 	sessionAgents map[string]string
 	sessionModels map[string]string
 	sessionBusy   map[string]bool
@@ -70,11 +68,6 @@ type questionCall struct {
 	Answers   [][]string
 }
 
-type setModeCall struct {
-	SessionID string
-	Mode      agent.SessionMode
-}
-
 type setAgentCall struct {
 	SessionID string
 	Agent     string
@@ -97,7 +90,6 @@ var _ agent.Adapter = (*MockAdapter)(nil)
 func NewMockAdapter() *MockAdapter {
 	return &MockAdapter{
 		EventCh:       make(chan agent.Event, 64),
-		sessionModes:  make(map[string]agent.SessionMode),
 		sessionAgents: make(map[string]string),
 		sessionModels: make(map[string]string),
 		sessionBusy:   make(map[string]bool),
@@ -115,7 +107,6 @@ func (a *MockAdapter) CreateSession(_ context.Context, opts agent.SessionOptions
 	s := &agent.Session{
 		ID:    fmt.Sprintf("ses-%d", len(a.CreateCalled)),
 		Title: opts.Title,
-		Mode:  opts.Mode,
 	}
 	return s, nil
 }
@@ -218,22 +209,6 @@ func (a *MockAdapter) GetSessionModel(sessionID string) string {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	return a.sessionModels[sessionID]
-}
-
-func (a *MockAdapter) SetSessionMode(sessionID string, mode agent.SessionMode) {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	a.SetModeCalled = append(a.SetModeCalled, setModeCall{sessionID, mode})
-	a.sessionModes[sessionID] = mode
-}
-
-func (a *MockAdapter) GetSessionMode(sessionID string) agent.SessionMode {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	if v, ok := a.sessionModes[sessionID]; ok {
-		return v
-	}
-	return agent.ModePlan
 }
 
 func (a *MockAdapter) GetSessionBusy(sessionID string) bool {

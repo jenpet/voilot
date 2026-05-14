@@ -26,10 +26,6 @@ type OpenCodeAdapter struct {
 	subscribers map[chan Event]struct{}
 	sseRunning  bool
 
-	// Session mode storage (voilot-level, not forwarded to OpenCode).
-	modeMu       sync.RWMutex
-	sessionModes map[string]SessionMode
-
 	// Session agent storage: which agent is active per session.
 	agentMu       sync.RWMutex
 	sessionAgents map[string]string
@@ -78,7 +74,6 @@ func NewOpenCodeAdapter(baseURL string) *OpenCodeAdapter {
 			Timeout: 30 * time.Second,
 		},
 		subscribers:       make(map[chan Event]struct{}),
-		sessionModes:      make(map[string]SessionMode),
 		sessionAgents:     make(map[string]string),
 		sessionModels:     make(map[string]string),
 		sessionLastModels: make(map[string]string),
@@ -234,7 +229,6 @@ func (a *OpenCodeAdapter) ListSessions(ctx context.Context) ([]Session, error) {
 	sessions := make([]Session, len(ocSessions))
 	for i, ocs := range ocSessions {
 		sessions[i] = ocs.toSession()
-		sessions[i].Mode = a.GetSessionMode(sessions[i].ID)
 		sessions[i].Agent = a.GetSessionAgent(sessions[i].ID)
 		sessions[i].Model = a.GetSessionModel(sessions[i].ID)
 		sessions[i].LastUsedModel = a.GetSessionLastUsedModel(sessions[i].ID)
@@ -265,12 +259,10 @@ func (a *OpenCodeAdapter) CreateSession(ctx context.Context, opts SessionOptions
 	}
 
 	session := ocs.toSession()
-	session.Mode = opts.Mode
 	session.Agent = opts.Agent
 	session.Model = opts.Model
 	session.LastUsedModel = a.GetSessionLastUsedModel(session.ID)
-	// Store the mode and agent in our local maps
-	a.SetSessionMode(session.ID, opts.Mode)
+	// Store the agent in our local maps
 	if opts.Agent != "" {
 		a.SetSessionAgent(session.ID, opts.Agent)
 	}
@@ -300,7 +292,6 @@ func (a *OpenCodeAdapter) ResumeSession(ctx context.Context, id string) (*Sessio
 	}
 
 	session := ocs.toSession()
-	session.Mode = a.GetSessionMode(id)
 	session.Agent = a.GetSessionAgent(id)
 	session.Model = a.GetSessionModel(id)
 	lastUsed := a.GetSessionLastUsedModel(id)
@@ -509,10 +500,7 @@ func (a *OpenCodeAdapter) DeleteSession(ctx context.Context, id string) error {
 		return fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(body))
 	}
 
-	// Clean up stored mode and agent
-	a.modeMu.Lock()
-	delete(a.sessionModes, id)
-	a.modeMu.Unlock()
+	// Clean up stored agent, model, and last-used model
 	a.agentMu.Lock()
 	delete(a.sessionAgents, id)
 	a.agentMu.Unlock()
@@ -575,23 +563,6 @@ func (a *OpenCodeAdapter) SendMessage(ctx context.Context, sessionID string, mes
 	}()
 
 	return events, nil
-}
-
-// SetSessionMode stores the mode for a session.
-func (a *OpenCodeAdapter) SetSessionMode(sessionID string, mode SessionMode) {
-	a.modeMu.Lock()
-	defer a.modeMu.Unlock()
-	a.sessionModes[sessionID] = mode
-}
-
-// GetSessionMode returns the mode for a session, defaulting to ModePlan.
-func (a *OpenCodeAdapter) GetSessionMode(sessionID string) SessionMode {
-	a.modeMu.RLock()
-	defer a.modeMu.RUnlock()
-	if mode, ok := a.sessionModes[sessionID]; ok {
-		return mode
-	}
-	return ModePlan
 }
 
 // GetSessionBusy returns true if the session is currently busy (agent processing).

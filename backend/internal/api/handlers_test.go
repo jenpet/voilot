@@ -88,6 +88,51 @@ func TestHandleListSessions_WithWorktree(t *testing.T) {
 	}
 }
 
+func TestHandleListSessions_AdoptsCLISessions(t *testing.T) {
+	srv, p, sesMap := testServer(t)
+	ts := httptest.NewServer(srv)
+	defer ts.Close()
+
+	// Mock returns two sessions; only s1 is in the session map.
+	p.NewAdapterFunc = func(baseURL string) agent.Adapter {
+		a := agenttest.NewMockAdapter()
+		a.Sessions = []agent.Session{
+			{ID: "s1", Title: "voilot session"},
+			{ID: "s-cli", Title: "CLI session", Time: &agent.TimeInfo{Created: 1000, Updated: 2000}},
+		}
+		return a
+	}
+
+	sesMap.SetEntry("s1", sessionmap.Entry{WorktreePath: "/worktree/a", Provider: "mock"})
+
+	resp, err := http.Get(ts.URL + "/api/sessions?worktree=/worktree/a")
+	if err != nil {
+		t.Fatalf("GET: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("expected 200, got %d", resp.StatusCode)
+	}
+
+	var sessions []json.RawMessage
+	json.NewDecoder(resp.Body).Decode(&sessions)
+	if len(sessions) != 2 {
+		t.Errorf("expected 2 sessions (including adopted), got %d", len(sessions))
+	}
+
+	// Verify the CLI session was adopted into the session map.
+	entry := sesMap.GetEntry("s-cli")
+	if entry.WorktreePath != "/worktree/a" {
+		t.Errorf("expected adopted session worktree /worktree/a, got %q", entry.WorktreePath)
+	}
+	if entry.Provider != "mock" {
+		t.Errorf("expected adopted session provider mock, got %q", entry.Provider)
+	}
+	if entry.UpdatedAt != 2000 {
+		t.Errorf("expected adopted session updatedAt 2000, got %d", entry.UpdatedAt)
+	}
+}
+
 func TestHandleCreateSession_RequiresWorktreePath(t *testing.T) {
 	srv, _, _ := testServer(t)
 	ts := httptest.NewServer(srv)

@@ -5,28 +5,17 @@ import (
 	"path/filepath"
 )
 
-// SessionMode controls what the agent is allowed to do.
-type SessionMode string
-
-const (
-	// ModePlan restricts the agent to discussion and planning only.
-	ModePlan SessionMode = "plan"
-	// ModeImplement gives the agent full tool access for code changes.
-	ModeImplement SessionMode = "implement"
-)
-
 // Session represents an active conversation with an agent.
 // Aligned with OpenCode's Session type.
 type Session struct {
-	ID            string      `json:"id"`
-	ParentID      string      `json:"parentID,omitempty"`
-	Title         string      `json:"title,omitempty"`
-	Mode          SessionMode `json:"mode,omitempty"`
-	Agent         string      `json:"agent,omitempty"`         // active agent name (e.g. "build", "planitect")
-	Model         string      `json:"model,omitempty"`         // active model override (provider/model)
-	LastUsedModel string      `json:"lastUsedModel,omitempty"` // last model used in this session (provider/model)
-	ProjectID     string      `json:"projectId,omitempty"`
-	Time          *TimeInfo   `json:"time,omitempty"`
+	ID            string    `json:"id"`
+	ParentID      string    `json:"parentID,omitempty"`
+	Title         string    `json:"title,omitempty"`
+	Agent         string    `json:"agent,omitempty"`         // active agent name (e.g. "build", "planitect")
+	Model         string    `json:"model,omitempty"`         // active model override (provider/model)
+	LastUsedModel string    `json:"lastUsedModel,omitempty"` // last model used in this session (provider/model)
+	ProjectID     string    `json:"projectId,omitempty"`
+	Time          *TimeInfo `json:"time,omitempty"`
 }
 
 // IsTopLevel returns true if this session is not a sub-session.
@@ -53,13 +42,12 @@ type TimeInfo struct {
 
 // SessionOptions configures a new session.
 type SessionOptions struct {
-	Title        string      `json:"title,omitempty"`
-	Mode         SessionMode `json:"mode,omitempty"`
-	Agent        string      `json:"agent,omitempty"` // agent to use (e.g. "build", "planitect")
-	Model        string      `json:"model,omitempty"` // model override (provider/model)
-	ParentID     string      `json:"parentID,omitempty"`
-	WorktreePath string      `json:"worktreePath,omitempty"` // workspace worktree to scope this session to
-	Provider     string      `json:"provider,omitempty"`     // provider name (e.g. "opencode"); empty = worktree default
+	Title        string `json:"title,omitempty"`
+	Agent        string `json:"agent,omitempty"` // agent to use (e.g. "build", "planitect")
+	Model        string `json:"model,omitempty"` // model override (provider/model)
+	ParentID     string `json:"parentID,omitempty"`
+	WorktreePath string `json:"worktreePath,omitempty"` // workspace worktree to scope this session to
+	Provider     string `json:"provider,omitempty"`     // provider name (e.g. "opencode"); empty = worktree default
 }
 
 // MessagePart represents one part of a message to send.
@@ -181,14 +169,6 @@ type Adapter interface {
 	// GetSessionModel returns the model override for a session.
 	// Returns empty string when no override is set.
 	GetSessionModel(sessionID string) string
-
-	// SetSessionMode sets the mode for a session (plan or implement).
-	// Mode is a voilot-level concept and is not forwarded to the agent backend.
-	SetSessionMode(sessionID string, mode SessionMode)
-
-	// GetSessionMode returns the current mode for a session.
-	// Returns ModePlan if the session has no mode set.
-	GetSessionMode(sessionID string) SessionMode
 
 	// GetSessionBusy returns true if the session is currently busy (agent is processing).
 	// Used by the frontend on page reload / WebSocket reconnect to detect stale state.

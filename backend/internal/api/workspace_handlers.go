@@ -15,6 +15,7 @@ import (
 
 	"github.com/gorilla/mux"
 	"github.com/jenpet/voilot/internal/agent"
+	"github.com/jenpet/voilot/internal/sessionmap"
 	"github.com/jenpet/voilot/internal/workspace"
 )
 
@@ -41,6 +42,26 @@ func (s *Server) handleListProjects(w http.ResponseWriter, r *http.Request) {
 				continue
 			}
 			for _, sess := range agent.FilterTopLevel(sessions) {
+				// Adopt unrecognized sessions into the session map.
+				entry := s.sessionMap.GetEntry(sess.ID)
+				if entry.WorktreePath == "" {
+					var ts int64
+					if sess.Time != nil && sess.Time.Updated > 0 {
+						ts = sess.Time.Updated
+					} else if sess.Time != nil {
+						ts = sess.Time.Created
+					}
+					if err := s.sessionMap.SetEntry(sess.ID, sessionmap.Entry{
+						WorktreePath: inst.WorkDir,
+						Provider:     inst.ProviderName,
+						UpdatedAt:    ts,
+					}); err != nil {
+						slog.Warn("failed to adopt session", "sessionID", sess.ID, "error", err)
+					} else {
+						slog.Info("adopted CLI-created session", "sessionID", sess.ID, "worktree", inst.WorkDir)
+					}
+				}
+
 				if sess.Time != nil && sess.Time.Updated > 0 {
 					liveUpdated[sess.ID] = sess.Time.Updated
 				} else if sess.Time != nil {

@@ -140,7 +140,6 @@ async function createSessionForWorktree() {
   creating.value = true;
   try {
     const session = await createSession({
-      mode: 'plan',
       agent: 'planitect',
       provider: selectedProvider.value || undefined,
       worktreePath: worktree.value.path,

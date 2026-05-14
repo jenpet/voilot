@@ -105,7 +105,6 @@ func (s *Server) registerRoutes() {
 	api.HandleFunc("/sessions/{id}", s.handleGetSession).Methods("GET")
 	api.HandleFunc("/sessions/{id}", s.handleDeleteSession).Methods("DELETE")
 	api.HandleFunc("/sessions/{id}/messages", s.handleGetSessionMessages).Methods("GET")
-	api.HandleFunc("/sessions/{id}/mode", s.handleSetSessionMode).Methods("PATCH")
 	api.HandleFunc("/sessions/{id}/title", s.handleSetSessionTitle).Methods("PATCH")
 
 	// Messages (REST fallback for non-WebSocket clients)

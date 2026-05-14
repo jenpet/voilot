@@ -20,7 +20,7 @@ var upgrader = websocket.Upgrader{
 
 // chatInbound is the WebSocket message format from the client.
 type chatInbound struct {
-	Type         string     `json:"type"`                   // "message", "abort", "set_mode", "set_agent", "set_model", "permission_response", "question_response", "question_reject"
+	Type         string     `json:"type"`                   // "message", "abort", "set_agent", "set_model", "permission_response", "question_response", "question_reject"
 	SessionID    string     `json:"sessionId"`              // target session
 	Content      string     `json:"content"`                // message text, mode/agent/model value
 	PermissionID string     `json:"permissionId,omitempty"` // for permission_response
@@ -151,41 +151,6 @@ func (s *Server) handleWSChat(w http.ResponseWriter, r *http.Request) {
 					Content:   "Failed to abort: " + err.Error(),
 				})
 			}
-
-		case "set_mode":
-			if msg.SessionID == "" {
-				writeJSON(chatOutbound{
-					Type:    "error",
-					Content: "sessionId is required",
-				})
-				continue
-			}
-			newMode := agent.SessionMode(msg.Content)
-			if newMode != agent.ModePlan && newMode != agent.ModeImplement {
-				writeJSON(chatOutbound{
-					Type:      "error",
-					SessionID: msg.SessionID,
-					Content:   "Invalid mode: " + msg.Content + " (must be 'plan' or 'implement')",
-				})
-				continue
-			}
-			adapter, err := s.resolveAdapter(r, msg.SessionID)
-			if err != nil {
-				continue
-			}
-			adapter.SetSessionMode(msg.SessionID, newMode)
-			writeJSON(chatOutbound{
-				Type:      "event",
-				SessionID: msg.SessionID,
-				Event: &agent.Event{
-					Type:      agent.EventSessionUpdated,
-					SessionID: msg.SessionID,
-					Content:   string(newMode),
-					Meta: map[string]interface{}{
-						"mode": string(newMode),
-					},
-				},
-			})
 
 		case "set_agent":
 			if msg.SessionID == "" {

@@ -15,7 +15,6 @@ import {
   stopWorkingHum,
   playErrorTone,
   playSTTFailureTone,
-  playModeSignature,
   notifyToolActivity,
   cancelWatchdog,
   setTTSEnqueue,
@@ -435,12 +434,6 @@ export function useAgent(sessionId: string) {
           session.value.model = event.meta.model as string
         } else if (session.value && event.meta?.lastUsedModel) {
           session.value.lastUsedModel = event.meta.lastUsedModel as string
-        } else if (session.value && event.meta?.mode) {
-          session.value.mode = event.meta.mode as 'plan' | 'implement'
-          // Audio cue for mode switch (Phase 5b)
-          if (voiceEnabled.value) {
-            playModeSignature()
-          }
         } else if (session.value && event.content) {
           // Only apply OpenCode's auto-title if no manual override exists
           if (!session.value.titleOverride) {
