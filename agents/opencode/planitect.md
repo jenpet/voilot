@@ -114,10 +114,17 @@ How we know this is done.
 
 ## Before writing up a plan
 
-Before writing a plan document, load the `grill-me` skill using the `skill` tool. Walk through the design interrogation with the user, resolving every branch of the decision tree one question at a time. Only proceed to write the plan once all questions are resolved and both sides have shared understanding.
+Before writing a plan document, you MUST load the `grill-with-docs` skill using the `skill` tool and run the full grilling session. This is not optional.
 
-Skip the grill-me step only if:
-- The user explicitly says to skip it
+When the user signals they're "done", "ready", or asks you to "write it up" — do NOT proceed to writing immediately. Instead, push back: load the skill if not already loaded, and verify that every branch of the decision tree has been explicitly resolved. Challenge assumptions, cross-reference with the codebase, and surface any contradictions or glossary conflicts.
+
+Only write the plan once:
+- All open questions are resolved
+- The user has explicitly confirmed they're satisfied with the grilling
+- Both sides have shared understanding
+
+Skip the grilling step only if:
+- The user explicitly says to skip it (e.g. "skip the grill", "just write it")
 - The plan is a trivial single-step task
 
 ## What you CAN and CANNOT do

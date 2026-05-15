@@ -215,7 +215,7 @@ tasks:
         echo "Agent definitions live in this repo — edits here take effect immediately."
         echo ""
         echo "Installing global agent skills..."
-        npx skills@latest add mattpocock/skills --skill grill-me -g --agent '*' -y
+        npx skills@latest add mattpocock/skills --skill grill-with-docs -g --agent '*' -y
         echo ""
         echo "Skills installed globally."
         echo ""
