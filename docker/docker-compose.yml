@@ -54,6 +54,8 @@ services:
       - --cors-origins=${CORS_ORIGINS:-}
     volumes:
       - ./config.docker.json:/etc/voilot/config.json:ro
+      - ${VOILOT_WORKSPACE_DIR}:/workspace
+      - voilot-data:/var/lib/voilot
     # Not exposed to host directly; nginx proxies /api/* and /ws/*
     expose:
       - "8080"
@@ -119,3 +121,5 @@ services:
 volumes:
   stt-models:
     driver: local
+  voilot-data:
+    external: true

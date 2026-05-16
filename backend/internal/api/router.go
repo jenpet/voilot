@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/gorilla/mux"
@@ -16,6 +17,12 @@ import (
 	"github.com/jenpet/voilot/internal/workspace"
 )
 
+// BuildInfo holds version metadata injected at build time.
+type BuildInfo struct {
+	Version   string
+	BuildTime string
+}
+
 // Server is the main HTTP/WebSocket server for voilot.
 type Server struct {
 	router      *mux.Router
@@ -25,11 +32,14 @@ type Server struct {
 	scanner     *workspace.Scanner
 	sessionMap  *sessionmap.Map
 	wtDefaults  *agent.WorktreeDefaults
+	buildInfo   BuildInfo
+	mu          sync.Mutex
+	lastActive  time.Time
 }
 
 // NewServer creates a new API server with the given dependencies.
 // scanner, sessionMap, and wtDefaults may be nil when workspace mode is disabled.
-func NewServer(registry *agent.ProviderRegistry, ttsProvider tts.Provider, sttProvider stt.Provider, scanner *workspace.Scanner, sessionMap *sessionmap.Map, wtDefaults *agent.WorktreeDefaults) *Server {
+func NewServer(registry *agent.ProviderRegistry, ttsProvider tts.Provider, sttProvider stt.Provider, scanner *workspace.Scanner, sessionMap *sessionmap.Map, wtDefaults *agent.WorktreeDefaults, buildInfo BuildInfo) *Server {
 	s := &Server{
 		router:      mux.NewRouter(),
 		registry:    registry,
@@ -38,6 +48,8 @@ func NewServer(registry *agent.ProviderRegistry, ttsProvider tts.Provider, sttPr
 		scanner:     scanner,
 		sessionMap:  sessionMap,
 		wtDefaults:  wtDefaults,
+		buildInfo:   buildInfo,
+		lastActive:  time.Now(),
 	}
 	s.registerRoutes()
 	return s
@@ -83,8 +95,35 @@ func requestLogger(next http.Handler) http.Handler {
 	})
 }
 
+// touchActivity updates the last activity timestamp.
+func (s *Server) touchActivity() {
+	s.mu.Lock()
+	s.lastActive = time.Now()
+	s.mu.Unlock()
+}
+
+// lastActivityAt returns the last activity timestamp.
+func (s *Server) lastActivityAt() time.Time {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.lastActive
+}
+
+// activityTracker is middleware that updates lastActive on every request
+// except health checks (to avoid the update script itself keeping the server awake).
+func (s *Server) activityTracker(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		path := r.URL.Path
+		if path != "/api/health" && path != "/api/health/detailed" {
+			s.touchActivity()
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
 func (s *Server) registerRoutes() {
 	s.router.Use(requestLogger)
+	s.router.Use(s.activityTracker)
 
 	api := s.router.PathPrefix("/api").Subrouter()
 

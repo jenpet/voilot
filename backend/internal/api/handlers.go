@@ -38,7 +38,11 @@ func jsonError(w http.ResponseWriter, status int, message string) {
 }
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
-	jsonResponse(w, http.StatusOK, map[string]string{"status": "ok"})
+	jsonResponse(w, http.StatusOK, map[string]string{
+		"status":    "ok",
+		"version":   s.buildInfo.Version,
+		"buildTime": s.buildInfo.BuildTime,
+	})
 }
 
 // ServiceStatus describes the health of a single dependency.
@@ -64,9 +68,12 @@ type InstanceInfo struct {
 // DetailedHealth is the response for GET /api/health/detailed.
 type DetailedHealth struct {
 	// Overall is "green" (all ok), "yellow" (optional services down), or "red" (agent down).
-	Overall   string          `json:"overall"`
-	Services  []ServiceStatus `json:"services"`
-	Instances []InstanceInfo  `json:"instances"`
+	Overall        string          `json:"overall"`
+	Version        string          `json:"version"`
+	BuildTime      string          `json:"buildTime"`
+	LastActivityAt string          `json:"lastActivityAt"`
+	Services       []ServiceStatus `json:"services"`
+	Instances      []InstanceInfo  `json:"instances"`
 }
 
 func (s *Server) handleHealthDetailed(w http.ResponseWriter, r *http.Request) {
@@ -158,9 +165,12 @@ func (s *Server) handleHealthDetailed(w http.ResponseWriter, r *http.Request) {
 	}
 
 	jsonResponse(w, http.StatusOK, DetailedHealth{
-		Overall:   overall,
-		Services:  services,
-		Instances: instanceInfos,
+		Overall:        overall,
+		Version:        s.buildInfo.Version,
+		BuildTime:      s.buildInfo.BuildTime,
+		LastActivityAt: s.lastActivityAt().Format(time.RFC3339),
+		Services:       services,
+		Instances:      instanceInfos,
 	})
 }
 

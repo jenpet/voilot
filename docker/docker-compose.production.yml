@@ -21,6 +21,11 @@
 
 services:
   frontend:
+    restart: unless-stopped
+    build:
+      args:
+        BUILD_HASH: ${BUILD_HASH:-unknown}
+        BUILD_TIME: ${BUILD_TIME:-unknown}
     logging:
       driver: json-file
       options:
@@ -36,6 +41,11 @@ services:
     #       memory: 64M
 
   backend:
+    restart: unless-stopped
+    build:
+      args:
+        BUILD_HASH: ${BUILD_HASH:-unknown}
+        BUILD_TIME: ${BUILD_TIME:-unknown}
     logging:
       driver: json-file
       options:
@@ -51,6 +61,7 @@ services:
     #       memory: 128M
 
   tts:
+    restart: unless-stopped
     logging:
       driver: json-file
       options:
@@ -66,6 +77,7 @@ services:
     #       memory: 1G
 
   stt:
+    restart: unless-stopped
     logging:
       driver: json-file
       options:

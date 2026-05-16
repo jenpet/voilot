@@ -32,7 +32,7 @@ func testServer(t *testing.T, opts ...agent.RegistryOption) (*api.Server, *agent
 		t.Fatalf("sessionmap.New: %v", err)
 	}
 
-	srv := api.NewServer(reg, nil, nil, nil, sesMap, nil)
+	srv := api.NewServer(reg, nil, nil, nil, sesMap, nil, api.BuildInfo{})
 	return srv, p, sesMap
 }
 

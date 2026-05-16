@@ -27,7 +27,7 @@ func newTestServer(t *testing.T) *Server {
 	if err != nil {
 		t.Fatalf("failed to create registry: %v", err)
 	}
-	return NewServer(registry, nil, nil, nil, nil, nil)
+	return NewServer(registry, nil, nil, nil, nil, nil, BuildInfo{Version: "test", BuildTime: "now"})
 }
 
 func TestHandleHealth(t *testing.T) {

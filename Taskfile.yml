@@ -12,6 +12,9 @@
 #   task build        # compile backend + generate frontend
 #   task check        # go vet + nuxt typecheck
 #
+# Deploy:
+#   task deploy       # build and deploy production Docker stack
+#
 # Agents:
 #   task agents:install   # symlink voilot agents into global config (interactive backend selection)
 #   task agents:uninstall # remove symlinked agents from global config
@@ -142,6 +145,11 @@ tasks:
       - go test ./...
 
   # ── Docker (full stack) ─────────────────────────────────────────
+
+  deploy:
+    desc: Build and deploy production Docker stack with build hash injection
+    cmds:
+      - ./docker/deploy.sh
 
   docker:
     desc: Build and start full Docker Compose stack (all services)

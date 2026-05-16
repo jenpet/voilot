@@ -19,3 +19,7 @@ frontend/dist
 .env
 .env.local
 backend/cmd/backfill/
+
+# Local runtime directory (logs, temp files)
+/tmp/*
+!/tmp/.gitkeep

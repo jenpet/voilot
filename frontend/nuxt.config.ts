@@ -117,6 +117,9 @@ export default defineNuxtConfig({
       // In production behind Nginx, set to '' (empty) so relative paths work.
       // Override with NUXT_PUBLIC_BACKEND_URL env var.
       backendUrl: 'http://localhost:8080',
+      // Build metadata, injected at Docker build time.
+      buildHash: '',
+      buildTime: '',
     },
   },
 })

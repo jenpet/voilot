@@ -14,6 +14,12 @@ COPY frontend/ ./
 # to the backend. Set backendUrl to empty so relative URLs are used.
 ENV NUXT_PUBLIC_BACKEND_URL=""
 
+# Build hash injection
+ARG BUILD_HASH=unknown
+ARG BUILD_TIME=unknown
+ENV NUXT_PUBLIC_BUILD_HASH=${BUILD_HASH}
+ENV NUXT_PUBLIC_BUILD_TIME=${BUILD_TIME}
+
 # Generate static site
 RUN npx nuxt generate
 

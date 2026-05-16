@@ -23,6 +23,12 @@ import (
 	"github.com/rs/cors"
 )
 
+// Set via -ldflags at build time.
+var (
+	version   = "dev"
+	buildTime = "unknown"
+)
+
 func main() {
 	var (
 		port         = flag.Int("port", 8080, "HTTP server port")
@@ -158,7 +164,10 @@ func main() {
 	}
 
 	// Create API server
-	server := api.NewServer(registry, ttsProvider, sttProvider, scanner, sesMap, wtDefaults)
+	server := api.NewServer(registry, ttsProvider, sttProvider, scanner, sesMap, wtDefaults, api.BuildInfo{
+		Version:   version,
+		BuildTime: buildTime,
+	})
 
 	// CORS middleware
 	origins := []string{}
