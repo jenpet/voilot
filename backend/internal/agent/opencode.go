@@ -272,14 +272,6 @@ func (a *OpenCodeAdapter) CreateSession(ctx context.Context, opts SessionOptions
 	return &session, nil
 }
 
-// InitializeSession sends the provided prompt to the session as the first
-// interaction. It looks up the session's agent and model internally.
-func (a *OpenCodeAdapter) InitializeSession(ctx context.Context, sessionID string, prompt string) error {
-	agentName := a.GetSessionAgent(sessionID)
-	modelID := a.GetSessionModel(sessionID)
-	return a.SendMessageAsync(ctx, sessionID, prompt, agentName, modelID)
-}
-
 func (a *OpenCodeAdapter) ResumeSession(ctx context.Context, id string) (*Session, error) {
 	resp, err := a.doRequest(ctx, "GET", "/session/"+id, nil)
 	if err != nil {
@@ -354,9 +346,6 @@ func (a *OpenCodeAdapter) GetMessages(ctx context.Context, sessionID string) ([]
 	}
 
 	var messages []HistoryMessage
-	firstUserSeen := false
-	firstUserHidden := false
-	secondUserSeen := false
 	for _, ocMsg := range ocMessages {
 		role := ocMsg.Info.Role
 		timestamp := ocMsg.Info.Time.Created
@@ -388,17 +377,6 @@ func (a *OpenCodeAdapter) GetMessages(ctx context.Context, sessionID string) ([]
 					content = content[idx+3:]
 				}
 
-				// Mark the auto-generated scoping message as hidden
-				if !firstUserSeen {
-					firstUserSeen = true
-					if strings.HasPrefix(content, "You are working in ") && strings.Contains(content, "Briefly welcome the user") {
-						meta["hidden"] = true
-						firstUserHidden = true
-					}
-				} else {
-					secondUserSeen = true
-				}
-
 				messages = append(messages, HistoryMessage{
 					ID:        ocMsg.Info.ID,
 					Role:      "user",
@@ -418,14 +396,10 @@ func (a *OpenCodeAdapter) GetMessages(ctx context.Context, sessionID string) ([]
 					}
 				case "tool":
 					// Parse tool state for rich metadata
-					meta := map[string]interface{}{}
-					if part.Tool != "" {
-						meta["tool"] = part.Tool
-					}
-					// Hide tool messages from the initial scoping response
-					if firstUserHidden && !secondUserSeen {
-						meta["hidden"] = true
-					}
+				meta := map[string]interface{}{}
+				if part.Tool != "" {
+					meta["tool"] = part.Tool
+				}
 					toolType := "tool_use"
 					content := part.Text
 					if part.State != nil {

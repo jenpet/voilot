@@ -5,7 +5,7 @@
  * Other composables read via the exported readonly refs.
  *
  * Owner legend:
- *   useAgent          → isStreaming, suppressInitialTools
+ *   useAgent          → isStreaming
  *   useAudioOrchestrator → voiceEnabled, voiceInitiatedTurn, loopRecordingActive
  */
 
@@ -54,17 +54,5 @@ export function useLoopRecordingActive() {
   return {
     loopRecordingActive: readonly(_ref),
     _setLoopRecordingActive: (v: boolean) => { _ref.value = v; },
-  };
-}
-
-/**
- * Whether initial tool events should be suppressed (e.g. session load).
- * Owner: useAgent
- */
-export function useSuppressInitialTools() {
-  const _ref = useState<boolean>('session-suppress-initial-tools', () => true);
-  return {
-    suppressInitialTools: readonly(_ref),
-    _setSuppressInitialTools: (v: boolean) => { _ref.value = v; },
   };
 }

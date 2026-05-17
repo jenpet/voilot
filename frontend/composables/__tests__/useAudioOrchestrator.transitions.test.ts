@@ -131,12 +131,6 @@ import {
   _forceStateForTesting,
 } from '../useStateMachine';
 
-import { useSuppressInitialTools } from '../useSessionState';
-
-// Stub useSuppressInitialTools as Nuxt auto-import (delegates to real impl
-// which uses the cached useState above)
-vi.stubGlobal('useSuppressInitialTools', useSuppressInitialTools);
-
 import { useAudioOrchestrator } from '../useAudioOrchestrator';
 
 // ── Helpers ─────────────────────────────────────────────────────────
@@ -210,18 +204,6 @@ describe('transition → audio: entering agent_turn', () => {
     orch.cleanup();
   });
 
-  it('initial_tools → hum only (no handoff, no watchdog)', () => {
-    const orch = createOrchestrator();
-
-    dispatch('start_agent_turn', 'initial_tools');
-
-    expect(mockStartWorkingHum).toHaveBeenCalledTimes(1);
-    expect(mockPlayHandoff).not.toHaveBeenCalled();
-    expect(mockStartWatchdog).not.toHaveBeenCalled();
-
-    orch.cleanup();
-  });
-
   it('auto_voice_initial → hum only (no handoff, no watchdog)', () => {
     const orch = createOrchestrator();
 
@@ -289,8 +271,6 @@ describe('transition → audio: entering agent_turn', () => {
 
 describe('transition → audio: leaving agent_turn', () => {
   it('agent_turn → idle (normal) → success chime', () => {
-    const { _setSuppressInitialTools } = useSuppressInitialTools();
-    _setSuppressInitialTools(false);
     const orch = createOrchestrator();
 
     dispatch('start_agent_turn', 'send_message');
@@ -299,21 +279,6 @@ describe('transition → audio: leaving agent_turn', () => {
     dispatch('complete_turn', 'turn_complete');
 
     expect(mockPlaySuccessChime).toHaveBeenCalledTimes(1);
-    expect(mockCancelWatchdog).toHaveBeenCalledTimes(1);
-
-    orch.cleanup();
-  });
-
-  it('agent_turn → idle with suppressInitialTools → no success chime', () => {
-    // suppressInitialTools defaults to true via useSessionState
-    const orch = createOrchestrator();
-
-    dispatch('start_agent_turn', 'send_message');
-    resetAllMocks();
-
-    dispatch('complete_turn', 'turn_complete');
-
-    expect(mockPlaySuccessChime).not.toHaveBeenCalled();
     expect(mockCancelWatchdog).toHaveBeenCalledTimes(1);
 
     orch.cleanup();

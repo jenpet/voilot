@@ -39,7 +39,6 @@ type MockAdapter struct {
 	QuestionCalled   []questionCall
 	RejectCalled     []string
 	CreateCalled     []agent.SessionOptions
-	InitializeCalled []initializeCall
 	SetAgentCalled   []setAgentCall
 	SetModelCalled   []setModelCall
 
@@ -78,11 +77,6 @@ type setModelCall struct {
 	Model     string
 }
 
-type initializeCall struct {
-	SessionID string
-	Prompt    string
-}
-
 // Verify interface compliance.
 var _ agent.Adapter = (*MockAdapter)(nil)
 
@@ -109,13 +103,6 @@ func (a *MockAdapter) CreateSession(_ context.Context, opts agent.SessionOptions
 		Title: opts.Title,
 	}
 	return s, nil
-}
-
-func (a *MockAdapter) InitializeSession(_ context.Context, sessionID string, prompt string) error {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	a.InitializeCalled = append(a.InitializeCalled, initializeCall{sessionID, prompt})
-	return nil
 }
 
 func (a *MockAdapter) ResumeSession(_ context.Context, id string) (*agent.Session, error) {

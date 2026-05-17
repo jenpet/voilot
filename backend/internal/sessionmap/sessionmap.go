@@ -9,14 +9,17 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+
+	"github.com/jenpet/voilot/internal/workspace"
 )
 
 // Entry holds all voilot-side metadata for a session.
 type Entry struct {
-	WorktreePath string `json:"worktreePath,omitempty"`
-	Provider     string `json:"provider,omitempty"` // provider name (e.g. "opencode")
-	Title        string `json:"title,omitempty"`
-	UpdatedAt    int64  `json:"updatedAt,omitempty"` // last activity timestamp (epoch ms), from backfill or runtime
+	WorktreePath    string                      `json:"worktreePath,omitempty"`
+	Provider        string                      `json:"provider,omitempty"` // provider name (e.g. "opencode")
+	Title           string                      `json:"title,omitempty"`
+	UpdatedAt       int64                       `json:"updatedAt,omitempty"`       // last activity timestamp (epoch ms), from backfill or runtime
+	WelcomeSnapshot *workspace.WorktreeSnapshot `json:"welcomeSnapshot,omitempty"` // git state captured at session creation
 }
 
 // Map manages session-to-entry mappings with file-backed persistence.

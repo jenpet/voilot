@@ -15,6 +15,7 @@ import (
 	"github.com/jenpet/voilot/internal/sessionmap"
 	"github.com/jenpet/voilot/internal/stt"
 	"github.com/jenpet/voilot/internal/tts"
+	"github.com/jenpet/voilot/internal/workspace"
 )
 
 // evalSymlinks resolves symlinks, falling back to the original path on error.
@@ -332,6 +333,9 @@ func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Collect git snapshot for the welcome message
+	snapshot := workspace.CollectWorktreeSnapshot(opts.WorktreePath)
+
 	// Map session to worktree in the session map for lookup
 	if opts.WorktreePath != "" && s.sessionMap != nil {
 		var ts int64
@@ -339,9 +343,10 @@ func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 			ts = session.Time.Created
 		}
 		if err := s.sessionMap.SetEntry(session.ID, sessionmap.Entry{
-			WorktreePath: opts.WorktreePath,
-			Provider:     providerName,
-			UpdatedAt:    ts,
+			WorktreePath:    opts.WorktreePath,
+			Provider:        providerName,
+			UpdatedAt:       ts,
+			WelcomeSnapshot: snapshot,
 		}); err != nil {
 			jsonError(w, http.StatusInternalServerError, "session created but mapping failed: "+err.Error())
 			return
@@ -353,12 +358,6 @@ func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 		if err := s.wtDefaults.Set(opts.WorktreePath, providerName); err != nil {
 			slog.Warn("failed to save worktree default provider", "error", err)
 		}
-	}
-
-	// Initialize session with scoping prompt (fire-and-forget)
-	prompt := agent.ScopePrompt(opts.WorktreePath)
-	if err := adapter.InitializeSession(r.Context(), session.ID, prompt); err != nil {
-		slog.Warn("session initialization failed", "sessionID", session.ID, "error", err)
 	}
 
 	jsonResponse(w, http.StatusCreated, session)
@@ -419,6 +418,25 @@ func (s *Server) handleGetSessionMessages(w http.ResponseWriter, r *http.Request
 		jsonError(w, http.StatusInternalServerError, "failed to get messages: "+err.Error())
 		return
 	}
+
+	// Prepend synthetic welcome message from stored snapshot
+	if s.sessionMap != nil {
+		entry := s.sessionMap.GetEntry(id)
+		if entry.WelcomeSnapshot != nil {
+			var ts int64
+			if entry.UpdatedAt > 0 {
+				ts = entry.UpdatedAt
+			}
+			welcome := agent.HistoryMessage{
+				ID:        "welcome-" + id,
+				Role:      "assistant",
+				Content:   workspace.RenderWelcomeMessage(entry.WelcomeSnapshot, entry.WorktreePath),
+				Timestamp: ts,
+			}
+			messages = append([]agent.HistoryMessage{welcome}, messages...)
+		}
+	}
+
 	jsonResponse(w, http.StatusOK, messages)
 }
 

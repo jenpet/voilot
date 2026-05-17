@@ -92,16 +92,6 @@ export function useAgent(sessionId: string) {
     tts: { enqueue: enqueueTTS, stop: stopTTS, isPlaying: isTTSPlaying },
   })
 
-  // Suppress tool events during the initial welcome response (before the
-  // user has sent any message). Once the first text event arrives or the
-  // user sends a message, this flag is cleared permanently.
-  // Shared via useSessionState so the orchestrator can read it directly.
-  const { suppressInitialTools, _setSuppressInitialTools } = useSuppressInitialTools()
-  // Explicitly reset on each session init — Nuxt's useState only runs the
-  // default factory on first access, so navigating between sessions would
-  // inherit the stale `false` from the previous session without this.
-  _setSuppressInitialTools(true)
-
   // Track whether the current turn was aborted by the user.
   // Prevents finishStreaming() from playing a success chime after abort.
   let abortedTurn = false
@@ -292,7 +282,6 @@ export function useAgent(sessionId: string) {
         if (messages.value.length === 0 || options?.force) {
           msgBuilder.setMessages(data
             .filter(m => !m.meta?.hidden)
-            .filter(m => !suppressInitialTools.value || (m.type !== 'tool_use' && m.type !== 'tool_result'))
             .map(m => ({
               id: m.id,
               role: m.role,
@@ -301,10 +290,6 @@ export function useAgent(sessionId: string) {
               type: m.type as AgentEvent['type'] | undefined,
               meta: m.meta,
             })))
-          // If history has any user messages, initial tools phase is over
-          if (data.some(m => m.role === 'user' && !m.meta?.hidden)) {
-            _setSuppressInitialTools(false)
-          }
         }
       }
     } catch {
@@ -346,7 +331,6 @@ export function useAgent(sessionId: string) {
     // Exclude permission events, question events, control events, and
     // error events during aborted turns from the batcher.
     if (voiceEnabled.value
-      && !suppressInitialTools.value
       && eventDisplay === 'default'
       && event.type !== 'text'
       && event.type !== 'done'
@@ -361,18 +345,9 @@ export function useAgent(sessionId: string) {
 
     switch (event.type) {
       case 'text':
-        _setSuppressInitialTools(false)
         handleTextEvent(event)
         break
       case 'tool_use':
-        // Suppress tool events during the initial welcome response
-        if (suppressInitialTools.value) {
-          // Agent is working (initial tools) — enter agent_turn for hum
-          if (getState() === 'idle') {
-            dispatch('start_agent_turn', 'initial_tools')
-          }
-          break
-        }
         // Record start time for duration tracking
         if (event.partId) {
           toolStartTimes.set(event.partId, Date.now())
@@ -382,8 +357,6 @@ export function useAgent(sessionId: string) {
         appendAssistantMeta(event.content, 'tool_use', event.meta)
         break
       case 'tool_result': {
-        // Suppress tool events during the initial welcome response
-        if (suppressInitialTools.value) break
         // Compute duration from matching tool_use event
         const resultMeta = { ...event.meta }
         if (event.partId && toolStartTimes.has(event.partId)) {
@@ -414,13 +387,6 @@ export function useAgent(sessionId: string) {
       case 'done':
       case 'status':
         if (event.type === 'done' || event.content === 'idle') {
-          // During the initial tools phase, ignore idle status events —
-          // OpenCode sends them between tool executions before any text.
-          // The turn will properly end after text arrives and the real
-          // done/idle follows.
-          if (suppressInitialTools.value && event.type === 'status') {
-            break
-          }
           finishStreaming()
         } else if (event.content === 'busy') {
           isStreaming.value = true
@@ -529,10 +495,6 @@ export function useAgent(sessionId: string) {
 
     // Audio cues (stop hum, success chime) are fired by the orchestrator
     // when dispatch('complete_turn') transitions agent_turn → idle.
-    // The orchestrator reads suppressInitialTools directly from useSessionState.
-    if (abortedTurn) {
-      _setSuppressInitialTools(true)
-    }
     abortedTurn = false
 
     // Flush any remaining buffered text to TTS.
@@ -566,7 +528,6 @@ export function useAgent(sessionId: string) {
   // Send a message via WebSocket
   function sendMessage(text: string, options?: { origin?: 'voice' | 'text' }) {
     log('info', 'agent', 'send_message', { origin: options?.origin, length: text.length, hasPendingQuestion: hasPendingQuestion.value })
-    _setSuppressInitialTools(false)
     abortedTurn = false
     autoVoiceArmed = false // User sent a message — no longer first response
     // If there's a pending question, intercept the input as a custom answer

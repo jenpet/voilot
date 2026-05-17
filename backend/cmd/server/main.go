@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"os/exec"
 	"os/signal"
 	"strings"
 	"syscall"
@@ -47,6 +48,9 @@ func main() {
 
 	// Initialize structured logging
 	initLogging(*logLevel, *logFormat)
+
+	// Verify required binaries are available
+	checkRequiredBinaries()
 
 	// Load config
 	cfgPath := *configPath
@@ -274,4 +278,23 @@ func buildProviders(cfg *config.Config) map[string]agent.Provider {
 		}
 	}
 	return providers
+}
+
+// requiredBinaries lists external commands that must be on $PATH for the
+// backend to function. Extend this slice when new dependencies are added.
+var requiredBinaries = []string{"git", "wt"}
+
+// checkRequiredBinaries verifies all required binaries are available and
+// exits with an error if any are missing.
+func checkRequiredBinaries() {
+	var missing []string
+	for _, bin := range requiredBinaries {
+		if _, err := exec.LookPath(bin); err != nil {
+			missing = append(missing, bin)
+		}
+	}
+	if len(missing) > 0 {
+		slog.Error("Required binaries not found on $PATH", "missing", missing)
+		os.Exit(1)
+	}
 }

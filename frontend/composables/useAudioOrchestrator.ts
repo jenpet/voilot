@@ -71,7 +71,6 @@ const FRESH_TURN_TRIGGERS = new Set([
   'auto_voice_start',
   'auto_voice_resume',
   'auto_voice_initial',
-  'initial_tools',
 ]);
 
 const RETURNING_FROM_INPUT_TRIGGERS = new Set([
@@ -89,7 +88,6 @@ export function useAudioOrchestrator(options: AudioOrchestratorOptions) {
   const tts: TTSHandle = options.tts ?? useTTS();
   let _autoVoiceArmed = false;
   let _agentDone = false;
-  const { suppressInitialTools } = useSuppressInitialTools();
   const _voiceInitiatedTurn = ref(false);
   const _voiceEnabled = options.voiceEnabled ?? ref(false);
 
@@ -167,9 +165,7 @@ export function useAudioOrchestrator(options: AudioOrchestratorOptions) {
       stopWorkingHum();
     }
 
-    if (!suppressInitialTools.value) {
-      playSuccessChime();
-    }
+    playSuccessChime();
   }
 
   function handleAwaitInput(trigger?: string): void {

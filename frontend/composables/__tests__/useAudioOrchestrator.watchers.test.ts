@@ -23,10 +23,6 @@ vi.stubGlobal('readonly', readonly);
 const { watch: vueWatch } = await import('vue');
 vi.stubGlobal('watch', vueWatch);
 vi.stubGlobal('useState', (key: string, init?: () => any) => ref(init ? init() : undefined));
-vi.stubGlobal('useSuppressInitialTools', () => ({
-  suppressInitialTools: readonly(ref(true)),
-  _setSuppressInitialTools: vi.fn(),
-}));
 
 // ── Mock useDebugLog ────────────────────────────────────────────────
 
