@@ -292,7 +292,7 @@ export function useAgent(sessionId: string) {
             })))
 
           // Speak the welcome message on first session load
-          if (voiceEnabled.value && data.length > 0 && data[0].id?.startsWith('welcome-')) {
+          if (shouldSpeakWelcome(voiceEnabled.value, data)) {
             const spoken = ttsCondenser.condense(data[0].content)
             if (spoken) {
               enqueueTTS(spoken)
@@ -1093,4 +1093,18 @@ export function useAgent(sessionId: string) {
     rejectQuestion,
     cleanup,
   }
+}
+
+/**
+ * Determines whether the welcome message should be spoken via TTS.
+ * Only speaks on the very first load of a fresh session (no user messages yet).
+ */
+export function shouldSpeakWelcome(
+  voiceEnabled: boolean,
+  messages: { id: string; role: string }[],
+): boolean {
+  return voiceEnabled
+    && messages.length > 0
+    && !!messages[0].id?.startsWith('welcome-')
+    && !messages.some(m => m.role === 'user');
 }
