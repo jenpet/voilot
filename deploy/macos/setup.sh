@@ -3,13 +3,11 @@
 # voilot macOS production setup
 #
 # One-time script that configures a Mac as a voilot production server:
-#   - Verify prerequisites (Go, Node.js, Docker, Tailscale, sleepwatcher)
+#   - Verify prerequisites (Go, Node.js, Docker, Tailscale, GitHub CLI)
 #   - Energy settings (WoL, auto-restart, no auto-sleep)
 #   - Tailscale HTTPS serve rules
-#   - launchd plists for backend + frontend
+#   - launchd plists for backend, frontend, and update
 #   - Docker Desktop auto-start on login
-#   - Cron job for periodic update checks
-#   - Sleepwatcher wake hook for immediate update on wake
 #   - Initial deploy
 #
 # Usage:
@@ -22,7 +20,6 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 DEPLOY_SCRIPT="$REPO_DIR/deploy/deploy.sh"
 UPDATE_SCRIPT="$REPO_DIR/deploy/update.sh"
-DEPLOY_LOG="$REPO_DIR/tmp/deploy.log"
 PLIST_DIR="$SCRIPT_DIR/plists"
 LAUNCH_AGENTS="$HOME/Library/LaunchAgents"
 
@@ -40,6 +37,7 @@ command -v go &>/dev/null || missing+=("go (https://go.dev/dl/)")
 command -v node &>/dev/null || missing+=("node (https://nodejs.org/)")
 command -v npm &>/dev/null || missing+=("npm (comes with node)")
 command -v git &>/dev/null || missing+=("git")
+command -v gh &>/dev/null || missing+=("gh (brew install gh)")
 command -v docker &>/dev/null || missing+=("docker (Docker Desktop)")
 command -v tailscale &>/dev/null || missing+=("tailscale (brew install --cask tailscale)")
 
@@ -56,16 +54,14 @@ if ! command -v brew &>/dev/null; then
   exit 1
 fi
 
-if ! brew list sleepwatcher &>/dev/null; then
-  echo "Installing sleepwatcher..."
-  brew install sleepwatcher
+# Verify GitHub CLI is authenticated (needed for git fetch from cron/launchd)
+if ! gh auth status &>/dev/null; then
+  echo "ERROR: GitHub CLI not authenticated. Run 'gh auth login' first."
+  exit 1
 fi
 
-# Start sleepwatcher service if not running
-if ! brew services list | grep sleepwatcher | grep -q started; then
-  echo "Starting sleepwatcher service..."
-  brew services start sleepwatcher
-fi
+echo "Configuring git to use GitHub CLI for authentication..."
+gh auth setup-git
 
 echo "Prerequisites OK"
 echo ""
@@ -138,41 +134,13 @@ osascript -e 'tell application "System Events" to make login item at end with pr
 echo "Docker Desktop login item configured"
 echo ""
 
-# ── 6. Cron job ────────────────────────────────────────────────────
-
-echo "Installing cron job..."
-
-CRON_ENTRY="* * * * * $UPDATE_SCRIPT >> $DEPLOY_LOG 2>&1 # voilot-update"
-
-# Remove any existing voilot-update cron entry (handles relocation)
-crontab -l 2>/dev/null | grep -v '# voilot-update' | crontab - 2>/dev/null || true
-
-# Add the new entry
-(crontab -l 2>/dev/null || true; echo "$CRON_ENTRY") | crontab -
-echo "Cron entry installed"
-echo ""
-
-# ── 7. Sleepwatcher wake hook ──────────────────────────────────────
-
-echo "Configuring sleepwatcher wake hook..."
-
-WAKEUP_SCRIPT="$HOME/.wakeup"
-cat > "$WAKEUP_SCRIPT" << EOF
-#!/usr/bin/env bash
-# Triggered by sleepwatcher on wake — run voilot update immediately
-$UPDATE_SCRIPT >> $DEPLOY_LOG 2>&1
-EOF
-chmod +x "$WAKEUP_SCRIPT"
-
-echo "Wake hook installed: $WAKEUP_SCRIPT"
-echo ""
-
-# ── 8. Make scripts executable ─────────────────────────────────────
+# ── 6. Make scripts executable ─────────────────────────────────────
 
 chmod +x "$DEPLOY_SCRIPT" "$UPDATE_SCRIPT"
 chmod +x "$SCRIPT_DIR/run-backend.sh" "$SCRIPT_DIR/run-frontend.sh"
+chmod +x "$SCRIPT_DIR/run-update.sh"
 
-# ── 9. Initial deploy ─────────────────────────────────────────────
+# ── 7. Initial deploy ─────────────────────────────────────────────
 
 echo "Running initial deploy..."
 "$DEPLOY_SCRIPT"
@@ -185,14 +153,14 @@ echo ""
 echo "What happens now:"
 echo "  - Backend runs as pet.jen.voilot.backend (launchd)"
 echo "  - Frontend runs as pet.jen.voilot.frontend (launchd)"
+echo "  - Update checks every 30s as pet.jen.voilot.update (launchd)"
 echo "  - TTS + STT run in Docker containers"
-echo "  - Every minute, cron runs the update script"
-echo "  - On wake from sleep, sleepwatcher triggers an immediate update"
 echo "  - After 30 minutes of no activity, the Mac sleeps automatically"
 echo "  - Docker Desktop starts on login"
 echo ""
-echo "Logs: $DEPLOY_LOG"
-echo "Backend log: $REPO_DIR/tmp/backend.log"
-echo "Frontend log: $REPO_DIR/tmp/frontend.log"
+echo "Logs:"
+echo "  Backend:  $REPO_DIR/tmp/backend.log"
+echo "  Frontend: $REPO_DIR/tmp/frontend.log"
+echo "  Update:   $REPO_DIR/tmp/update.log"
 echo ""
-echo "To test: $UPDATE_SCRIPT"
+echo "Status: launchctl list | grep voilot"

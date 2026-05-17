@@ -96,6 +96,7 @@ voilot/
 │       ├── README.md            # Setup docs and prerequisites
 │       ├── run-backend.sh       # Wrapper: sources .env, execs voilot-server
 │       ├── run-frontend.sh      # Wrapper: sources .env, execs node server
+│       ├── run-update.sh        # Wrapper: sets PATH, execs update.sh
 │       └── plists/              # launchd plist templates
 └── README.md
 ```
@@ -276,7 +277,9 @@ Custom Flask sidecar wrapping the faster-whisper library.
 - TTS and STT run in Docker containers (`deploy/docker/docker-compose.yml`)
 - `deploy/deploy.sh` builds backend + frontend, restarts launchd, brings up voice containers
 - `deploy/update.sh` polls `origin/main`, calls `deploy.sh` on changes, sleeps Mac on idle
-- `deploy/macos/setup.sh` is a one-time setup for macOS production (pmset, launchd plists, Tailscale serve, cron, sleepwatcher)
+- Update service runs as a launchd plist (`pet.jen.voilot.update`) polling every 30 seconds
+- `deploy/macos/setup.sh` is a one-time setup for macOS production (pmset, launchd plists, Tailscale serve, gh auth)
+- GitHub CLI (`gh`) is required for git credential management in non-interactive launchd context
 - Build hash/time injected via Go ldflags (backend) and `NUXT_PUBLIC_*` env vars (frontend)
 
 ---
