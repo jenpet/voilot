@@ -290,6 +290,14 @@ export function useAgent(sessionId: string) {
               type: m.type as AgentEvent['type'] | undefined,
               meta: m.meta,
             })))
+
+          // Speak the welcome message on first session load
+          if (voiceEnabled.value && data.length > 0 && data[0].id?.startsWith('welcome-')) {
+            const spoken = ttsCondenser.condense(data[0].content)
+            if (spoken) {
+              enqueueTTS(spoken)
+            }
+          }
         }
       }
     } catch {
