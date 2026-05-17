@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# voilot deploy — builds and deploys the production stack.
+# voilot deploy — builds and deploys the production stack (v2).
 #
 # Builds the Go backend and Nuxt frontend, restarts launchd services,
 # and brings up voice containers (TTS/STT) via Docker Compose.
