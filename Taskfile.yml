@@ -9,19 +9,22 @@
 #   task dev:tunnel   # Tailscale HTTPS proxy (auto-skips if Tailscale unavailable)
 #
 # Build & check:
-#   task build        # compile backend + generate frontend
+#   task build        # compile backend + build frontend
 #   task check        # go vet + nuxt typecheck
 #
 # Deploy:
-#   task deploy       # build and deploy production Docker stack
+#   task deploy           # build and deploy production stack (host-native + Docker voice)
+#   task deploy:setup     # one-time macOS production setup
+#   task deploy:status    # show status of production services
+#   task deploy:logs      # tail production logs
 #
 # Agents:
 #   task agents:install   # symlink voilot agents into global config (interactive backend selection)
 #   task agents:uninstall # remove symlinked agents from global config
 #
-# Docker (full stack):
-#   task docker       # docker compose up --build (all services)
-#   task docker:down  # tear down
+# Voice containers:
+#   task voice        # docker compose up for TTS + STT
+#   task voice:down   # tear down voice containers
 
 version: "3"
 
@@ -34,6 +37,7 @@ vars:
   STT_URL: '{{.STT_URL | default "http://localhost:5003"}}'
   WORKSPACE_DIR: '{{.WORKSPACE_DIR | default "~/tmp/voilot-wd"}}'
   DATA_DIR: '{{.DATA_DIR | default "~/tmp/voilot-wd/voilot-data"}}'
+  COMPOSE_PROJECT: '{{.VOILOT_COMPOSE_PROJECT | default "voilot"}}'
 
 tasks:
   # ── Local development ───────────────────────────────────────────
@@ -74,20 +78,20 @@ tasks:
 
   dev:voice:
     desc: TTS + STT Docker containers only (detached)
-    dir: docker
+    dir: deploy/docker
     cmds:
-      - docker compose --profile voice up -d tts stt
+      - docker compose -p {{.COMPOSE_PROJECT}} --profile voice up -d tts stt
 
   dev:stop:
     desc: Stop detached voice containers
-    dir: docker
+    dir: deploy/docker
     cmds:
-      - docker compose --profile voice down
+      - docker compose -p {{.COMPOSE_PROJECT}} --profile voice down
 
   # ── Build ───────────────────────────────────────────────────────
 
   build:
-    desc: Compile backend + generate frontend static build
+    desc: Compile backend + build frontend
     cmds:
       - task: build:backend
       - task: build:frontend
@@ -105,10 +109,10 @@ tasks:
       - ../dist/voilot-server
 
   build:frontend:
-    desc: Generate Nuxt static site
+    desc: Build Nuxt production server
     dir: frontend
     cmds:
-      - npx nuxt generate
+      - npx nuxt build
 
   # ── Checks ──────────────────────────────────────────────────────
 
@@ -144,31 +148,57 @@ tasks:
     cmds:
       - go test ./...
 
-  # ── Docker (full stack) ─────────────────────────────────────────
+  # ── Deploy ───────────────────────────────────────────────────────
 
   deploy:
-    desc: Build and deploy production Docker stack with build hash injection
+    desc: Build and deploy production stack (host-native + Docker voice)
     cmds:
-      - ./docker/deploy.sh
+      - ./deploy/deploy.sh
 
-  docker:
-    desc: Build and start full Docker Compose stack (all services)
-    dir: docker
+  deploy:setup:
+    desc: One-time macOS production setup (pmset, launchd, Tailscale, cron)
     cmds:
-      - TTS_URL=http://tts:8880 STT_URL=http://stt:5003
-        docker compose --profile voice up --build
+      - ./deploy/macos/setup.sh
 
-  docker:test:
-    desc: Validate Docker builds compile successfully (no run)
-    dir: docker
+  deploy:status:
+    desc: Show status of production services
     cmds:
-      - docker compose --profile voice build
+      - |
+        echo "=== launchd services ==="
+        GUI="gui/$(id -u)"
+        for svc in pet.jen.voilot.backend pet.jen.voilot.frontend; do
+          if launchctl print "$GUI/$svc" &>/dev/null; then
+            pid=$(launchctl print "$GUI/$svc" 2>/dev/null | grep 'pid =' | awk '{print $NF}')
+            echo "  ✓ $svc (pid $pid)"
+          else
+            echo "  ✗ $svc (not loaded)"
+          fi
+        done
+        echo ""
+        echo "=== voice containers ==="
+        docker compose -p {{.COMPOSE_PROJECT}} -f deploy/docker/docker-compose.yml --profile voice ps 2>/dev/null || echo "  Docker not available"
+        echo ""
+        echo "=== backend health ==="
+        curl -sf http://localhost:8080/api/health 2>/dev/null | python3 -m json.tool 2>/dev/null || echo "  Backend not reachable"
 
-  docker:down:
-    desc: Stop and remove all Docker containers
-    dir: docker
+  deploy:logs:
+    desc: Tail production logs (backend + frontend)
     cmds:
-      - docker compose --profile voice down
+      - tail -f tmp/backend.log tmp/frontend.log
+
+  # ── Voice containers ────────────────────────────────────────────
+
+  voice:
+    desc: Start TTS + STT Docker containers
+    dir: deploy/docker
+    cmds:
+      - docker compose -p {{.COMPOSE_PROJECT}} --profile voice up --build -d
+
+  voice:down:
+    desc: Stop and remove voice containers
+    dir: deploy/docker
+    cmds:
+      - docker compose -p {{.COMPOSE_PROJECT}} --profile voice down
 
   # ── Agents ─────────────────────────────────────────────────────
 

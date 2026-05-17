@@ -21,7 +21,8 @@ export default defineNuxtConfig({
   // No dev proxy — in development the frontend talks directly to the Go backend
   // via the backendUrl runtime config (default: http://localhost:8080).
   // This avoids ECONNRESET crashes when the backend is unavailable.
-  // In production, Nginx proxies /api and /ws to the backend.
+  // In production, the same direct connection is used (Tailscale exposes
+  // the backend on a separate HTTPS port).
 
   // Allow Tailscale MagicDNS hostnames through Vite's host check (dev only)
   vite: {
@@ -30,7 +31,7 @@ export default defineNuxtConfig({
     },
   },
 
-  // Static site generation for production (served by nginx)
+  // SPA mode — SSR deferred (see plans/2026-05-15-continuous-deployment-energy-management.md)
   ssr: false,
 
   // PWA configuration — environment-aware caching and manifest
@@ -109,15 +110,17 @@ export default defineNuxtConfig({
   },
 
   // Runtime config (environment variables)
-  // In dev: the frontend talks directly to the Go backend.
-  // In production behind Nginx, set to '' (empty) so relative paths work.
+  // The frontend talks directly to the Go backend on a separate port.
+  // In dev: http://localhost:8080. In production: same value — Tailscale
+  // exposes both frontend (:443) and backend (:8080) over HTTPS.
+  // useBackendUrl() rewrites localhost to the browser's hostname for
+  // cross-device access.
   runtimeConfig: {
     public: {
-      // Base URL of the Go backend. In dev: direct connection.
-      // In production behind Nginx, set to '' (empty) so relative paths work.
+      // Base URL of the Go backend (same in dev and prod).
       // Override with NUXT_PUBLIC_BACKEND_URL env var.
       backendUrl: 'http://localhost:8080',
-      // Build metadata, injected at Docker build time.
+      // Build metadata, injected at build time via env vars.
       buildHash: '',
       buildTime: '',
     },

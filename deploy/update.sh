@@ -6,7 +6,6 @@
 # Environment variables:
 #   VOILOT_UPDATE_INTERVAL     Poll interval in seconds (default: 60)
 #   VOILOT_IDLE_TIMEOUT        Idle timeout in minutes before sleep (default: 30)
-#   VOILOT_COMPOSE_PROFILES    Compose profiles to activate (default: voice, passed to deploy.sh)
 #   VOILOT_BACKEND_URL         Backend URL for health checks (default: http://localhost:8080)
 #   VOILOT_REPO_DIR            Repository root (default: script's parent directory)
 #
@@ -25,22 +24,6 @@ BACKEND_URL="${VOILOT_BACKEND_URL:-http://localhost:8080}"
 
 log() {
   echo "$(date -Iseconds) $1"
-}
-
-# Wait for Docker daemon to become ready (up to 60 seconds).
-wait_for_docker() {
-  local max_attempts=30
-  local attempt=1
-  while [ "$attempt" -le "$max_attempts" ]; do
-    if docker info >/dev/null 2>&1; then
-      return 0
-    fi
-    log "INFO: Waiting for Docker daemon (attempt $attempt/$max_attempts)..."
-    sleep 2
-    attempt=$((attempt + 1))
-  done
-  log "ERROR: Docker daemon not ready after 60s, aborting"
-  return 1
 }
 
 # Check for updates and deploy if main has moved forward.
@@ -134,8 +117,6 @@ check_idle_and_sleep() {
 trap 'log "INFO: Received SIGTERM, exiting"; exit 0' SIGTERM SIGINT
 
 # Main
-wait_for_docker || exit 1
-
 if [ "${1:-}" = "--loop" ]; then
   log "INFO: Starting continuous update loop (interval: ${UPDATE_INTERVAL}s, idle timeout: ${IDLE_TIMEOUT}m)"
   while true; do

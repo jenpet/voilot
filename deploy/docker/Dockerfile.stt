@@ -29,7 +29,7 @@ USER stt
 RUN python -c "from faster_whisper import WhisperModel; WhisperModel('base', device='cpu', compute_type='int8')"
 
 # Copy server script
-COPY --chown=stt:stt docker/stt-server.py /app/server.py
+COPY --chown=stt:stt deploy/docker/stt-server.py /app/server.py
 
 ENV WHISPER_MODEL=base
 ENV WHISPER_DEVICE=cpu

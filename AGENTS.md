@@ -8,15 +8,21 @@ Voilot (voice + pilot) is a voice-first, mobile-first PWA client for interacting
 
 ```
 Browser (PWA) — Nuxt 3 + Vue + Tailwind, dark theme, mobile-first
-       | HTTP / WebSocket
-Nginx — static files, /api/* and /ws/* reverse-proxied to backend
+       | HTTPS (Tailscale)
+  :443 → Nuxt server (host, port 3000)
+  :8080 → Go backend  (host, port 8080)
        |
-Go Backend (port 8080) — REST API, WebSocket, agent adapter, voice router
+Go Backend — REST API, WebSocket, agent adapter, voice router
        |
   +----+----------------+
   |    |                 |
-Kokoro TTS (:8880)   faster-whisper STT (:5003)   OpenCode (:4096)
+Kokoro TTS (:8880)   faster-whisper STT (:5003)   OpenCode (spawned per worktree)
+   (Docker)              (Docker)                   (host, child process)
 ```
+
+Backend and frontend run natively on the host (macOS launchd in production,
+air/npm in dev). Only TTS and STT run in Docker containers. No nginx.
+See `docs/adr/0001-host-native-backend-frontend-docker-for-voice.md`.
 
 ### Key Concepts
 
@@ -30,10 +36,10 @@ Kokoro TTS (:8880)   faster-whisper STT (:5003)   OpenCode (:4096)
 ### Design Constraints
 
 - **No React** — Vue.js / Nuxt 3 for the frontend
-- **Go backend** — single binary, REST + WebSocket API only, does NOT serve the frontend
-- **Frontend served by Nginx** — static build via `nuxt generate`
+- **Go backend** — single binary, REST + WebSocket API only
+- **Host-native** — backend and frontend run on the host, not in Docker
 - **Open-source models only** for TTS and STT, self-hosted via Docker
-- **Docker Compose** stack for all services
+- **Docker** only for voice services (TTS + STT)
 
 ## Repository Structure
 
@@ -78,14 +84,19 @@ voilot/
 │       ├── useVoice.ts          # MediaRecorder + STT REST API (sends multipart form data)
 │       ├── useTTS.ts            # Sequential queue-based TTS playback
 │       └── useTTSFilter.ts      # Client-side TTS text filter
-├── docker/
-│   ├── docker-compose.yml       # Services: frontend, backend, tts (Kokoro), stt (whisper)
-│   ├── nginx.conf               # HTTP-only reverse proxy (TLS via Tailscale)
-│   ├── voilot-common.conf       # Shared nginx location blocks
-│   ├── Dockerfile.backend       # Multi-stage Go build
-│   ├── Dockerfile.frontend      # Multi-stage Nuxt generate + nginx (NUXT_PUBLIC_BACKEND_URL="")
-│   ├── Dockerfile.stt           # Python 3.11 + faster-whisper + gunicorn
-│   ├── stt-server.py            # Flask app wrapping faster-whisper (/transcribe, /health)
+├── deploy/
+│   ├── deploy.sh                # Build backend + frontend, restart services, docker compose voice
+│   ├── update.sh                # Git fetch/compare, deploy on changes, idle sleep
+│   ├── docker/
+│   │   ├── docker-compose.yml   # TTS + STT only (voice services)
+│   │   ├── Dockerfile.stt       # Python 3.11 + faster-whisper + gunicorn
+│   │   └── stt-server.py        # Flask app wrapping faster-whisper (/transcribe, /health)
+│   └── macos/
+│       ├── setup.sh             # One-time macOS production setup
+│       ├── README.md            # Setup docs and prerequisites
+│       ├── run-backend.sh       # Wrapper: sources .env, execs voilot-server
+│       ├── run-frontend.sh      # Wrapper: sources .env, execs node server
+│       └── plists/              # launchd plist templates
 └── README.md
 ```
 
@@ -135,18 +146,19 @@ The backend uses [air](https://github.com/air-verse/air) for hot reload — savi
 cd frontend
 npm install              # Install dependencies
 npm run dev              # Dev server at http://localhost:3000
-npx nuxt generate        # Static build -> .output/public/
+npx nuxt build           # Production build -> .output/server/
 ```
 
-### Docker
+### Docker (voice services only)
 
 ```bash
-cd docker
-docker compose up --build                       # Frontend + backend only
-docker compose --profile voice up --build       # Full stack with voice
+cd deploy/docker
+docker compose -p voilot --profile voice up --build    # TTS + STT
+docker compose -p voilot --profile voice down           # Stop
 ```
 
-Backend config is mounted from `docker/config.docker.json`. Edit that file to change provider settings, TTS/STT URLs, or workspace path. No environment variables needed — TTS/STT URLs are in the config file with Docker service hostnames (`http://tts:8880`, `http://stt:5003`).
+Voice services (TTS + STT) run in Docker. Backend and frontend run on the host.
+See `docs/adr/0001-host-native-backend-frontend-docker-for-voice.md`.
 
 ## Code Style Guidelines
 
@@ -245,7 +257,7 @@ Custom Flask sidecar wrapping the faster-whisper library.
 - All composables use `resolveBackendUrl()` from `composables/useBackendUrl.ts`
 - Dev on localhost: returns `http://localhost:8080` (from `config.public.backendUrl`)
 - Dev on LAN IP: auto-rewrites to use the browser's actual hostname (e.g., `http://192.168.178.93:8080`)
-- Docker/production: returns `''` (empty = relative paths behind nginx)
+- Production: same as dev — `http://localhost:8080`, rewritten by `resolveBackendUrl()` for cross-device access
 - WebSocket composable: absolute URL in dev, `window.location`-derived in production
 - No proxying in Nuxt config — Nitro devProxy and Vite server.proxy both crash with ECONNRESET when backend is unavailable
 
@@ -253,16 +265,19 @@ Custom Flask sidecar wrapping the faster-whisper library.
 
 - HTTPS is required for mobile mic access (`getUserMedia` needs a secure context)
 - TLS termination is handled by **Tailscale** (`tailscale serve`), not by nginx
-- Nginx inside Docker serves HTTP only (port 80); Tailscale proxies HTTPS to it
-- For local dev: `tailscale serve --bg --https=443 http://localhost:3000`
+- Two Tailscale HTTPS rules: `:443` → frontend (`:3000`), `:8080` → backend (`:8080`)
+- Both services bind to `127.0.0.1` — Tailscale proxies locally
+- For local dev: `./scripts/tailscale-dev.sh` sets up the same rules
 - Access from phone via `https://<machine>.<tailnet>.ts.net` (Tailscale must be installed on both devices)
 
-## Docker Deployment Notes
+## Deployment Notes
 
-- `NUXT_PUBLIC_BACKEND_URL` must be `""` during Dockerfile.frontend build
-- Backend config is mounted from `docker/config.docker.json` — TTS/STT URLs use Docker service hostnames (`http://tts:8880`, `http://stt:5003`)
-- `host.docker.internal:host-gateway` extra_hosts needed for backend to reach host's OpenCode server
-- Nginx DNS caching: uses `resolver 127.0.0.11 valid=10s` and a variable for the upstream (`set $backend_upstream http://backend:8080`) so nginx re-resolves on container recreation
+- Backend and frontend run on the host as macOS launchd services (production) or via air/npm (dev)
+- TTS and STT run in Docker containers (`deploy/docker/docker-compose.yml`)
+- `deploy/deploy.sh` builds backend + frontend, restarts launchd, brings up voice containers
+- `deploy/update.sh` polls `origin/main`, calls `deploy.sh` on changes, sleeps Mac on idle
+- `deploy/macos/setup.sh` is a one-time setup for macOS production (pmset, launchd plists, Tailscale serve, cron, sleepwatcher)
+- Build hash/time injected via Go ldflags (backend) and `NUXT_PUBLIC_*` env vars (frontend)
 
 ---
 
