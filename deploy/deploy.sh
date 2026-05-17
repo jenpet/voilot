@@ -73,6 +73,53 @@ else
   log "WARN: Frontend launchd service not loaded, skipping restart"
 fi
 
+# ── Install agents & skills (idempotent symlinks) ──────────────────
+
+log "INFO: Symlinking agents & skills..."
+
+AGENTS_TARGET="$HOME/.config/opencode/agents"
+SKILLS_TARGET="$HOME/.agents/skills"
+mkdir -p "$AGENTS_TARGET" "$SKILLS_TARGET"
+
+# Clean stale agent symlinks owned by this repo (dangling only)
+for f in "$AGENTS_TARGET"/*.md; do
+  [ -L "$f" ] && [[ "$(readlink "$f")" == "$REPO_DIR/"* ]] && [ ! -e "$f" ] && rm "$f"
+done
+
+# Clean stale skill symlinks owned by this repo (dangling only)
+for d in "$SKILLS_TARGET"/*/; do
+  [ -L "${d%/}" ] && [[ "$(readlink "${d%/}")" == "$REPO_DIR/"* ]] && [ ! -e "${d%/}" ] && rm "${d%/}"
+done
+
+# Symlink agent definitions
+for f in "$REPO_DIR/agents/opencode/"*.md; do
+  [ -f "$f" ] || continue
+  target="$AGENTS_TARGET/$(basename "$f")"
+  if [ -L "$target" ] && [[ "$(readlink "$target")" == "$REPO_DIR/"* ]]; then
+    ln -sf "$f" "$target"
+  elif [ ! -e "$target" ]; then
+    ln -sf "$f" "$target"
+  else
+    log "WARN: $target exists and is not ours, skipping"
+  fi
+done
+
+# Symlink vendored skills
+for d in "$REPO_DIR/agents/vendor"/*/; do
+  [ -d "$d" ] || continue
+  name="$(basename "$d")"
+  target="$SKILLS_TARGET/$name"
+  if [ -L "$target" ] && [[ "$(readlink "$target")" == "$REPO_DIR/"* ]]; then
+    ln -sfn "$d" "$target"
+  elif [ ! -e "$target" ]; then
+    ln -sfn "$d" "$target"
+  else
+    log "WARN: $target exists and is not ours, skipping"
+  fi
+done
+
+log "INFO: Agents & skills installed"
+
 # ── Docker Compose for voice (best-effort) ─────────────────────────
 
 if docker info &>/dev/null; then
