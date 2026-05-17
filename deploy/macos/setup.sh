@@ -120,9 +120,12 @@ for plist in "$PLIST_DIR"/*.plist; do
   # Substitute repo path and install
   sed "s|__REPO_DIR__|$REPO_DIR|g" "$plist" > "$target"
 
-  # Load
-  launchctl bootstrap "gui/$(id -u)" "$target"
-  echo "  installed $name"
+  # Load (may fail if program doesn't exist yet — deploy.sh will restart)
+  if launchctl bootstrap "gui/$(id -u)" "$target" 2>/dev/null; then
+    echo "  installed and loaded $name"
+  else
+    echo "  installed $name (will start after deploy)"
+  fi
 done
 
 echo "launchd plists installed"
