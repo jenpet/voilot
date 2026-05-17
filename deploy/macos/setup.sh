@@ -139,14 +139,14 @@ echo ""
 
 echo "Installing cron job..."
 
-CRON_ENTRY="* * * * * $UPDATE_SCRIPT >> $DEPLOY_LOG 2>&1"
+CRON_ENTRY="* * * * * $UPDATE_SCRIPT >> $DEPLOY_LOG 2>&1 # voilot-update"
 
-if crontab -l 2>/dev/null | grep -qF "$UPDATE_SCRIPT"; then
-  echo "Cron entry already exists, skipping"
-else
-  (crontab -l 2>/dev/null || true; echo "$CRON_ENTRY") | crontab -
-  echo "Cron entry added"
-fi
+# Remove any existing voilot-update cron entry (handles relocation)
+crontab -l 2>/dev/null | grep -v '# voilot-update' | crontab - 2>/dev/null || true
+
+# Add the new entry
+(crontab -l 2>/dev/null || true; echo "$CRON_ENTRY") | crontab -
+echo "Cron entry installed"
 echo ""
 
 # ── 7. Sleepwatcher wake hook ──────────────────────────────────────

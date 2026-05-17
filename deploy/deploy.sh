@@ -81,21 +81,21 @@ AGENTS_TARGET="$HOME/.config/opencode/agents"
 SKILLS_TARGET="$HOME/.agents/skills"
 mkdir -p "$AGENTS_TARGET" "$SKILLS_TARGET"
 
-# Clean stale agent symlinks owned by this repo (dangling only)
+# Clean stale agent symlinks from any voilot checkout (dangling only)
 for f in "$AGENTS_TARGET"/*.md; do
-  [ -L "$f" ] && [[ "$(readlink "$f")" == "$REPO_DIR/"* ]] && [ ! -e "$f" ] && rm "$f"
+  [ -L "$f" ] && [[ "$(readlink "$f")" == */agents/opencode/* ]] && [ ! -e "$f" ] && rm "$f"
 done
 
-# Clean stale skill symlinks owned by this repo (dangling only)
+# Clean stale skill symlinks from any voilot checkout (dangling only)
 for d in "$SKILLS_TARGET"/*/; do
-  [ -L "${d%/}" ] && [[ "$(readlink "${d%/}")" == "$REPO_DIR/"* ]] && [ ! -e "${d%/}" ] && rm "${d%/}"
+  [ -L "${d%/}" ] && [[ "$(readlink "${d%/}")" == */agents/vendor/* ]] && [ ! -e "${d%/}" ] && rm "${d%/}"
 done
 
 # Symlink agent definitions
 for f in "$REPO_DIR/agents/opencode/"*.md; do
   [ -f "$f" ] || continue
   target="$AGENTS_TARGET/$(basename "$f")"
-  if [ -L "$target" ] && [[ "$(readlink "$target")" == "$REPO_DIR/"* ]]; then
+  if [ -L "$target" ] && [[ "$(readlink "$target")" == */agents/opencode/* ]]; then
     ln -sf "$f" "$target"
   elif [ ! -e "$target" ]; then
     ln -sf "$f" "$target"
@@ -109,7 +109,7 @@ for d in "$REPO_DIR/agents/vendor"/*/; do
   [ -d "$d" ] || continue
   name="$(basename "$d")"
   target="$SKILLS_TARGET/$name"
-  if [ -L "$target" ] && [[ "$(readlink "$target")" == "$REPO_DIR/"* ]]; then
+  if [ -L "$target" ] && [[ "$(readlink "$target")" == */agents/vendor/* ]]; then
     ln -sfn "$d" "$target"
   elif [ ! -e "$target" ]; then
     ln -sfn "$d" "$target"
