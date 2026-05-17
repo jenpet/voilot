@@ -6,14 +6,19 @@
       <div class="flex items-center gap-2">
         <StatusIndicator />
       </div>
-      <div class="flex items-center gap-1.5">
+      <a
+          href="https://github.com/jenpet/voilot"
+          target="_blank"
+          rel="noopener noreferrer"
+          class="flex items-center gap-1.5"
+        >
         <img
           class="h-10 brightness-0 invert"
           src="~/assets/svg/voilot-logo.svg"
           alt="voilot"
         >
         <span class="text-lg font-semibold">voilot</span>
-      </div>
+      </a>
       <div class="flex items-center gap-2">
         <button
           v-if="canShowInstall && !promptType"
