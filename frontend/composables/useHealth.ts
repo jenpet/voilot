@@ -26,6 +26,8 @@ interface InstanceInfo {
 
 interface DetailedHealth {
   overall: 'green' | 'yellow' | 'red';
+  version: string;
+  buildTime: string;
   services: ServiceStatus[];
   instances: InstanceInfo[];
 }
@@ -40,6 +42,8 @@ let currentInterval = POLL_INTERVAL_MS;
 
 const health = ref<DetailedHealth>({
   overall: 'red',
+  version: '',
+  buildTime: '',
   services: [],
   instances: [],
 });
@@ -53,11 +57,13 @@ async function fetchHealth() {
     const data = await $fetch<DetailedHealth>(`${base}/api/health/detailed`, {
       timeout: 5000,
     });
-    health.value = { ...data, instances: data.instances ?? [] };
+    health.value = { ...data, instances: data.instances ?? [], version: data.version ?? '', buildTime: data.buildTime ?? '' };
   } catch {
     // Backend unreachable — mark everything as red
     health.value = {
       overall: 'red',
+      version: '',
+      buildTime: '',
       services: [
         { name: 'backend', available: false, error: 'unreachable' },
       ],

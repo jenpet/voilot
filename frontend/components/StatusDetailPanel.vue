@@ -86,6 +86,21 @@
       </div>
     </section>
 
+    <!-- Deployed versions -->
+    <section class="mt-6">
+      <h3 class="text-sm font-medium text-text-secondary uppercase tracking-wide mb-2">Versions</h3>
+      <div class="grid gap-1 text-sm text-text-secondary p-3 bg-bg-secondary rounded-lg">
+        <div class="flex justify-between">
+          <span>Frontend</span>
+          <span class="font-mono text-text-primary">{{ frontendVersion }}</span>
+        </div>
+        <div class="flex justify-between">
+          <span>Backend</span>
+          <span class="font-mono text-text-primary">{{ backendVersion }}</span>
+        </div>
+      </div>
+    </section>
+
     <!-- Polling indicator -->
     <div class="mt-4 text-xs text-text-tertiary text-center">
       Auto-refreshing every 5s
@@ -95,6 +110,22 @@
 
 <script setup lang="ts">
 const { health } = useHealth({ fastPoll: true });
+const config = useRuntimeConfig();
+
+function formatVersion(hash: string, time: string): string {
+  if (!hash || hash === 'dev') return 'dev';
+  const short = hash.slice(0, 7);
+  const rel = time ? formatTime(time) : '';
+  return rel ? `${short} · ${rel}` : short;
+}
+
+const frontendVersion = computed(() =>
+  formatVersion(config.public.buildHash as string, config.public.buildTime as string),
+);
+
+const backendVersion = computed(() =>
+  formatVersion(health.value.version, health.value.buildTime),
+);
 
 function formatTime(iso: string): string {
   if (!iso) return '-';

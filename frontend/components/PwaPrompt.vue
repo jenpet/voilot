@@ -67,8 +67,11 @@
 
     <!-- Update available -->
     <template v-else-if="promptType === 'update'">
-      <p class="text-text-primary text-center max-w-sm mb-8 leading-relaxed">
+      <p class="text-text-primary text-center max-w-sm mb-2 leading-relaxed">
         A new version of {{ appName }} is available.
+      </p>
+      <p class="text-text-muted text-xs font-mono mb-8">
+        Currently running {{ currentVersion }}
       </p>
       <button
         class="bg-accent hover:bg-accent active:bg-accent text-white rounded-xl px-8 py-4 text-lg font-medium transition-colors"
@@ -95,4 +98,11 @@ const { promptType, triggerInstall, triggerUpdate, dismiss } = usePwaPrompt();
 const isDev = import.meta.dev;
 const appName = isDev ? 'voilot dev' : 'voilot';
 const iconSrc = isDev ? '/icons/dev/icon-192x192.png' : '/icons/icon-192x192.png';
+
+const config = useRuntimeConfig();
+const currentVersion = computed(() => {
+  const hash = config.public.buildHash as string;
+  if (!hash || hash === 'dev') return 'dev';
+  return hash.slice(0, 7);
+});
 </script>
