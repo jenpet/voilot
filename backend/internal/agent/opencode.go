@@ -21,6 +21,10 @@ type OpenCodeAdapter struct {
 	baseURL    string
 	httpClient *http.Client
 
+	// Lifecycle context: cancelled by Close() to stop background goroutines.
+	ctx    context.Context
+	cancel context.CancelFunc
+
 	// SSE event fan-out: multiple subscribers can listen to the event stream.
 	mu          sync.RWMutex
 	subscribers map[chan Event]struct{}
@@ -68,11 +72,14 @@ const userMsgIDCleanupInterval = 5 * time.Minute
 
 // NewOpenCodeAdapter creates a new adapter pointing at the given OpenCode server URL.
 func NewOpenCodeAdapter(baseURL string) *OpenCodeAdapter {
+	ctx, cancel := context.WithCancel(context.Background())
 	a := &OpenCodeAdapter{
 		baseURL: strings.TrimRight(baseURL, "/"),
 		httpClient: &http.Client{
 			Timeout: 30 * time.Second,
 		},
+		ctx:               ctx,
+		cancel:            cancel,
 		subscribers:       make(map[chan Event]struct{}),
 		sessionAgents:     make(map[string]string),
 		sessionModels:     make(map[string]string),
@@ -89,20 +96,32 @@ func NewOpenCodeAdapter(baseURL string) *OpenCodeAdapter {
 	return a
 }
 
+// Close stops all background goroutines (SSE reader, cleanup) and releases resources.
+// Safe to call multiple times.
+func (a *OpenCodeAdapter) Close() error {
+	a.cancel()
+	return nil
+}
+
 // cleanupUserMsgIDs periodically removes user message IDs older than the TTL.
 func (a *OpenCodeAdapter) cleanupUserMsgIDs() {
 	ticker := time.NewTicker(userMsgIDCleanupInterval)
 	defer ticker.Stop()
 
-	for range ticker.C {
-		cutoff := time.Now().Add(-userMsgIDTTL)
-		a.userMsgMu.Lock()
-		for id, insertedAt := range a.userMsgIDs {
-			if insertedAt.Before(cutoff) {
-				delete(a.userMsgIDs, id)
+	for {
+		select {
+		case <-a.ctx.Done():
+			return
+		case <-ticker.C:
+			cutoff := time.Now().Add(-userMsgIDTTL)
+			a.userMsgMu.Lock()
+			for id, insertedAt := range a.userMsgIDs {
+				if insertedAt.Before(cutoff) {
+					delete(a.userMsgIDs, id)
+				}
 			}
+			a.userMsgMu.Unlock()
 		}
-		a.userMsgMu.Unlock()
 	}
 }
 
@@ -913,8 +932,28 @@ func (a *OpenCodeAdapter) runSSEReader() {
 	delay := baseDelay
 
 	for {
+		// Check if adapter has been closed.
+		select {
+		case <-a.ctx.Done():
+			a.mu.Lock()
+			a.sseRunning = false
+			a.mu.Unlock()
+			return
+		default:
+		}
+
 		err := a.readSSEStream()
 		if err != nil {
+			// Check if we were closed during the read.
+			select {
+			case <-a.ctx.Done():
+				a.mu.Lock()
+				a.sseRunning = false
+				a.mu.Unlock()
+				return
+			default:
+			}
+
 			// Add jitter: ±25% of current delay
 			jitter := time.Duration(float64(delay) * (0.75 + rand.Float64()*0.5))
 			slog.Warn("SSE connection lost, reconnecting", "error", err, "delay", jitter.Round(time.Millisecond))
@@ -930,7 +969,15 @@ func (a *OpenCodeAdapter) runSSEReader() {
 				return
 			}
 
-			time.Sleep(jitter)
+			// Sleep with context awareness.
+			select {
+			case <-a.ctx.Done():
+				a.mu.Lock()
+				a.sseRunning = false
+				a.mu.Unlock()
+				return
+			case <-time.After(jitter):
+			}
 
 			// Exponential backoff, capped
 			delay = min(delay*2, maxDelay)
@@ -955,7 +1002,7 @@ func (a *OpenCodeAdapter) runSSEReader() {
 
 // readSSEStream opens a single SSE connection and reads events until it closes.
 func (a *OpenCodeAdapter) readSSEStream() error {
-	req, err := http.NewRequest("GET", a.baseURL+"/event", nil)
+	req, err := http.NewRequestWithContext(a.ctx, "GET", a.baseURL+"/event", nil)
 	if err != nil {
 		return err
 	}

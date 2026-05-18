@@ -41,6 +41,7 @@ type MockAdapter struct {
 	CreateCalled     []agent.SessionOptions
 	SetAgentCalled   []setAgentCall
 	SetModelCalled   []setModelCall
+	CloseCalled      int
 
 	// Per-session state
 	sessionAgents map[string]string
@@ -231,4 +232,11 @@ func (a *MockAdapter) RejectQuestion(_ context.Context, requestID string) error 
 	defer a.mu.Unlock()
 	a.RejectCalled = append(a.RejectCalled, requestID)
 	return a.QuestionErr
+}
+
+func (a *MockAdapter) Close() error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.CloseCalled++
+	return nil
 }

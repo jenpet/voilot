@@ -172,4 +172,8 @@ type Adapter interface {
 
 	// RejectQuestion dismisses a pending question prompt without answering.
 	RejectQuestion(ctx context.Context, requestID string) error
+
+	// Close shuts down the adapter, stopping any background goroutines (e.g. SSE reader).
+	// It is safe to call multiple times.
+	Close() error
 }

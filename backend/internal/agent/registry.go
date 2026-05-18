@@ -382,6 +382,10 @@ func (r *ProviderRegistry) ReloadProviders(providers map[string]Provider, defaul
 		if !ok {
 			continue
 		}
+		// Close the adapter to stop background goroutines.
+		if inst.Adapter != nil {
+			inst.Adapter.Close()
+		}
 		// Use the OLD provider's Stop method since it owns this process.
 		if oldProvider, ok := r.providers[inst.ProviderName]; ok {
 			if err := oldProvider.Stop(inst.PID); err != nil {
@@ -413,6 +417,10 @@ func (r *ProviderRegistry) stopInstanceLocked(key string, inst *Instance) error 
 	provider, ok := r.providers[inst.ProviderName]
 	if !ok {
 		return fmt.Errorf("provider %q not found for instance %s", inst.ProviderName, key)
+	}
+	// Close the adapter to stop background goroutines (SSE reader, etc.)
+	if inst.Adapter != nil {
+		inst.Adapter.Close()
 	}
 	err := provider.Stop(inst.PID)
 	delete(r.instances, key)

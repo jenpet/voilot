@@ -4,9 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 )
 
 // --- Permission SSE event parsing tests ---
@@ -962,5 +964,162 @@ func TestRejectQuestion_ServerError(t *testing.T) {
 	err := adapter.RejectQuestion(context.Background(), "question_missing")
 	if err == nil {
 		t.Fatal("expected error for 500 response")
+	}
+}
+
+// --- SSE lifecycle / Close tests ---
+
+func TestClose_StopsSSEReader(t *testing.T) {
+	// Start a server that accepts SSE connections and blocks.
+	connected := make(chan struct{})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/event" {
+			w.Header().Set("Content-Type", "text/event-stream")
+			w.WriteHeader(200)
+			w.(http.Flusher).Flush()
+			close(connected)
+			// Block until client disconnects.
+			<-r.Context().Done()
+			return
+		}
+		w.WriteHeader(404)
+	}))
+	defer server.Close()
+
+	adapter := NewOpenCodeAdapter(server.URL)
+	defer adapter.Close()
+
+	// Subscribe to start the SSE reader.
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	_, err := adapter.SubscribeEvents(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Wait for SSE connection to be established.
+	<-connected
+
+	// Close the adapter — should stop the SSE reader.
+	adapter.Close()
+
+	// Verify sseRunning becomes false (reader exits).
+	deadline := time.After(2 * time.Second)
+	for {
+		select {
+		case <-deadline:
+			t.Fatal("SSE reader did not stop within 2s after Close()")
+		default:
+		}
+		adapter.mu.RLock()
+		running := adapter.sseRunning
+		adapter.mu.RUnlock()
+		if !running {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+func TestClose_StopsReconnectLoop(t *testing.T) {
+	// Server that always refuses connections (use a closed listener port).
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	addr := listener.Addr().String()
+	listener.Close() // Immediately close so all connections are refused.
+
+	adapter := NewOpenCodeAdapter("http://" + addr)
+
+	// Subscribe to start the SSE reader (which will enter reconnect loop).
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	_, err = adapter.SubscribeEvents(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Give it a moment to enter the reconnect loop.
+	time.Sleep(50 * time.Millisecond)
+
+	// Close should stop the reconnect loop promptly.
+	adapter.Close()
+
+	deadline := time.After(2 * time.Second)
+	for {
+		select {
+		case <-deadline:
+			t.Fatal("SSE reconnect loop did not stop within 2s after Close()")
+		default:
+		}
+		adapter.mu.RLock()
+		running := adapter.sseRunning
+		adapter.mu.RUnlock()
+		if !running {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+func TestClose_IsIdempotent(t *testing.T) {
+	adapter := NewOpenCodeAdapter("http://127.0.0.1:1")
+	// Multiple closes should not panic.
+	adapter.Close()
+	adapter.Close()
+	adapter.Close()
+}
+
+func TestClose_InFlightRequestAborted(t *testing.T) {
+	// Server that accepts the SSE connection but never sends data.
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/event" {
+			w.Header().Set("Content-Type", "text/event-stream")
+			w.WriteHeader(200)
+			w.(http.Flusher).Flush()
+			// Block until client disconnects.
+			<-r.Context().Done()
+			return
+		}
+		w.WriteHeader(404)
+	}))
+	defer server.Close()
+
+	adapter := NewOpenCodeAdapter(server.URL)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	_, err := adapter.SubscribeEvents(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Wait for connection to be established.
+	time.Sleep(100 * time.Millisecond)
+
+	// Close should abort the in-flight HTTP request and exit quickly.
+	start := time.Now()
+	adapter.Close()
+
+	deadline := time.After(2 * time.Second)
+	for {
+		select {
+		case <-deadline:
+			t.Fatal("adapter did not stop in time")
+		default:
+		}
+		adapter.mu.RLock()
+		running := adapter.sseRunning
+		adapter.mu.RUnlock()
+		if !running {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	elapsed := time.Since(start)
+	if elapsed > 1*time.Second {
+		t.Fatalf("Close took too long: %v (expected < 1s)", elapsed)
 	}
 }
