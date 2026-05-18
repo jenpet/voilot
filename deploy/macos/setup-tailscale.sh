@@ -67,6 +67,14 @@ HOSTNAME_SHORT="$(hostname -s)"
 $TAILSCALE up --accept-routes=false --hostname="$HOSTNAME_SHORT"
 echo "  Tailscale authenticated as $HOSTNAME_SHORT"
 
+# ── Configure macOS split DNS for MagicDNS ─────────────────────────
+
+echo ""
+echo "Configuring macOS split DNS for *.ts.net..."
+sudo mkdir -p /etc/resolver
+echo "nameserver 100.100.100.100" | sudo tee /etc/resolver/ts.net > /dev/null
+echo "  MagicDNS configured (/etc/resolver/ts.net)"
+
 # ── Configure serve rules ──────────────────────────────────────────
 
 echo ""
