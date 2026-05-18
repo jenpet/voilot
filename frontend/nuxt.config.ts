@@ -121,8 +121,8 @@ export default defineNuxtConfig({
       // Override with NUXT_PUBLIC_BACKEND_URL env var.
       backendUrl: 'http://localhost:8080',
       // Build metadata, injected at build time via env vars.
-      buildHash: '',
-      buildTime: '',
+      buildHash: process.env.NUXT_PUBLIC_BUILD_HASH || '',
+      buildTime: process.env.NUXT_PUBLIC_BUILD_TIME || '',
     },
   },
 })

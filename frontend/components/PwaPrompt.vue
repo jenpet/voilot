@@ -70,9 +70,10 @@
       <p class="text-text-primary text-center max-w-sm mb-2 leading-relaxed">
         A new version of {{ appName }} is available.
       </p>
-      <p class="text-text-muted text-xs font-mono mb-8">
-        Currently running {{ currentVersion }}
-      </p>
+      <div class="text-text-muted text-xs font-mono mb-8 space-y-0.5 text-center">
+        <p>Frontend: {{ currentFrontendVersion }}</p>
+        <p>Backend: {{ currentBackendVersion }}</p>
+      </div>
       <button
         class="bg-accent hover:bg-accent active:bg-accent text-white rounded-xl px-8 py-4 text-lg font-medium transition-colors"
         @click="triggerUpdate"
@@ -100,9 +101,17 @@ const appName = isDev ? 'voilot dev' : 'voilot';
 const iconSrc = isDev ? '/icons/dev/icon-192x192.png' : '/icons/icon-192x192.png';
 
 const config = useRuntimeConfig();
-const currentVersion = computed(() => {
+const { health } = useHealth();
+
+const currentFrontendVersion = computed(() => {
   const hash = config.public.buildHash as string;
   if (!hash || hash === 'dev') return 'dev';
   return hash.slice(0, 7);
+});
+
+const currentBackendVersion = computed(() => {
+  const v = health.value.version;
+  if (!v || v === 'dev') return 'dev';
+  return v.slice(0, 7);
 });
 </script>
