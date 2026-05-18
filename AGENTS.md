@@ -8,7 +8,7 @@ Voilot (voice + pilot) is a voice-first, mobile-first PWA client for interacting
 
 ```
 Browser (PWA) — Nuxt 3 + Vue + Tailwind, dark theme, mobile-first
-       | HTTPS (Tailscale)
+       | HTTPS (Tailscale CLI — tailscaled, no GUI/network extension)
   :443 → Nuxt server (host, port 3000)
   :8080 → Go backend  (host, port 8080)
        |
@@ -265,11 +265,13 @@ Custom Flask sidecar wrapping the faster-whisper library.
 ## HTTPS / Network Access
 
 - HTTPS is required for mobile mic access (`getUserMedia` needs a secure context)
-- TLS termination is handled by **Tailscale** (`tailscale serve`), not by nginx
+- TLS termination is handled by **Tailscale CLI** (`tailscale serve`, Homebrew formula — no GUI app/network extension)
+- `tailscaled` runs as a system LaunchDaemon; state stored at `/var/lib/tailscale`
 - Two Tailscale HTTPS rules: `:443` → frontend (`:3000`), `:8080` → backend (`:8080`)
 - Both services bind to `127.0.0.1` — Tailscale proxies locally
-- For local dev: `./scripts/tailscale-dev.sh` sets up the same rules
+- For local dev: `task dev:tunnel` applies the same serve rules (idempotent)
 - Access from phone via `https://<machine>.<tailnet>.ts.net` (Tailscale must be installed on both devices)
+- See `docs/adr/0002-tailscale-cli-over-gui-app.md` for rationale (GUI app's network extension breaks LAN)
 
 ## Deployment Notes
 
@@ -278,7 +280,7 @@ Custom Flask sidecar wrapping the faster-whisper library.
 - `deploy/deploy.sh` builds backend + frontend, restarts launchd, brings up voice containers
 - `deploy/update.sh` polls `origin/main`, calls `deploy.sh` on changes, sleeps Mac on idle
 - Update service runs as a launchd plist (`pet.jen.voilot.update`) polling every 30 seconds
-- `deploy/macos/setup.sh` is a one-time setup for macOS production (pmset, launchd plists, Tailscale serve, gh auth)
+- `deploy/macos/setup.sh` is a one-time setup for macOS production (pmset, launchd plists, Tailscale daemon, gh auth)
 - GitHub CLI (`gh`) is required for git credential management in non-interactive launchd context
 - Build hash/time injected via Go ldflags (backend) and `NUXT_PUBLIC_*` env vars (frontend)
 

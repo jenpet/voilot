@@ -1,12 +1,12 @@
 # voilot Taskfile — run 'task --list' to see available tasks
 #
 # Local dev (hybrid): TTS/STT in Docker, frontend + backend native.
-#   task dev          # starts all (frontend, backend, voice containers, HTTPS tunnel if available)
+#   task dev          # starts all (frontend, backend, voice containers)
 #   task dev:frontend # just the Nuxt dev server
 #   task dev:backend  # just the Go backend
 #   task dev:voice    # just the TTS + STT Docker containers (detached)
 #   task dev:stop     # stop detached voice containers
-#   task dev:tunnel   # Tailscale HTTPS proxy (auto-skips if Tailscale unavailable)
+#   task dev:tunnel   # Tailscale HTTPS serve rules (apply or tear down)
 #
 # Build & check:
 #   task build        # compile backend + build frontend
@@ -43,22 +43,53 @@ tasks:
   # ── Local development ───────────────────────────────────────────
 
   dev:
-    desc: Start full local dev stack (frontend + backend + voice + tunnel)
-    deps: [dev:tunnel, dev:voice, dev:backend, dev:frontend]
+    desc: Start full local dev stack (frontend + backend + voice)
+    deps: [dev:voice, dev:backend, dev:frontend]
+
+  dev:setup:
+    desc: One-time dev machine setup (Tailscale daemon + HTTPS serve rules only)
+    cmds:
+      - ./deploy/macos/setup-tailscale.sh
 
   dev:tunnel:
-    desc: Tailscale HTTPS proxies for mobile access (pass 'down' to tear down)
+    desc: Manage Tailscale HTTPS serve rules (pass 'down' to tear down)
     cmds:
       - |
-        if ! command -v tailscale >/dev/null 2>&1; then
-          echo "Warning: Tailscale not installed — skipping HTTPS tunnel. Mobile access won't work."
+        TAILSCALE=/opt/homebrew/bin/tailscale
+        if ! [ -x "$TAILSCALE" ]; then
+          echo "Error: tailscale not found. Install with: brew install tailscale"
+          exit 1
+        fi
+        if ! $TAILSCALE status >/dev/null 2>&1; then
+          echo "Error: tailscaled not running. Run 'task dev:setup' first."
+          exit 1
+        fi
+        if [ "{{.CLI_ARGS}}" = "down" ]; then
+          echo "Tearing down Tailscale HTTPS serve rules..."
+          $TAILSCALE serve reset
+          echo "Serve rules removed."
           exit 0
         fi
-        if ! tailscale status >/dev/null 2>&1; then
-          echo "Warning: Tailscale not running — skipping HTTPS tunnel. Mobile access won't work."
-          exit 0
+        # Apply serve rules (idempotent)
+        $TAILSCALE serve --bg --https=443 http://localhost:3000 2>&1 | sed 's/^/  /'
+        $TAILSCALE serve --bg --https=8080 http://localhost:8080 2>&1 | sed 's/^/  /'
+        echo ""
+        # Print URL and QR code
+        FQDN=$($TAILSCALE status --json 2>/dev/null | \
+          python3 -c "import sys,json; print(json.load(sys.stdin).get('Self',{}).get('DNSName','').rstrip('.'))" 2>/dev/null)
+        if [ -n "$FQDN" ]; then
+          URL="https://${FQDN}"
+          printf "\033]8;;%s\033\\  %s\033]8;;\033\\\n" "$URL" "$URL"
+          echo ""
+          if command -v qrencode >/dev/null 2>&1; then
+            qrencode -t ANSIUTF8 "$URL"
+            echo ""
+          fi
+          echo "Scan the QR code or click the link to open voilot on your phone."
         fi
-        ./scripts/tailscale-dev.sh {{.CLI_ARGS}}
+        echo ""
+        echo "Current serve rules:"
+        $TAILSCALE serve status
 
   dev:frontend:
     desc: Nuxt dev server with HMR (port 3000)
@@ -156,7 +187,7 @@ tasks:
       - ./deploy/deploy.sh
 
   deploy:setup:
-    desc: One-time macOS production setup (pmset, launchd, Tailscale, cron)
+    desc: One-time macOS production setup (pmset, launchd, Tailscale daemon)
     cmds:
       - ./deploy/macos/setup.sh
 
@@ -174,6 +205,16 @@ tasks:
             echo "  ✗ $svc (not loaded)"
           fi
         done
+        echo ""
+        echo "=== tailscale ==="
+        TAILSCALE=/opt/homebrew/bin/tailscale
+        if $TAILSCALE status >/dev/null 2>&1; then
+          $TAILSCALE status | head -5
+          echo ""
+          $TAILSCALE serve status 2>/dev/null || echo "  No serve rules configured"
+        else
+          echo "  ✗ tailscaled not running"
+        fi
         echo ""
         echo "=== voice containers ==="
         docker compose -p {{.COMPOSE_PROJECT}} -f deploy/docker/docker-compose.yml --profile voice ps 2>/dev/null || echo "  Docker not available"

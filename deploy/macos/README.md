@@ -8,7 +8,7 @@ One-time setup for running voilot on a Mac as a production server.
 - **Node.js** — [nodejs.org](https://nodejs.org/) (LTS)
 - **Homebrew** — [brew.sh](https://brew.sh)
 - **Docker Desktop** — [docker.com](https://www.docker.com/products/docker-desktop/) (for TTS/STT voice containers)
-- **Tailscale** — `brew install --cask tailscale`, signed in and connected
+- **Tailscale** — `brew install tailscale` (Homebrew formula, NOT the cask/GUI app), signed in and connected
 - **GitHub CLI** — `brew install gh`, authenticated via `gh auth login`
 - **Ethernet** — USB-C adapter connected to Fritz!Box (required for Wake on LAN on Apple Silicon)
 - **Fritz!Box** — Mac's Ethernet MAC address registered for WoL
@@ -18,7 +18,7 @@ One-time setup for running voilot on a Mac as a production server.
 The backend (Go) and frontend (Nuxt) run natively on the host, managed by macOS launchd. Only TTS and STT run in Docker containers. See `docs/adr/0001-host-native-backend-frontend-docker-for-voice.md` for rationale.
 
 ```
-Tailscale (HTTPS)
+Tailscale CLI (tailscaled LaunchDaemon, no GUI/network extension)
   :443  → Nuxt server (localhost:3000)
   :8080 → Go backend  (localhost:8080)
 
@@ -34,10 +34,10 @@ chmod +x deploy/macos/setup.sh
 
 The script will:
 
-1. Verify prerequisites (Go, Node.js, Docker, Tailscale, GitHub CLI authenticated)
+1. Verify prerequisites (Go, Node.js, Docker, Tailscale CLI, GitHub CLI authenticated)
 2. Configure git to use GitHub CLI for credentials (`gh auth setup-git`)
 3. Configure energy settings (`pmset`) for server use
-4. Set up Tailscale HTTPS serve rules (`:443` → frontend, `:8080` → backend)
+4. Install Tailscale LaunchDaemon, authenticate, and configure HTTPS serve rules
 5. Install launchd plists for backend, frontend, and update (`~/Library/LaunchAgents/`)
 6. Add Docker Desktop to login items (auto-start on boot)
 7. Run the initial deploy (build + start everything)
@@ -56,6 +56,7 @@ The script will:
 
 | Service | Manager | Plist / Container |
 |---------|---------|-------------------|
+| Tailscale | launchd (system) | `pet.jen.voilot.tailscale` (LaunchDaemon) |
 | Backend | launchd | `pet.jen.voilot.backend` |
 | Frontend | launchd | `pet.jen.voilot.frontend` |
 | Update | launchd | `pet.jen.voilot.update` (polls every 30s) |

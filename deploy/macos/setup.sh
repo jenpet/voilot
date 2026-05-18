@@ -39,7 +39,7 @@ command -v npm &>/dev/null || missing+=("npm (comes with node)")
 command -v git &>/dev/null || missing+=("git")
 command -v gh &>/dev/null || missing+=("gh (brew install gh)")
 command -v docker &>/dev/null || missing+=("docker (Docker Desktop)")
-command -v tailscale &>/dev/null || missing+=("tailscale (brew install --cask tailscale)")
+[ -x /opt/homebrew/bin/tailscale ] || missing+=("tailscale (brew install tailscale — formula, NOT cask)")
 
 if [ "${#missing[@]}" -gt 0 ]; then
   echo "ERROR: Missing prerequisites:"
@@ -84,18 +84,9 @@ sudo pmset -a powernap 0
 echo "Energy settings applied"
 echo ""
 
-# ── 3. Tailscale HTTPS serve rules ────────────────────────────────
+# ── 3. Tailscale daemon (LaunchDaemon) ─────────────────────────────
 
-echo "Configuring Tailscale HTTPS..."
-
-if tailscale status &>/dev/null; then
-  tailscale serve --bg --https=443 http://localhost:3000 2>&1 | sed 's/^/  /'
-  tailscale serve --bg --https=8080 http://localhost:8080 2>&1 | sed 's/^/  /'
-  echo "Tailscale serve rules configured"
-else
-  echo "WARN: Tailscale not running, skipping serve rules. Configure manually later."
-fi
-echo ""
+"$SCRIPT_DIR/setup-tailscale.sh"
 
 # ── 4. launchd plists ──────────────────────────────────────────────
 
@@ -138,7 +129,7 @@ echo ""
 
 chmod +x "$DEPLOY_SCRIPT" "$UPDATE_SCRIPT"
 chmod +x "$SCRIPT_DIR/run-backend.sh" "$SCRIPT_DIR/run-frontend.sh"
-chmod +x "$SCRIPT_DIR/run-update.sh"
+chmod +x "$SCRIPT_DIR/run-update.sh" "$SCRIPT_DIR/setup-tailscale.sh"
 
 # ── 7. Initial deploy ─────────────────────────────────────────────
 
