@@ -6,6 +6,7 @@
 # Environment variables:
 #   VOILOT_UPDATE_INTERVAL     Poll interval in seconds (default: 60)
 #   VOILOT_IDLE_TIMEOUT        Idle timeout in minutes before sleep (default: 30)
+#   VOILOT_USER_IDLE_THRESHOLD User HID idle threshold in seconds before sleep (default: 300)
 #   VOILOT_BACKEND_URL         Backend URL for health checks (default: http://localhost:8080)
 #   VOILOT_REPO_DIR            Repository root (default: script's parent directory)
 #
@@ -20,6 +21,7 @@ REPO_DIR="${VOILOT_REPO_DIR:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 
 UPDATE_INTERVAL="${VOILOT_UPDATE_INTERVAL:-60}"
 IDLE_TIMEOUT="${VOILOT_IDLE_TIMEOUT:-30}"
+USER_IDLE_THRESHOLD="${VOILOT_USER_IDLE_THRESHOLD:-300}"
 BACKEND_URL="${VOILOT_BACKEND_URL:-http://localhost:8080}"
 
 log() {
@@ -94,9 +96,17 @@ check_idle_and_sleep() {
   idle_minutes=$(( (now_epoch - last_epoch) / 60 ))
 
   if [ "$idle_minutes" -ge "$IDLE_TIMEOUT" ]; then
+    if [ "$(uname -s)" = "Darwin" ]; then
+      local hid_idle
+      hid_idle="$(ioreg -c IOHIDSystem | awk '/HIDIdleTime/ {print int($NF/1000000000); exit}')"
+      if [ -n "$hid_idle" ] && [ "$hid_idle" -lt "$USER_IDLE_THRESHOLD" ]; then
+        log "DEBUG: User active (HID idle ${hid_idle}s), skipping sleep"
+        return 0
+      fi
+    fi
+
     log "INFO: Backend idle for ${idle_minutes}m (timeout: ${IDLE_TIMEOUT}m), triggering sleep..."
 
-    # Platform-specific sleep
     case "$(uname -s)" in
       Darwin)
         pmset sleepnow
@@ -118,7 +128,7 @@ trap 'log "INFO: Received SIGTERM, exiting"; exit 0' SIGTERM SIGINT
 
 # Main
 if [ "${1:-}" = "--loop" ]; then
-  log "INFO: Starting continuous update loop (interval: ${UPDATE_INTERVAL}s, idle timeout: ${IDLE_TIMEOUT}m)"
+  log "INFO: Starting continuous update loop (interval: ${UPDATE_INTERVAL}s, idle timeout: ${IDLE_TIMEOUT}m, user idle threshold: ${USER_IDLE_THRESHOLD}s)"
   while true; do
     check_and_deploy || true
     check_idle_and_sleep || true
