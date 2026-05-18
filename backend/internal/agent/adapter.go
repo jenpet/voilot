@@ -14,6 +14,7 @@ type Session struct {
 	Model         string    `json:"model,omitempty"`         // active model override (provider/model)
 	LastUsedModel string    `json:"lastUsedModel,omitempty"` // last model used in this session (provider/model)
 	ProjectID     string    `json:"projectId,omitempty"`
+	Directory     string    `json:"directory,omitempty"`     // working directory the session was created in
 	Time          *TimeInfo `json:"time,omitempty"`
 }
 

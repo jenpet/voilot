@@ -98,7 +98,7 @@ func TestHandleListSessions_AdoptsCLISessions(t *testing.T) {
 		a := agenttest.NewMockAdapter()
 		a.Sessions = []agent.Session{
 			{ID: "s1", Title: "voilot session"},
-			{ID: "s-cli", Title: "CLI session", Time: &agent.TimeInfo{Created: 1000, Updated: 2000}},
+			{ID: "s-cli", Title: "CLI session", Directory: "/worktree/a", Time: &agent.TimeInfo{Created: 1000, Updated: 2000}},
 		}
 		return a
 	}

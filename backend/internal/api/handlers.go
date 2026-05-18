@@ -263,7 +263,7 @@ func (s *Server) handleListSessions(w http.ResponseWriter, r *http.Request) {
 	if s.sessionMap != nil {
 		for i := range sessions {
 			entry := s.sessionMap.GetEntry(sessions[i].ID)
-			if entry.WorktreePath == "" {
+			if entry.WorktreePath == "" && evalSymlinks(sessions[i].Directory) == resolvedWT {
 				var ts int64
 				if sessions[i].Time != nil && sessions[i].Time.Updated > 0 {
 					ts = sessions[i].Time.Updated

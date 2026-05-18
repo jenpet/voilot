@@ -194,6 +194,7 @@ type openCodeSession struct {
 	ID        string `json:"id"`
 	ParentID  string `json:"parentID"`
 	ProjectID string `json:"projectID"`
+	Directory string `json:"directory"`
 	Title     string `json:"title"`
 	Version   string `json:"version"`
 	Time      struct {
@@ -208,6 +209,7 @@ func (s *openCodeSession) toSession() Session {
 		ParentID:  s.ParentID,
 		Title:     s.Title,
 		ProjectID: s.ProjectID,
+		Directory: s.Directory,
 		Time: &TimeInfo{
 			Created: s.Time.Created,
 			Updated: s.Time.Updated,

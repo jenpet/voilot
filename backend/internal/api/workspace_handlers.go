@@ -44,7 +44,7 @@ func (s *Server) handleListProjects(w http.ResponseWriter, r *http.Request) {
 			for _, sess := range agent.FilterTopLevel(sessions) {
 				// Adopt unrecognized sessions into the session map.
 				entry := s.sessionMap.GetEntry(sess.ID)
-				if entry.WorktreePath == "" {
+				if entry.WorktreePath == "" && evalSymlinks(sess.Directory) == evalSymlinks(inst.WorkDir) {
 					var ts int64
 					if sess.Time != nil && sess.Time.Updated > 0 {
 						ts = sess.Time.Updated
