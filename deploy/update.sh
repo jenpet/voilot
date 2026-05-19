@@ -1,12 +1,10 @@
 #!/usr/bin/env bash
 #
 # voilot update script — polls origin/main and redeploys on changes.
-# Also checks backend idle time and triggers platform-specific sleep.
+# Also manages office-hours power mode (auto-sleep toggle).
 #
 # Environment variables:
 #   VOILOT_UPDATE_INTERVAL     Poll interval in seconds (default: 60)
-#   VOILOT_IDLE_TIMEOUT        Idle timeout in minutes before sleep (default: 30)
-#   VOILOT_USER_IDLE_THRESHOLD User HID idle threshold in seconds before sleep (default: 300)
 #   VOILOT_BACKEND_URL         Backend URL for health checks (default: http://localhost:8080)
 #   VOILOT_REPO_DIR            Repository root (default: script's parent directory)
 #
@@ -20,9 +18,8 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_DIR="${VOILOT_REPO_DIR:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 
 UPDATE_INTERVAL="${VOILOT_UPDATE_INTERVAL:-60}"
-IDLE_TIMEOUT="${VOILOT_IDLE_TIMEOUT:-30}"
-USER_IDLE_THRESHOLD="${VOILOT_USER_IDLE_THRESHOLD:-300}"
 BACKEND_URL="${VOILOT_BACKEND_URL:-http://localhost:8080}"
+POWER_MODE_FILE="$REPO_DIR/tmp/.power-mode"
 
 log() {
   echo "$(date -Iseconds) $1"
@@ -62,64 +59,34 @@ check_and_deploy() {
   fi
 }
 
-# Check backend idle time and trigger sleep if idle too long.
-check_idle_and_sleep() {
-  local health_url="$BACKEND_URL/api/health/detailed"
-  local response
+# Toggle macOS auto-sleep based on office hours (06:00-23:00 local time).
+# Only calls pmset on day/night transitions to avoid redundant writes.
+check_power_mode() {
+  local hour
+  hour="$(date +%H)"
+  local desired_mode
 
-  response="$(curl -sf "$health_url" 2>/dev/null)" || {
-    log "WARN: Could not reach backend health endpoint, skipping idle check"
-    return 0
-  }
-
-  # Extract lastActivityAt (ISO 8601) — requires the backend to include it.
-  local last_activity
-  last_activity="$(echo "$response" | grep -o '"lastActivityAt":"[^"]*"' | cut -d'"' -f4)" || true
-
-  if [ -z "$last_activity" ]; then
-    log "DEBUG: No lastActivityAt in health response, skipping idle check"
-    return 0
-  fi
-
-  # Convert to epoch seconds. date -d works on Linux, date -jf on macOS.
-  local last_epoch now_epoch idle_minutes
-  if date -d "$last_activity" +%s >/dev/null 2>&1; then
-    last_epoch="$(date -d "$last_activity" +%s)"
-  elif date -jf "%Y-%m-%dT%H:%M:%S" "$(echo "$last_activity" | cut -c1-19)" +%s >/dev/null 2>&1; then
-    last_epoch="$(date -jf "%Y-%m-%dT%H:%M:%S" "$(echo "$last_activity" | cut -c1-19)" +%s)"
+  if [ "$hour" -ge 6 ] && [ "$hour" -lt 23 ]; then
+    desired_mode="day"
   else
-    log "WARN: Could not parse lastActivityAt: $last_activity"
-    return 0
+    desired_mode="night"
   fi
 
-  now_epoch="$(date +%s)"
-  idle_minutes=$(( (now_epoch - last_epoch) / 60 ))
+  local current_mode
+  current_mode="$(cat "$POWER_MODE_FILE" 2>/dev/null || echo "")"
 
-  if [ "$idle_minutes" -ge "$IDLE_TIMEOUT" ]; then
-    if [ "$(uname -s)" = "Darwin" ]; then
-      local hid_idle
-      hid_idle="$(ioreg -c IOHIDSystem | awk '/HIDIdleTime/ {print int($NF/1000000000); exit}')"
-      if [ -n "$hid_idle" ] && [ "$hid_idle" -lt "$USER_IDLE_THRESHOLD" ]; then
-        log "DEBUG: User active (HID idle ${hid_idle}s), skipping sleep"
-        return 0
-      fi
-    fi
-
-    log "INFO: Backend idle for ${idle_minutes}m (timeout: ${IDLE_TIMEOUT}m), triggering sleep..."
-
-    case "$(uname -s)" in
-      Darwin)
-        pmset sleepnow
+  if [ "$current_mode" != "$desired_mode" ]; then
+    case "$desired_mode" in
+      day)
+        sudo pmset -a sleep 0
+        log "INFO: Office hours started — auto-sleep disabled"
         ;;
-      Linux)
-        systemctl suspend
-        ;;
-      *)
-        log "WARN: Unsupported platform for sleep: $(uname -s)"
+      night)
+        sudo pmset -a sleep 15
+        log "INFO: Office hours ended — auto-sleep enabled (15 min)"
         ;;
     esac
-  else
-    log "DEBUG: Backend active ${idle_minutes}m ago (timeout: ${IDLE_TIMEOUT}m)"
+    echo "$desired_mode" > "$POWER_MODE_FILE"
   fi
 }
 
@@ -128,13 +95,13 @@ trap 'log "INFO: Received SIGTERM, exiting"; exit 0' SIGTERM SIGINT
 
 # Main
 if [ "${1:-}" = "--loop" ]; then
-  log "INFO: Starting continuous update loop (interval: ${UPDATE_INTERVAL}s, idle timeout: ${IDLE_TIMEOUT}m, user idle threshold: ${USER_IDLE_THRESHOLD}s)"
+  log "INFO: Starting continuous update loop (interval: ${UPDATE_INTERVAL}s)"
   while true; do
     check_and_deploy || true
-    check_idle_and_sleep || true
+    check_power_mode || true
     sleep "$UPDATE_INTERVAL"
   done
 else
   check_and_deploy || true
-  check_idle_and_sleep || true
+  check_power_mode || true
 fi

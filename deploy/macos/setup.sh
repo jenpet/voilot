@@ -70,18 +70,31 @@ echo ""
 
 echo "Configuring energy settings (requires sudo)..."
 
-# Wake for network access (required for WoL)
-sudo pmset -a womp 1
 # Start up automatically after power failure
 sudo pmset -a autorestart 1
-# Disable auto-sleep (managed by update script's idle detection)
+# Disable auto-sleep during the day (update.sh toggles this for office hours)
 sudo pmset -a sleep 0
 # Display sleep after 5 minutes
 sudo pmset -a displaysleep 5
 # Disable Power Nap
 sudo pmset -a powernap 0
+# Wake at 06:00 daily (local time)
+sudo pmset repeat wakeorpoweron MTWRFSU 06:00:00
 
 echo "Energy settings applied"
+echo ""
+
+# ── 2b. Sudoers for pmset (update.sh needs to toggle sleep setting) ─
+
+echo "Configuring sudoers for pmset..."
+SUDOERS_FILE="/etc/sudoers.d/voilot-pmset"
+if [ ! -f "$SUDOERS_FILE" ]; then
+  echo "%admin ALL=(root) NOPASSWD: /usr/bin/pmset" | sudo tee "$SUDOERS_FILE" > /dev/null
+  sudo chmod 0440 "$SUDOERS_FILE"
+  echo "  Created $SUDOERS_FILE"
+else
+  echo "  $SUDOERS_FILE already exists, skipping"
+fi
 echo ""
 
 # ── 3. Tailscale daemon (LaunchDaemon) ─────────────────────────────
@@ -146,7 +159,7 @@ echo "  - Backend runs as pet.jen.voilot.backend (launchd)"
 echo "  - Frontend runs as pet.jen.voilot.frontend (launchd)"
 echo "  - Update checks every 30s as pet.jen.voilot.update (launchd)"
 echo "  - TTS + STT run in Docker containers"
-echo "  - After 30 minutes of no activity, the Mac sleeps automatically"
+echo "  - Wakes at 06:00 daily; after 23:00, auto-sleeps after 15 min idle"
 echo "  - Docker Desktop starts on login"
 echo ""
 echo "Logs:"

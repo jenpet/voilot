@@ -86,7 +86,7 @@ voilot/
 │       └── useTTSFilter.ts      # Client-side TTS text filter
 ├── deploy/
 │   ├── deploy.sh                # Build backend + frontend, restart services, docker compose voice
-│   ├── update.sh                # Git fetch/compare, deploy on changes, idle sleep
+│   ├── update.sh                # Git fetch/compare, deploy on changes, office-hours power toggle
 │   ├── docker/
 │   │   ├── docker-compose.yml   # TTS + STT only (voice services)
 │   │   ├── Dockerfile.stt       # Python 3.11 + faster-whisper + gunicorn
@@ -278,7 +278,7 @@ Custom Flask sidecar wrapping the faster-whisper library.
 - Backend and frontend run on the host as macOS launchd services (production) or via air/npm (dev)
 - TTS and STT run in Docker containers (`deploy/docker/docker-compose.yml`)
 - `deploy/deploy.sh` builds backend + frontend, restarts launchd, brings up voice containers
-- `deploy/update.sh` polls `origin/main`, calls `deploy.sh` on changes, sleeps Mac on idle
+- `deploy/update.sh` polls `origin/main`, calls `deploy.sh` on changes, toggles macOS auto-sleep for office hours (06:00-23:00)
 - Update service runs as a launchd plist (`pet.jen.voilot.update`) polling every 30 seconds
 - `deploy/macos/setup.sh` is a one-time setup for macOS production (pmset, launchd plists, Tailscale daemon, gh auth)
 - GitHub CLI (`gh`) is required for git credential management in non-interactive launchd context
