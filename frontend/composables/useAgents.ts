@@ -1,6 +1,7 @@
 /**
  * Composable to fetch and cache the list of available agents from the backend.
- * Agents are fetched once and shared across all components via useState.
+ * Agents are scoped to a specific worktree+provider instance and shared across
+ * components via useState. Call fetchAgents(worktree, provider) to refresh.
  */
 
 export interface AgentInfo {
@@ -14,22 +15,18 @@ export function useAgents() {
   const agents = useState<AgentInfo[]>('agents', () => [])
   const loading = useState<boolean>('agents-loading', () => false)
 
-  async function fetchAgents() {
+  async function fetchAgents(worktree: string, provider: string) {
     if (loading.value) return
     loading.value = true
     try {
-      const data = await $fetch<AgentInfo[]>(`${apiBase}/agents`)
+      const params = new URLSearchParams({ worktree, provider })
+      const data = await $fetch<AgentInfo[]>(`${apiBase}/agents?${params}`)
       agents.value = data || []
     } catch {
       console.error('Failed to fetch agents')
     } finally {
       loading.value = false
     }
-  }
-
-  // Fetch on first use if empty
-  if (agents.value.length === 0) {
-    fetchAgents()
   }
 
   return {

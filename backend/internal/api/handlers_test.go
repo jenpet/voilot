@@ -238,9 +238,9 @@ func TestHandleAbortSession_ValidSession(t *testing.T) {
 	}
 }
 
-// --- anyAdapter pattern ---
+// --- worktree-scoped agents/models ---
 
-func TestHandleListAgents_NoInstances(t *testing.T) {
+func TestHandleListAgents_MissingWorktree(t *testing.T) {
 	srv, _, _ := testServer(t)
 	ts := httptest.NewServer(srv)
 	defer ts.Close()
@@ -250,12 +250,12 @@ func TestHandleListAgents_NoInstances(t *testing.T) {
 		t.Fatalf("GET: %v", err)
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusServiceUnavailable {
-		t.Errorf("expected 503, got %d", resp.StatusCode)
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("expected 400, got %d", resp.StatusCode)
 	}
 }
 
-func TestHandleListAgents_WithInstance(t *testing.T) {
+func TestHandleListAgents_WithWorktree(t *testing.T) {
 	srv, p, _ := testServer(t)
 	ts := httptest.NewServer(srv)
 	defer ts.Close()
@@ -268,10 +268,7 @@ func TestHandleListAgents_WithInstance(t *testing.T) {
 		return a
 	}
 
-	// Spawn an instance by listing sessions for a worktree.
-	http.Get(ts.URL + "/api/sessions?worktree=/worktree/a")
-
-	resp, err := http.Get(ts.URL + "/api/agents")
+	resp, err := http.Get(ts.URL + "/api/agents?worktree=/worktree/a")
 	if err != nil {
 		t.Fatalf("GET: %v", err)
 	}

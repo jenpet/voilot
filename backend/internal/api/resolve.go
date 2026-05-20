@@ -51,13 +51,4 @@ func (s *Server) resolveProviderForWorktree(worktreePath string) string {
 	return s.registry.DefaultProviderName()
 }
 
-// anyAdapter returns any running adapter, or an error if none are available.
-// Used for provider-wide queries like ListAgents or ListModels where the
-// answer is the same regardless of which instance we ask.
-func (s *Server) anyAdapter() (agent.Adapter, error) {
-	instances := s.registry.ListInstances()
-	if len(instances) == 0 {
-		return nil, fmt.Errorf("no running agent instances")
-	}
-	return instances[0].Adapter, nil
-}
+

@@ -4,6 +4,7 @@ export interface Session {
   titleOverride?: boolean
   agent?: string
   provider?: string
+  worktreePath?: string
   model?: string
   lastUsedModel?: string
   projectId?: string

@@ -196,6 +196,17 @@ const {
   cleanup,
 } = useAgent(sessionId)
 
+// Fetch models and agents scoped to this session's provider instance.
+// Waits for the session detail to load (which includes worktreePath and provider).
+const { fetchModels } = useModels()
+const { fetchAgents } = useAgents()
+watch(session, (s) => {
+  if (s?.worktreePath && s?.provider) {
+    fetchModels(s.worktreePath, s.provider)
+    fetchAgents(s.worktreePath, s.provider)
+  }
+}, { immediate: true })
+
 // Dynamic page title: "<session title> | voilot"
 // TODO: include worktree name once worktree info is available on the session
 // object (e.g. "<session> | <worktree> | voilot")

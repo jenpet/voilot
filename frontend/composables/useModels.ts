@@ -1,6 +1,7 @@
 /**
  * Composable to fetch and cache the list of selectable models from the backend.
- * Models are fetched once and shared across components via useState.
+ * Models are scoped to a specific worktree+provider instance and shared across
+ * components via useState. Call fetchModels(worktree, provider) to refresh.
  */
 
 export interface ModelInfo {
@@ -21,11 +22,12 @@ export function useModels() {
   const defaultModel = useState<string>('default-model', () => '')
   const loading = useState<boolean>('models-loading', () => false)
 
-  async function fetchModels() {
+  async function fetchModels(worktree: string, provider: string) {
     if (loading.value) return
     loading.value = true
     try {
-      const data = await $fetch<ModelCatalog>(`${apiBase}/models`)
+      const params = new URLSearchParams({ worktree, provider })
+      const data = await $fetch<ModelCatalog>(`${apiBase}/models?${params}`)
       models.value = data?.models || []
       defaultModel.value = data?.defaultModel || ''
     } catch {
@@ -33,10 +35,6 @@ export function useModels() {
     } finally {
       loading.value = false
     }
-  }
-
-  if (models.value.length === 0 && !loading.value) {
-    fetchModels()
   }
 
   return {

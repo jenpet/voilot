@@ -175,24 +175,19 @@ func (s *Server) handleHealthDetailed(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
-	adapter, err := s.anyAdapter()
-	if err != nil {
-		jsonError(w, http.StatusServiceUnavailable, "no running agent instances")
-		return
-	}
-	status, err := adapter.GetStatus(r.Context())
-	if err != nil {
-		jsonError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	jsonResponse(w, http.StatusOK, status)
-}
-
 func (s *Server) handleListAgents(w http.ResponseWriter, r *http.Request) {
-	adapter, err := s.anyAdapter()
+	worktreePath := r.URL.Query().Get("worktree")
+	if worktreePath == "" {
+		jsonError(w, http.StatusBadRequest, "worktree query parameter is required")
+		return
+	}
+	providerName := r.URL.Query().Get("provider")
+	if providerName == "" {
+		providerName = s.resolveProviderForWorktree(worktreePath)
+	}
+	adapter, err := s.resolveAdapterForWorktree(r, worktreePath, providerName)
 	if err != nil {
-		jsonError(w, http.StatusServiceUnavailable, "no running agent instances")
+		jsonError(w, http.StatusServiceUnavailable, "failed to get agent instance: "+err.Error())
 		return
 	}
 	agents, err := adapter.ListAgents(r.Context())
@@ -204,9 +199,18 @@ func (s *Server) handleListAgents(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleListModels(w http.ResponseWriter, r *http.Request) {
-	adapter, err := s.anyAdapter()
+	worktreePath := r.URL.Query().Get("worktree")
+	if worktreePath == "" {
+		jsonError(w, http.StatusBadRequest, "worktree query parameter is required")
+		return
+	}
+	providerName := r.URL.Query().Get("provider")
+	if providerName == "" {
+		providerName = s.resolveProviderForWorktree(worktreePath)
+	}
+	adapter, err := s.resolveAdapterForWorktree(r, worktreePath, providerName)
 	if err != nil {
-		jsonError(w, http.StatusServiceUnavailable, "no running agent instances")
+		jsonError(w, http.StatusServiceUnavailable, "failed to get agent instance: "+err.Error())
 		return
 	}
 	models, err := adapter.ListModels(r.Context())
@@ -394,16 +398,24 @@ func (s *Server) handleGetSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Wrap the session with a busy flag and title override.
+	// Wrap the session with a busy flag, title override, and worktree context.
 	resp := s.applyTitleOverride(session)
 	type sessionWithStatus struct {
 		sessionResponse
-		Busy bool `json:"busy"`
+		Busy         bool   `json:"busy"`
+		WorktreePath string `json:"worktreePath,omitempty"`
+		Provider     string `json:"provider,omitempty"`
 	}
-	jsonResponse(w, http.StatusOK, sessionWithStatus{
+	out := sessionWithStatus{
 		sessionResponse: resp,
 		Busy:            adapter.GetSessionBusy(id),
-	})
+	}
+	if s.sessionMap != nil {
+		entry := s.sessionMap.GetEntry(id)
+		out.WorktreePath = entry.WorktreePath
+		out.Provider = entry.Provider
+	}
+	jsonResponse(w, http.StatusOK, out)
 }
 
 func (s *Server) handleGetSessionMessages(w http.ResponseWriter, r *http.Request) {

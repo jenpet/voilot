@@ -131,9 +131,6 @@ func (s *Server) registerRoutes() {
 	api.HandleFunc("/health/detailed", s.handleHealthDetailed).Methods("GET")
 	api.HandleFunc("/health", s.handleHealth).Methods("GET")
 
-	// Agent status
-	api.HandleFunc("/status", s.handleStatus).Methods("GET")
-
 	// Agents
 	api.HandleFunc("/agents", s.handleListAgents).Methods("GET")
 	api.HandleFunc("/models", s.handleListModels).Methods("GET")
